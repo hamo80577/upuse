@@ -1,1 +1,0 @@
-export { describeApiError } from "./httpClient";
