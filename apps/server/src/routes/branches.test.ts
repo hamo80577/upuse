@@ -76,6 +76,8 @@ describe("branches routes unique-constraint handling", () => {
   beforeEach(() => {
     mockAddBranch.mockReset();
     mockUpdateBranch.mockReset();
+    mockLookupVendorName.mockReset();
+    mockGetSettings.mockReset();
   });
 
   it("returns 409 + field for duplicate availabilityVendorId on add", () => {
@@ -118,6 +120,35 @@ describe("branches routes unique-constraint handling", () => {
       ok: false,
       message: "Orders Vendor ID already exists",
       field: "ordersVendorId",
+    });
+  });
+});
+
+describe("lookupVendorNameRoute", () => {
+  beforeEach(() => {
+    mockLookupVendorName.mockReset();
+    mockGetSettings.mockReset();
+    mockResolveOrdersGlobalEntityId.mockReset();
+    mockResolveOrdersGlobalEntityId.mockImplementation((_branch: unknown, fallback: string) => fallback);
+    mockGetSettings.mockReturnValue({
+      ordersToken: "orders-token",
+      globalEntityId: "HF_EG",
+    });
+  });
+
+  it("returns a note when no recent vendor name can be inferred", async () => {
+    mockLookupVendorName.mockResolvedValue(null);
+    const { lookupVendorNameRoute } = await import("./branches.js");
+    const req: any = { query: { ordersVendorId: "33", globalEntityId: "" } };
+    const res = createResponse();
+
+    await lookupVendorNameRoute(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      ok: true,
+      name: null,
+      note: "No recent orders found for this vendor in the last 30 days.",
     });
   });
 });

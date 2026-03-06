@@ -1,15 +1,22 @@
 import { DateTime } from "luxon";
 import type { OrdersVendorId } from "../../types/models.js";
-import { cairoDayWindowUtc } from "../../utils/time.js";
 import { getWithRetry } from "./httpClient.js";
 import { BASE } from "./types.js";
+
+export const ORDERS_VENDOR_NAME_LOOKBACK_DAYS = 30;
 
 export async function lookupVendorName(params: {
   token: string;
   globalEntityId: string;
   ordersVendorId: OrdersVendorId;
 }): Promise<string | null> {
-  const { startUtcIso, endUtcIso } = cairoDayWindowUtc(DateTime.utc());
+  const cairoNow = DateTime.utc().setZone("Africa/Cairo");
+  const startUtcIso = cairoNow
+    .minus({ days: ORDERS_VENDOR_NAME_LOOKBACK_DAYS - 1 })
+    .startOf("day")
+    .toUTC()
+    .toISO({ suppressMilliseconds: false })!;
+  const endUtcIso = cairoNow.endOf("day").toUTC().toISO({ suppressMilliseconds: false })!;
   const headers = { Authorization: `Bearer ${params.token}`, Accept: "application/json" };
 
   const qs = new URLSearchParams({

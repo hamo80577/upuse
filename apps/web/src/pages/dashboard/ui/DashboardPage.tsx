@@ -34,6 +34,7 @@ function fmtIssueAt(iso?: string) {
 export function DashboardPage() {
   const {
     snap,
+    connectionState,
     latestMonitoringUpdateAt,
     syncAgeMs,
     staleThresholdMs,
@@ -145,6 +146,7 @@ export function DashboardPage() {
         <OperationsSummaryCard
           totals={snap.totals}
           updatedAt={latestMonitoringUpdateAt}
+          connectionState={connectionState}
           syncGuard={{
             stale: isSyncStale,
             recovering: syncRecovering,

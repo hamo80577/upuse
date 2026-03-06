@@ -5,6 +5,7 @@ import { fetchAvailabilities } from "../services/availabilityClient.js";
 import { resolveOrdersGlobalEntityId } from "../services/monitorOrdersPolling.js";
 import { lookupVendorName } from "../services/ordersClient.js";
 import { listBranches } from "../services/branchStore.js";
+import type { OrdersTokenBranchTestResult, SettingsTokenTestResponse } from "../types/models.js";
 
 export function getSettingsRoute(_req: Request, res: Response) {
   const s = getSettings();
@@ -48,38 +49,114 @@ export function putSettingsRoute(req: Request, res: Response) {
 
 export async function testTokensRoute(_req: Request, res: Response) {
   const s = getSettings();
-  const out: any = { orders: { ok: false }, availability: { ok: false } };
+  const ordersToken = s.ordersToken.trim();
+  const availabilityToken = s.availabilityToken.trim();
+  const enabledBranches = listBranches().filter((branch) => branch.enabled);
 
-  // Availability token test
-  try {
-    await fetchAvailabilities(s.availabilityToken);
-    out.availability.ok = true;
-  } catch (e: any) {
-    out.availability.ok = false;
-    out.availability.status = e?.response?.status ?? null;
-  }
+  const out: SettingsTokenTestResponse = {
+    availability: {
+      configured: availabilityToken.length > 0,
+      ok: false,
+      status: null,
+    },
+    orders: {
+      configValid: false,
+      ok: false,
+      enabledBranchCount: enabledBranches.length,
+      passedBranchCount: 0,
+      failedBranchCount: 0,
+      branches: [],
+    },
+  };
 
-  // Orders token test: use first mapped branch if available
-  const branches = listBranches().filter((b) => b.enabled);
-  const first = branches[0];
-  if (!first) {
-    out.orders.ok = false;
-    out.orders.note = "Add a branch mapping to test Orders token.";
+  if (!out.availability.configured) {
+    out.availability.message = "Availability token is not configured.";
   } else {
     try {
-      const globalEntityId = resolveOrdersGlobalEntityId(first, s.globalEntityId);
-      const name = await lookupVendorName({
-        token: s.ordersToken,
-        globalEntityId,
-        ordersVendorId: first.ordersVendorId,
-      });
-      out.orders.ok = true;
-      out.orders.sampleVendor = { id: first.ordersVendorId, name, globalEntityId };
+      await fetchAvailabilities(availabilityToken);
+      out.availability.ok = true;
     } catch (e: any) {
-      out.orders.ok = false;
-      out.orders.status = e?.response?.status ?? null;
+      out.availability.status = e?.response?.status ?? null;
+      out.availability.message = e?.response?.data?.message || e?.message || "Availability token test failed.";
     }
   }
+
+  const branchChecks = await Promise.all(
+    enabledBranches.map(async (branch): Promise<OrdersTokenBranchTestResult> => {
+      const globalEntityId = resolveOrdersGlobalEntityId(branch, s.globalEntityId).trim();
+      if (!ordersToken) {
+        return {
+          branchId: branch.id,
+          name: branch.name,
+          ordersVendorId: branch.ordersVendorId,
+          globalEntityId,
+          ok: false,
+          status: null,
+          message: "Orders token is not configured.",
+        };
+      }
+
+      if (!globalEntityId) {
+        return {
+          branchId: branch.id,
+          name: branch.name,
+          ordersVendorId: branch.ordersVendorId,
+          globalEntityId,
+          ok: false,
+          status: null,
+          message: "Global Entity ID is missing for this branch.",
+        };
+      }
+
+      try {
+        const sampleVendorName = await lookupVendorName({
+          token: ordersToken,
+          globalEntityId,
+          ordersVendorId: branch.ordersVendorId,
+        });
+
+        return {
+          branchId: branch.id,
+          name: branch.name,
+          ordersVendorId: branch.ordersVendorId,
+          globalEntityId,
+          ok: true,
+          status: null,
+          sampleVendorName,
+          message: sampleVendorName ? undefined : "Token worked, but no recent vendor name could be inferred.",
+        };
+      } catch (e: any) {
+        return {
+          branchId: branch.id,
+          name: branch.name,
+          ordersVendorId: branch.ordersVendorId,
+          globalEntityId,
+          ok: false,
+          status: e?.response?.status ?? null,
+          message: e?.response?.data?.message || e?.message || "Orders token test failed.",
+        };
+      }
+    }),
+  );
+
+  const missingGlobalEntityCount = branchChecks.filter((branch) => !branch.globalEntityId).length;
+  out.orders.branches = branchChecks;
+  out.orders.passedBranchCount = branchChecks.filter((branch) => branch.ok).length;
+  out.orders.failedBranchCount = branchChecks.length - out.orders.passedBranchCount;
+  out.orders.configValid = ordersToken.length > 0 && enabledBranches.length > 0 && missingGlobalEntityCount === 0;
+
+  if (!ordersToken) {
+    out.orders.configMessage = "Orders token is not configured.";
+  } else if (!enabledBranches.length) {
+    out.orders.configMessage = "Enable at least one branch mapping to test Orders token.";
+  } else if (missingGlobalEntityCount > 0) {
+    out.orders.configMessage =
+      missingGlobalEntityCount === 1
+        ? "One enabled branch is missing a resolved Global Entity ID."
+        : `${missingGlobalEntityCount} enabled branches are missing a resolved Global Entity ID.`;
+  }
+
+  out.orders.ok = out.orders.configValid && out.orders.failedBranchCount === 0;
 
   res.json(out);
 }

@@ -1,6 +1,6 @@
 import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
 import { Alert, AlertTitle, Box, Button, Chip, Stack, Typography } from "@mui/material";
-import type { DashboardSnapshot } from "../../../api/types";
+import type { DashboardLiveConnectionState, DashboardSnapshot } from "../../../api/types";
 import { SummaryStat } from "./SummaryStat";
 
 function fmtLiveAt(iso?: string) {
@@ -33,6 +33,7 @@ function fmtSyncAge(ms: number) {
 export function OperationsSummaryCard(props: {
   totals: DashboardSnapshot["totals"];
   updatedAt?: string;
+  connectionState: DashboardLiveConnectionState;
   syncGuard: {
     stale: boolean;
     recovering: boolean;
@@ -114,6 +115,28 @@ export function OperationsSummaryCard(props: {
         </Box>
 
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "stretch", sm: "center" }}>
+          <Chip
+            size="small"
+            color={
+              props.connectionState === "live"
+                ? "success"
+                : props.connectionState === "disconnected"
+                  ? "error"
+                  : props.connectionState === "fallback"
+                    ? "warning"
+                    : "info"
+            }
+            variant={props.connectionState === "live" ? "filled" : "outlined"}
+            label={
+              props.connectionState === "live"
+                ? "Live stream"
+                : props.connectionState === "fallback"
+                  ? "Fallback polling"
+                  : props.connectionState === "disconnected"
+                    ? "Disconnected"
+                    : "Connecting"
+            }
+          />
           {props.updatedAt ? (
             <Chip
               size="small"
@@ -149,6 +172,47 @@ export function OperationsSummaryCard(props: {
           </Button>
         </Stack>
       </Stack>
+
+      {props.connectionState === "connecting" && !props.updatedAt ? (
+        <Alert severity="info" variant="outlined" sx={{ mt: 1.5, borderRadius: 3 }}>
+          <AlertTitle sx={{ mb: 0.4, fontWeight: 900 }}>Connecting Live Sync</AlertTitle>
+          <Typography variant="body2">Opening the dashboard stream and waiting for the first snapshot.</Typography>
+        </Alert>
+      ) : null}
+
+      {props.connectionState === "fallback" ? (
+        <Alert severity="warning" variant="outlined" sx={{ mt: 1.5, borderRadius: 3 }}>
+          <AlertTitle sx={{ mb: 0.4, fontWeight: 900 }}>Fallback Polling Active</AlertTitle>
+          <Typography variant="body2">
+            The live stream disconnected. The dashboard is polling every 15 seconds until streaming reconnects.
+          </Typography>
+        </Alert>
+      ) : null}
+
+      {props.connectionState === "disconnected" ? (
+        <Alert
+          severity="error"
+          variant="outlined"
+          sx={{ mt: 1.5, borderRadius: 3 }}
+          action={(
+            <Button
+              size="small"
+              variant="contained"
+              color="error"
+              disabled={props.syncGuard.recovering}
+              onClick={props.onRefreshNow}
+              sx={{ fontWeight: 800, minWidth: 126 }}
+            >
+              {props.syncGuard.recovering ? "Recovering..." : "Refresh Now"}
+            </Button>
+          )}
+        >
+          <AlertTitle sx={{ mb: 0.4, fontWeight: 900 }}>Live Sync Disconnected</AlertTitle>
+          <Typography variant="body2">
+            The dashboard could not keep a live connection or fallback refresh healthy. Use a manual refresh while it retries.
+          </Typography>
+        </Alert>
+      ) : null}
 
       {props.syncGuard.stale ? (
         <Alert

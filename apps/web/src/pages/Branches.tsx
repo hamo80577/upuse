@@ -3,6 +3,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import { useEffect, useState } from "react";
 import { api, describeApiError } from "../api/client";
+import { useMonitorStatus } from "../app/providers/MonitorStatusProvider";
 import type { BranchMappingItem } from "../api/types";
 import { TopBar } from "../components/TopBar";
 
@@ -29,8 +30,7 @@ function describeBranchSaveError(error: unknown, fallback: string) {
 }
 
 export function Branches() {
-  const [running, setRunning] = useState(false);
-  const [degraded, setDegraded] = useState<boolean | undefined>(undefined);
+  const { monitoring, startMonitoring, stopMonitoring } = useMonitorStatus();
 
   const [items, setItems] = useState<BranchMappingItem[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -45,9 +45,7 @@ export function Branches() {
 
   const load = async () => {
     try {
-      const [d, r, s] = await Promise.all([api.dashboard(), api.listBranches(), api.getSettings()]);
-      setRunning(d.monitoring.running);
-      setDegraded(d.monitoring.degraded);
+      const [r, s] = await Promise.all([api.listBranches(), api.getSettings()]);
       setItems(r.items);
       setChainNames(s.chains.map((chain) => chain.name));
       setDefaultGlobalEntityId(s.globalEntityId);
@@ -69,8 +67,7 @@ export function Branches() {
 
   const onStart = async () => {
     try {
-      await api.monitorStart();
-      setRunning(true);
+      await startMonitoring();
       setToast({ type: "success", msg: "Monitoring started" });
     } catch (error) {
       setToast({ type: "error", msg: describeApiError(error, "Failed to start") });
@@ -78,8 +75,7 @@ export function Branches() {
   };
   const onStop = async () => {
     try {
-      await api.monitorStop();
-      setRunning(false);
+      await stopMonitoring();
       setToast({ type: "success", msg: "Monitoring stopped" });
     } catch (error) {
       setToast({ type: "error", msg: describeApiError(error, "Failed to stop") });
@@ -154,7 +150,7 @@ export function Branches() {
       setAutoNameLoading(true);
       const r = await api.lookupVendorName(id, form.globalEntityId);
       if (r.name) setForm((p: any) => ({ ...p, name: r.name }));
-      else setToast({ type: "error", msg: "Name not found (no orders today)" });
+      else setToast({ type: "error", msg: r.note || "Name not found" });
     } catch (error) {
       setToast({ type: "error", msg: describeApiError(error, "Name lookup failed") });
     } finally {
@@ -166,7 +162,7 @@ export function Branches() {
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
-      <TopBar running={running} degraded={degraded} onStart={onStart} onStop={onStop} />
+      <TopBar running={monitoring.running} degraded={monitoring.degraded} onStart={onStart} onStop={onStop} />
 
       <Container maxWidth="md" sx={{ py: 3 }}>
         <Card>

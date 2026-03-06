@@ -104,6 +104,8 @@ export interface BranchDetailSnapshot {
   preparingOrders: BranchLiveOrder[];
 }
 
+export type DashboardLiveConnectionState = "connecting" | "live" | "fallback" | "disconnected";
+
 export interface SettingsMasked {
   ordersToken: string;
   availabilityToken: string;
@@ -121,4 +123,41 @@ export interface SettingsMasked {
   availabilityRefreshSeconds: number;
 
   maxVendorsPerOrdersRequest: number;
+}
+
+export interface TokenTestResult {
+  configured: boolean;
+  ok: boolean;
+  status: number | null;
+  message?: string;
+}
+
+export interface OrdersTokenBranchTestResult {
+  branchId: number;
+  name: string;
+  ordersVendorId: number;
+  globalEntityId: string;
+  ok: boolean;
+  status: number | null;
+  message?: string;
+  sampleVendorName?: string | null;
+}
+
+export interface SettingsTokenTestResponse {
+  availability: TokenTestResult;
+  orders: {
+    configValid: boolean;
+    configMessage?: string;
+    ok: boolean;
+    enabledBranchCount: number;
+    passedBranchCount: number;
+    failedBranchCount: number;
+    branches: OrdersTokenBranchTestResult[];
+  };
+}
+
+export interface LookupVendorNameResponse {
+  ok: boolean;
+  name: string | null;
+  note?: string;
 }

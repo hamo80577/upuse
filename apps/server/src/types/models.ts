@@ -146,3 +146,40 @@ export interface BranchDetailSnapshot {
   unassignedOrders: BranchLiveOrder[];
   preparingOrders: BranchLiveOrder[];
 }
+
+export interface TokenTestResult {
+  configured: boolean;
+  ok: boolean;
+  status: number | null;
+  message?: string;
+}
+
+export interface OrdersTokenBranchTestResult {
+  branchId: number;
+  name: string;
+  ordersVendorId: OrdersVendorId;
+  globalEntityId: string;
+  ok: boolean;
+  status: number | null;
+  message?: string;
+  sampleVendorName?: string | null;
+}
+
+export interface SettingsTokenTestResponse {
+  availability: TokenTestResult;
+  orders: {
+    configValid: boolean;
+    configMessage?: string;
+    ok: boolean;
+    enabledBranchCount: number;
+    passedBranchCount: number;
+    failedBranchCount: number;
+    branches: OrdersTokenBranchTestResult[];
+  };
+}
+
+export interface LookupVendorNameResponse {
+  ok: boolean;
+  name: string | null;
+  note?: string;
+}

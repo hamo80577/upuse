@@ -1,7 +1,8 @@
 import { Alert, Box, Button, Card, CardContent, Container, Divider, Snackbar, Stack, TextField, Typography } from "@mui/material";
 import { useEffect, useState } from "react";
 import { api, clearStoredAdminKey, describeApiError, getStoredAdminKey, setStoredAdminKey } from "../api/client";
-import type { ChainThreshold, SettingsMasked } from "../api/types";
+import { useMonitorStatus } from "../app/providers/MonitorStatusProvider";
+import type { ChainThreshold, SettingsMasked, SettingsTokenTestResponse } from "../api/types";
 import { TopBar } from "../components/TopBar";
 import { ChainThresholdManager, type ChainEditorDraft } from "../features/settings/ChainThresholdManager";
 
@@ -32,13 +33,12 @@ function emptyChainEditor() {
 }
 
 export function Settings() {
-  const [running, setRunning] = useState(false);
-  const [degraded, setDegraded] = useState<boolean | undefined>(undefined);
+  const { monitoring, refreshStatus, startMonitoring, stopMonitoring } = useMonitorStatus();
 
   const [s, setS] = useState<SettingsMasked | null>(null);
   const [form, setForm] = useState<any>({});
   const [toast, setToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
-  const [test, setTest] = useState<any>(null);
+  const [test, setTest] = useState<SettingsTokenTestResponse | null>(null);
   const [chainEditor, setChainEditor] = useState<ChainEditorDraft>(emptyChainEditor());
   const [editingChainIndex, setEditingChainIndex] = useState<number | null>(null);
   const [adminKey, setAdminKey] = useState(() => getStoredAdminKey());
@@ -62,9 +62,7 @@ export function Settings() {
 
   const loadProtectedData = async (options?: { silent?: boolean }) => {
     try {
-      const [dashboard, settings] = await Promise.all([api.dashboard(), api.getSettings()]);
-      setRunning(dashboard.monitoring.running);
-      setDegraded(dashboard.monitoring.degraded);
+      const settings = await api.getSettings();
       applySettings(settings);
       return { ok: true as const };
     } catch (error) {
@@ -87,8 +85,7 @@ export function Settings() {
 
   const onStart = async () => {
     try {
-      await api.monitorStart();
-      setRunning(true);
+      await startMonitoring();
       setToast({ type: "success", msg: "Monitoring started" });
     } catch {
       setToast({ type: "error", msg: "Failed to start" });
@@ -96,8 +93,7 @@ export function Settings() {
   };
   const onStop = async () => {
     try {
-      await api.monitorStop();
-      setRunning(false);
+      await stopMonitoring();
       setToast({ type: "success", msg: "Monitoring stopped" });
     } catch {
       setToast({ type: "error", msg: "Failed to stop" });
@@ -112,7 +108,10 @@ export function Settings() {
       clearStoredAdminKey();
     }
 
-    const loaded = await loadProtectedData({ silent: true });
+    const [loaded] = await Promise.all([
+      loadProtectedData({ silent: true }),
+      refreshStatus().catch((error) => ({ error })),
+    ]);
     setToast({
       type: loaded.ok ? "success" : "error",
       msg: loaded.ok
@@ -236,7 +235,7 @@ export function Settings() {
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
-      <TopBar running={running} degraded={degraded} onStart={onStart} onStop={onStop} />
+      <TopBar running={monitoring.running} degraded={monitoring.degraded} onStart={onStart} onStop={onStop} />
 
       <Container maxWidth="lg" sx={{ py: 3 }}>
         <Card
@@ -378,12 +377,29 @@ export function Settings() {
             {test ? (
               <Box sx={{ mt: 1 }}>
                 <Stack spacing={1}>
-                  <Alert severity={test.availability?.ok ? "success" : "error"}>
-                    Availability Token: {test.availability?.ok ? "OK" : `Failed${test.availability?.status ? ` (HTTP ${test.availability.status})` : ""}`}
+                  <Alert severity={test.availability.ok ? "success" : test.availability.configured ? "error" : "warning"}>
+                    Availability Token: {" "}
+                    {test.availability.ok
+                      ? "OK"
+                      : test.availability.message || `Failed${test.availability.status ? ` (HTTP ${test.availability.status})` : ""}`}
                   </Alert>
-                  <Alert severity={test.orders?.ok ? "success" : "error"}>
-                    Orders Token: {test.orders?.ok ? "OK" : test.orders?.note ? test.orders.note : `Failed${test.orders?.status ? ` (HTTP ${test.orders.status})` : ""}`}
+                  <Alert severity={test.orders.configValid ? "success" : "warning"}>
+                    Orders Config: {test.orders.configValid ? "Ready for branch checks" : test.orders.configMessage || "Configuration incomplete"}
                   </Alert>
+                  <Alert severity={test.orders.ok ? "success" : test.orders.failedBranchCount > 0 ? "warning" : "info"}>
+                    Orders Branch Sweep: {test.orders.passedBranchCount}/{test.orders.enabledBranchCount} enabled branches passed
+                    {test.orders.failedBranchCount > 0 ? `, ${test.orders.failedBranchCount} failed` : ""}
+                  </Alert>
+                  {test.orders.branches.length ? (
+                    <Stack spacing={0.75}>
+                      {test.orders.branches.map((branch) => (
+                        <Alert key={branch.branchId} severity={branch.ok ? "success" : "error"} variant="outlined">
+                          {branch.name} ({branch.ordersVendorId}, {branch.globalEntityId || "missing entity"})
+                          : {branch.ok ? branch.sampleVendorName || branch.message || "Token OK" : branch.message || `Failed${branch.status ? ` (HTTP ${branch.status})` : ""}`}
+                        </Alert>
+                      ))}
+                    </Stack>
+                  ) : null}
                 </Stack>
               </Box>
             ) : null}

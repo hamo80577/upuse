@@ -1,0 +1,17 @@
+{
+  "name": "upuse",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c auto \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm --workspace apps/server run dev",
+    "dev:web": "npm --workspace apps/web run dev",
+    "build": "npm --workspace apps/server run build && npm --workspace apps/web run build",
+    "start": "npm --workspace apps/server run start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}

@@ -6,6 +6,8 @@ import { resolveOrdersGlobalEntityId } from "../services/monitorOrdersPolling.js
 import { getSettings } from "../services/settingsStore.js";
 import { fetchVendorOrdersDetail, lookupVendorName } from "../services/ordersClient.js";
 import { buildDeleteBranchResponse, parseBranchIdParam } from "./branchRouteHelpers.js";
+import { ORDERS_VENDOR_NAME_LOOKBACK_DAYS } from "../services/orders/lookup.js";
+import type { LookupVendorNameResponse } from "../types/models.js";
 
 const BranchBody = z.object({
   name: z.string().min(1),
@@ -150,7 +152,12 @@ export async function lookupVendorNameRoute(req: Request, res: Response) {
       globalEntityId: resolveOrdersGlobalEntityId({ globalEntityId: requestedGlobalEntityId }, s.globalEntityId),
       ordersVendorId,
     });
-    res.json({ ok: true, name });
+    const body: LookupVendorNameResponse = {
+      ok: true,
+      name,
+      note: name ? undefined : `No recent orders found for this vendor in the last ${ORDERS_VENDOR_NAME_LOOKBACK_DAYS} days.`,
+    };
+    res.json(body);
   } catch (e: any) {
     res.status(500).json({ ok: false, status: e?.response?.status ?? null });
   }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, describeApiError } from "../../../api/client";
+import { useMonitorStatus } from "../../../app/providers/MonitorStatusProvider";
 import { useDashboardLiveSync } from "../../../features/dashboard/useDashboardLiveSync";
 import { isGroupExpanded } from "./dashboardGrouping";
 
@@ -14,9 +15,11 @@ export interface ScreenLoadingState {
 }
 
 export function useDashboardPageState() {
+  const { startMonitoring, stopMonitoring } = useMonitorStatus();
   const {
     snap,
     setSnap,
+    connectionState,
     latestMonitoringUpdateAt,
     syncAgeMs,
     staleThresholdMs,
@@ -77,20 +80,10 @@ export function useDashboardPageState() {
     });
     startLoadingGuard(requestId, 30_000);
     try {
-      const started = await api.monitorStart();
+      // The server start route already primes orders/availability and returns the fresh snapshot.
+      const started = await startMonitoring();
       if (started.snapshot) {
         setSnap(started.snapshot);
-      }
-
-      const [ordersRefresh, dashboardRefresh] = await Promise.allSettled([
-        api.monitorRefreshOrders(),
-        api.dashboard(),
-      ]);
-
-      if (ordersRefresh.status === "fulfilled" && ordersRefresh.value.snapshot) {
-        setSnap(ordersRefresh.value.snapshot);
-      } else if (dashboardRefresh.status === "fulfilled") {
-        setSnap(dashboardRefresh.value);
       }
 
       setToast({ type: "success", msg: "Monitoring started" });
@@ -103,7 +96,10 @@ export function useDashboardPageState() {
 
   const onStop = async () => {
     try {
-      await api.monitorStop();
+      const stopped = await stopMonitoring();
+      if (stopped.snapshot) {
+        setSnap(stopped.snapshot);
+      }
       setToast({ type: "success", msg: "Monitoring stopped" });
     } catch (error) {
       setToast({ type: "error", msg: describeApiError(error, "Failed to stop") });
@@ -112,14 +108,6 @@ export function useDashboardPageState() {
 
   const openBranchDetail = (branchId: number) => {
     setDetailBranchId(branchId);
-    void api
-      .monitorRefreshOrders()
-      .then((result) => {
-        if (result.snapshot) {
-          setSnap(result.snapshot);
-        }
-      })
-      .catch(() => {});
   };
 
   const closeBranchDetail = () => {
@@ -196,6 +184,7 @@ export function useDashboardPageState() {
 
   return {
     snap,
+    connectionState,
     latestMonitoringUpdateAt,
     syncAgeMs,
     staleThresholdMs,

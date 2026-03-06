@@ -1,10 +1,36 @@
-import type { BranchDetailSnapshot, BranchMappingItem, DashboardSnapshot, SettingsMasked } from "../../api/types";
+import type {
+  BranchDetailSnapshot,
+  BranchMappingItem,
+  DashboardSnapshot,
+  LookupVendorNameResponse,
+  SettingsMasked,
+  SettingsTokenTestResponse,
+} from "../../api/types";
 import { clearStoredAdminKey, getStoredAdminKey, setStoredAdminKey } from "./adminKeyStorage";
-import { describeApiError, requestCsvDownload, requestJson } from "./httpClient";
+import { describeApiError, requestCsvDownload, requestJson, requestJsonEventStream } from "./httpClient";
 
 export const api = {
   health: () => requestJson<{ ok: boolean }>("/api/health", undefined, { timeoutMs: 10_000 }),
   dashboard: () => requestJson<DashboardSnapshot>("/api/dashboard", undefined, { timeoutMs: 20_000 }),
+  streamDashboard: (options: {
+    signal?: AbortSignal;
+    onOpen?: () => void;
+    onSnapshot: (snapshot: DashboardSnapshot) => void;
+    onPing?: (payload: { at: string }) => void;
+  }) =>
+    requestJsonEventStream("/api/stream", {
+      signal: options.signal,
+      onOpen: options.onOpen,
+      onMessage: (eventName, data) => {
+        if (eventName === "snapshot") {
+          options.onSnapshot(data as DashboardSnapshot);
+          return;
+        }
+        if (eventName === "ping") {
+          options.onPing?.(data as { at: string });
+        }
+      },
+    }),
   monitorStatus: () => requestJson<DashboardSnapshot["monitoring"]>("/api/monitor/status", undefined, { timeoutMs: 20_000 }),
   monitorRefreshOrders: () =>
     requestJson<{ ok: boolean; running: boolean; message?: string; snapshot: DashboardSnapshot }>("/api/monitor/refresh-orders", {
@@ -39,7 +65,7 @@ export const api = {
 
   getSettings: () => requestJson<SettingsMasked>("/api/settings"),
   putSettings: (payload: any) => requestJson<{ ok: boolean }>("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
-  testTokens: () => requestJson<any>("/api/settings/test", { method: "POST" }),
+  testTokens: () => requestJson<SettingsTokenTestResponse>("/api/settings/test", { method: "POST" }),
 
   listBranches: () => requestJson<{ items: BranchMappingItem[] }>("/api/branches"),
   addBranch: (payload: any) => requestJson<{ ok: boolean; id: number }>("/api/branches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
@@ -52,7 +78,7 @@ export const api = {
     if (globalEntityId?.trim()) {
       query.set("globalEntityId", globalEntityId.trim());
     }
-    return requestJson<{ ok: boolean; name: string | null }>(`/api/branches/lookup-vendor-name?${query.toString()}`);
+    return requestJson<LookupVendorNameResponse>(`/api/branches/lookup-vendor-name?${query.toString()}`);
   },
 
   parseMapping: (text: string) =>
