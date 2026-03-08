@@ -5,11 +5,21 @@ const {
   mockListBranches,
   mockGetRuntime,
   mockSetRuntime,
+  mockFetchAvailabilities,
+  mockSetAvailability,
+  mockLog,
+  mockRecordMonitorCloseAction,
+  mockDecide,
 } = vi.hoisted(() => ({
   mockGetSettings: vi.fn(),
   mockListBranches: vi.fn(),
   mockGetRuntime: vi.fn(),
   mockSetRuntime: vi.fn(),
+  mockFetchAvailabilities: vi.fn(),
+  mockSetAvailability: vi.fn(),
+  mockLog: vi.fn(),
+  mockRecordMonitorCloseAction: vi.fn(),
+  mockDecide: vi.fn(() => ({ type: "NOOP" })),
 }));
 
 vi.mock("./settingsStore.js", () => ({
@@ -27,17 +37,17 @@ vi.mock("./ordersClient.js", () => ({
 }));
 
 vi.mock("./availabilityClient.js", () => ({
-  fetchAvailabilities: vi.fn(),
-  setAvailability: vi.fn(),
+  fetchAvailabilities: mockFetchAvailabilities,
+  setAvailability: mockSetAvailability,
 }));
 
 vi.mock("./logger.js", () => ({
-  log: vi.fn(),
+  log: mockLog,
 }));
 
 vi.mock("./actionReportStore.js", () => ({
   markCloseEventReopened: vi.fn(),
-  recordMonitorCloseAction: vi.fn(),
+  recordMonitorCloseAction: mockRecordMonitorCloseAction,
 }));
 
 vi.mock("./monitorOrdersPolling.js", () => ({
@@ -47,7 +57,7 @@ vi.mock("./monitorOrdersPolling.js", () => ({
 }));
 
 vi.mock("./policyEngine.js", () => ({
-  decide: vi.fn(() => ({ type: "NOOP" })),
+  decide: mockDecide,
 }));
 
 vi.mock("../utils/mutex.js", () => ({
@@ -70,6 +80,12 @@ describe("monitorEngine.getSnapshot", () => {
     mockListBranches.mockReset();
     mockGetRuntime.mockReset();
     mockSetRuntime.mockReset();
+    mockFetchAvailabilities.mockReset();
+    mockSetAvailability.mockReset();
+    mockLog.mockReset();
+    mockRecordMonitorCloseAction.mockReset();
+    mockDecide.mockReset();
+    mockDecide.mockReturnValue({ type: "NOOP" });
   });
 
   it("rebuilds missing monitor close metadata from the tracked closure window instead of stale lastActionAt", () => {
@@ -105,6 +121,7 @@ describe("monitorEngine.getSnapshot", () => {
       lastUpuseCloseUntil: "2026-03-04T13:16:59.000Z",
       lastUpuseCloseReason: null,
       lastUpuseCloseAt: null,
+      lastUpuseCloseEventId: 42,
       lastExternalCloseUntil: null,
       lastExternalCloseAt: null,
       externalOpenDetectedAt: null,
@@ -155,7 +172,85 @@ describe("monitorEngine.getSnapshot", () => {
     });
   });
 
-  it("derives external temporary-close start time from the configured closure window", () => {
+  it("treats a temp close as external when the runtime cannot prove UPuse initiated it", () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: "HF_EG",
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 20,
+      availabilityRefreshSeconds: 11,
+      maxVendorsPerOrdersRequest: 50,
+    });
+
+    mockListBranches.mockReturnValue([
+      {
+        id: 3,
+        name: "Branch 3",
+        chainName: "",
+        ordersVendorId: 303,
+        availabilityVendorId: "av-3",
+        globalEntityId: "",
+        enabled: true,
+      },
+    ]);
+
+    mockGetRuntime.mockReturnValue({
+      branchId: 3,
+      lastUpuseCloseUntil: "2026-03-08T13:54:53.000Z",
+      lastUpuseCloseReason: null,
+      lastUpuseCloseAt: "2026-03-08T13:17:19.000Z",
+      lastUpuseCloseEventId: null,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      externalOpenDetectedAt: null,
+      lastActionAt: "2026-03-08T11:50:34.414Z",
+    });
+
+    const engine = new MonitorEngine() as any;
+    engine.ordersFresh = true;
+    engine.ordersByVendor = new Map([
+      [
+        303,
+        {
+          totalToday: 144,
+          cancelledToday: 2,
+          doneToday: 131,
+          activeNow: 13,
+          lateNow: 1,
+          unassignedNow: 7,
+        },
+      ],
+    ]);
+    engine.availabilityByVendor = new Map([
+      [
+        "av-3",
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "CLOSED_UNTIL",
+          platformRestaurantId: "av-3",
+          globalEntityId: "HF_EG",
+          closedUntil: "2026-03-08T13:54:53.000Z",
+          modifiedBy: "log_vendor_monitor",
+        },
+      ],
+    ]);
+
+    const branch = engine.getSnapshot().branches[0];
+
+    expect(branch.status).toBe("TEMP_CLOSE");
+    expect(branch.closureSource).toBe("EXTERNAL");
+    expect(branch.closedByUpuse).toBe(false);
+    expect(branch.closeReason).toBeUndefined();
+  });
+
+  it("derives external temporary-close start time from the first observed external close", () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",
       availabilityToken: "",
@@ -228,8 +323,7 @@ describe("monitorEngine.getSnapshot", () => {
 
     expect(branch.status).toBe("TEMP_CLOSE");
     expect(branch.closureSource).toBe("EXTERNAL");
-    expect(branch.closeStartedAt).toBe("2026-03-04T13:00:00.000Z");
-    expect(branch.closeStartedAt).not.toBe("2026-03-04T13:18:00.000Z");
+    expect(branch.closeStartedAt).toBe("2026-03-04T13:18:00.000Z");
     expect(branch.thresholds).toEqual({
       lateThreshold: 4,
       unassignedThreshold: 5,
@@ -244,6 +338,12 @@ describe("monitorEngine.stop", () => {
     mockListBranches.mockReset();
     mockGetRuntime.mockReset();
     mockSetRuntime.mockReset();
+    mockFetchAvailabilities.mockReset();
+    mockSetAvailability.mockReset();
+    mockLog.mockReset();
+    mockRecordMonitorCloseAction.mockReset();
+    mockDecide.mockReset();
+    mockDecide.mockReturnValue({ type: "NOOP" });
   });
 
   it("clears live monitor caches and timing state back to standby", () => {
@@ -292,5 +392,285 @@ describe("monitorEngine.stop", () => {
     expect(engine.lastAvailabilityFetchAt).toBeUndefined();
     expect(engine.lastHealthyAt).toBeUndefined();
     expect(engine.closedOrdersSnapshotDayByBranch.size).toBe(0);
+  });
+});
+
+describe("monitorEngine.reconcile", () => {
+  beforeEach(() => {
+    mockGetSettings.mockReset();
+    mockListBranches.mockReset();
+    mockGetRuntime.mockReset();
+    mockSetRuntime.mockReset();
+    mockFetchAvailabilities.mockReset();
+    mockSetAvailability.mockReset();
+    mockLog.mockReset();
+    mockRecordMonitorCloseAction.mockReset();
+    mockDecide.mockReset();
+    mockDecide.mockReturnValue({ type: "NOOP" });
+  });
+
+  it("does not reconstruct a UPuse runtime from modifiedBy alone", async () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: "HF_EG",
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 20,
+      availabilityRefreshSeconds: 11,
+      maxVendorsPerOrdersRequest: 50,
+    });
+
+    mockListBranches.mockReturnValue([
+      {
+        id: 5,
+        name: "Branch 5",
+        chainName: "",
+        ordersVendorId: 505,
+        availabilityVendorId: "av-5",
+        globalEntityId: "",
+        enabled: true,
+      },
+    ]);
+
+    mockGetRuntime.mockReturnValue({
+      branchId: 5,
+      lastUpuseCloseUntil: null,
+      lastUpuseCloseReason: null,
+      lastUpuseCloseAt: null,
+      lastUpuseCloseEventId: null,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      externalOpenDetectedAt: null,
+      lastActionAt: null,
+    });
+
+    const engine = new MonitorEngine() as any;
+    engine.running = true;
+    engine.ordersFresh = true;
+    engine.ordersByVendor = new Map([
+      [
+        505,
+        {
+          totalToday: 18,
+          cancelledToday: 1,
+          doneToday: 9,
+          activeNow: 8,
+          lateNow: 0,
+          unassignedNow: 7,
+        },
+      ],
+    ]);
+    engine.availabilityByVendor = new Map([
+      [
+        "av-5",
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "CLOSED_UNTIL",
+          platformRestaurantId: "av-5",
+          globalEntityId: "HF_EG",
+          closedUntil: "2026-03-08T13:54:53.000Z",
+          modifiedBy: "log_vendor_monitor",
+        },
+      ],
+    ]);
+
+    await engine.reconcile("orders");
+
+    expect(mockSetRuntime).not.toHaveBeenCalled();
+  });
+
+  it("does not log an unverified reopen time when the source has not confirmed the new close window yet", async () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: "HF_EG",
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 20,
+      availabilityRefreshSeconds: 11,
+      maxVendorsPerOrdersRequest: 50,
+    });
+    mockListBranches.mockReturnValue([
+      {
+        id: 8,
+        name: "Branch 8",
+        chainName: "",
+        ordersVendorId: 808,
+        availabilityVendorId: "av-8",
+        globalEntityId: "",
+        enabled: true,
+      },
+    ]);
+
+    let runtime: any = {
+      branchId: 8,
+      lastUpuseCloseUntil: null,
+      lastUpuseCloseReason: null,
+      lastUpuseCloseAt: null,
+      lastUpuseCloseEventId: null,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      externalOpenDetectedAt: null,
+      lastActionAt: null,
+    };
+    mockGetRuntime.mockImplementation(() => runtime);
+    mockSetRuntime.mockImplementation((_branchId: number, patch: Record<string, unknown>) => {
+      runtime = { ...runtime, ...patch };
+      return runtime;
+    });
+    mockDecide.mockReturnValue({ type: "CLOSE", reason: "UNASSIGNED" });
+    mockSetAvailability.mockResolvedValue({
+      closedUntil: "2026-03-08T14:49:00.000Z",
+    });
+    mockFetchAvailabilities.mockResolvedValue([
+      {
+        platformKey: "test",
+        changeable: true,
+        availabilityState: "OPEN",
+        platformRestaurantId: "av-8",
+        globalEntityId: "HF_EG",
+      },
+    ]);
+    mockRecordMonitorCloseAction.mockReturnValue(81);
+
+    const engine = new MonitorEngine() as any;
+    engine.running = true;
+    engine.ordersFresh = true;
+    engine.ordersByVendor = new Map([
+      [
+        808,
+        {
+          totalToday: 20,
+          cancelledToday: 1,
+          doneToday: 11,
+          activeNow: 8,
+          lateNow: 0,
+          unassignedNow: 7,
+        },
+      ],
+    ]);
+    engine.availabilityByVendor = new Map([
+      [
+        "av-8",
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "OPEN",
+          platformRestaurantId: "av-8",
+          globalEntityId: "HF_EG",
+        },
+      ],
+    ]);
+
+    await engine.reconcile("orders");
+
+    expect(mockRecordMonitorCloseAction).toHaveBeenCalledWith(expect.objectContaining({
+      note: undefined,
+      closedUntil: "2026-03-08T14:49:00.000Z",
+    }));
+    expect(mockLog).toHaveBeenCalledWith(8, "INFO", "TEMP CLOSE — Unassigned=7");
+  });
+
+  it("clears stale tracked runtime when an external close replaces an old monitor window", () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: "HF_EG",
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 20,
+      availabilityRefreshSeconds: 11,
+      maxVendorsPerOrdersRequest: 50,
+    });
+
+    mockListBranches.mockReturnValue([
+      {
+        id: 6,
+        name: "Branch 6",
+        chainName: "",
+        ordersVendorId: 606,
+        availabilityVendorId: "av-6",
+        globalEntityId: "",
+        enabled: true,
+      },
+    ]);
+
+    mockGetRuntime.mockReturnValue({
+      branchId: 6,
+      lastUpuseCloseUntil: "2026-03-07T10:30:00.000Z",
+      lastUpuseCloseReason: "UNASSIGNED",
+      lastUpuseCloseAt: "2026-03-07T10:00:00.000Z",
+      lastUpuseCloseEventId: 55,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      externalOpenDetectedAt: null,
+      lastActionAt: "2026-03-07T10:00:00.000Z",
+    });
+    mockSetRuntime.mockImplementation((_branchId: number, patch: Record<string, unknown>) => ({
+      branchId: 6,
+      lastUpuseCloseUntil: null,
+      lastUpuseCloseReason: null,
+      lastUpuseCloseAt: null,
+      lastUpuseCloseEventId: null,
+      lastExternalCloseUntil: "2026-03-08T13:30:00.000Z",
+      lastExternalCloseAt: "2026-03-08T13:18:00.000Z",
+      externalOpenDetectedAt: null,
+      lastActionAt: "2026-03-07T10:00:00.000Z",
+      ...patch,
+    }));
+
+    const engine = new MonitorEngine() as any;
+    engine.ordersByVendor = new Map([
+      [
+        606,
+        {
+          totalToday: 9,
+          cancelledToday: 1,
+          doneToday: 2,
+          activeNow: 6,
+          lateNow: 0,
+          unassignedNow: 2,
+        },
+      ],
+    ]);
+    engine.availabilityByVendor = new Map([
+      [
+        "av-6",
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "CLOSED_UNTIL",
+          platformRestaurantId: "av-6",
+          globalEntityId: "HF_EG",
+          closedUntil: "2026-03-08T13:30:00.000Z",
+          modifiedBy: "external_source",
+        },
+      ],
+    ]);
+
+    engine.syncExternalClosureState("2026-03-08T13:18:00.000Z");
+
+    expect(mockSetRuntime).toHaveBeenCalledWith(6, {
+      lastExternalCloseUntil: "2026-03-08T13:30:00.000Z",
+      lastExternalCloseAt: "2026-03-08T13:18:00.000Z",
+      lastUpuseCloseUntil: null,
+      lastUpuseCloseReason: null,
+      lastUpuseCloseAt: null,
+      lastUpuseCloseEventId: null,
+    });
   });
 });

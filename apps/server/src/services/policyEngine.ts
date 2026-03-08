@@ -10,6 +10,7 @@ export interface PolicyInput {
     lastUpuseCloseUntil?: string | null;
     lastUpuseCloseReason?: CloseReason | null;
     lastUpuseCloseAt?: string | null;
+    lastUpuseCloseEventId?: number | null;
     externalOpenDetectedAt?: string | null;
     lastActionAt?: string | null;
   };
@@ -36,6 +37,29 @@ function isSameTrackedClosure(lastCloseUntil: DateTime | null, closedUntil?: str
   ) <= 5;
 }
 
+function hasTrustedTrackedRuntime(
+  runtime: PolicyInput["runtime"] | undefined,
+  settings: Settings,
+) {
+  if (!runtime) return false;
+  if (typeof runtime.lastUpuseCloseEventId === "number" && runtime.lastUpuseCloseEventId > 0) {
+    return true;
+  }
+
+  if (!runtime.lastUpuseCloseAt || !runtime.lastActionAt) {
+    return false;
+  }
+
+  const closeAt = DateTime.fromISO(runtime.lastUpuseCloseAt, { zone: "utc" });
+  const actionAt = DateTime.fromISO(runtime.lastActionAt, { zone: "utc" });
+  if (!closeAt.isValid || !actionAt.isValid) {
+    return false;
+  }
+
+  const toleranceSeconds = Math.max(120, settings.availabilityRefreshSeconds + 30);
+  return Math.abs(actionAt.diff(closeAt).as("seconds")) <= toleranceSeconds;
+}
+
 function isMonitorOwnedClosure(
   availability: AvailabilityRecord,
   lastCloseUntil: DateTime | null,
@@ -43,7 +67,6 @@ function isMonitorOwnedClosure(
   settings: Settings,
 ) {
   if (availability.availabilityState !== "CLOSED_UNTIL") return false;
-  if (availability.modifiedBy === "log_vendor_monitor") return true;
   if (isSameTrackedClosure(lastCloseUntil, availability.closedUntil)) return true;
 
   if (!lastCloseAt || !availability.closedUntil) return false;
@@ -64,13 +87,14 @@ export function decide(input: PolicyInput): PolicyDecision {
 
   const now = DateTime.fromISO(nowUtcIso, { zone: "utc" });
   const thresholds = resolveBranchThresholdProfile(branch, settings);
+  const trustedRuntime = hasTrustedTrackedRuntime(runtime, settings);
 
   const exceedLate = metrics.lateNow >= thresholds.lateThreshold && thresholds.lateThreshold > 0;
   const exceedUnassigned = metrics.unassignedNow >= thresholds.unassignedThreshold && thresholds.unassignedThreshold > 0;
 
-  const lastCloseUntil = isoToUtcDT(runtime?.lastUpuseCloseUntil ?? null);
-  const lastCloseReason = (runtime?.lastUpuseCloseReason ?? null) as CloseReason | null;
-  const lastCloseAt = isoToUtcDT(runtime?.lastUpuseCloseAt ?? null);
+  const lastCloseUntil = trustedRuntime ? isoToUtcDT(runtime?.lastUpuseCloseUntil ?? null) : null;
+  const lastCloseReason = trustedRuntime ? (runtime?.lastUpuseCloseReason ?? null) as CloseReason | null : null;
+  const lastCloseAt = trustedRuntime ? isoToUtcDT(runtime?.lastUpuseCloseAt ?? null) : null;
 
   const isExternalOpenEarly =
     lastCloseUntil && now < lastCloseUntil && availability.availabilityState === "OPEN";

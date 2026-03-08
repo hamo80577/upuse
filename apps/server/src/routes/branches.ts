@@ -77,15 +77,23 @@ function buildUnavailableBranchSnapshot(branch: BranchMapping, settings = getSet
   };
 }
 
-function buildUnavailableBranchDetail(branch: BranchMapping, settings = getSettings()): BranchDetailSnapshot {
+function buildUnavailableBranchDetail(
+  branch: BranchMapping,
+  settings = getSettings(),
+  options?: {
+    branchSnapshot?: BranchSnapshot;
+    message?: string;
+  },
+): BranchDetailSnapshot {
+  const snapshot = options?.branchSnapshot ?? buildUnavailableBranchSnapshot(branch, settings);
   return {
     snapshotAvailable: false,
-    branch: buildUnavailableBranchSnapshot(branch, settings),
-    totals: emptyOrdersMetrics(),
+    branch: snapshot,
+    totals: snapshot.metrics,
     fetchedAt: null,
     unassignedOrders: [],
     preparingOrders: [],
-    message: "This branch exists, but its live snapshot is currently unavailable.",
+    message: options?.message ?? "This branch exists, but its live snapshot is currently unavailable.",
   };
 }
 
@@ -168,7 +176,8 @@ export function branchDetailRoute(engine: MonitorEngine) {
     }
 
     const settings = getSettings();
-    const snapshotBranch = engine.getSnapshot().branches.find((item) => item.branchId === id);
+    const getSnapshotBranch = () => engine.getSnapshot().branches.find((item) => item.branchId === id);
+    const snapshotBranch = getSnapshotBranch();
     if (!snapshotBranch) {
       const fallbackDetail = buildUnavailableBranchDetail(branch, settings);
       return res.json(fallbackDetail);
@@ -180,26 +189,33 @@ export function branchDetailRoute(engine: MonitorEngine) {
         globalEntityId: resolveOrdersGlobalEntityId(branch, settings.globalEntityId),
         vendorId: branch.ordersVendorId,
       });
+      const latestSnapshotBranch = getSnapshotBranch() ?? snapshotBranch;
 
       const body: BranchDetailSnapshot = {
         snapshotAvailable: true,
         branch: {
-          ...snapshotBranch,
-          metrics: snapshotBranch.metrics,
-          thresholds: snapshotBranch.thresholds ?? resolveBranchThresholdProfile(branch, settings),
+          ...latestSnapshotBranch,
+          metrics: latestSnapshotBranch.metrics,
+          thresholds: latestSnapshotBranch.thresholds ?? resolveBranchThresholdProfile(branch, settings),
         },
-        totals: snapshotBranch.metrics,
+        totals: latestSnapshotBranch.metrics,
         fetchedAt: detail.fetchedAt,
         unassignedOrders: detail.unassignedOrders,
         preparingOrders: detail.preparingOrders,
       };
       res.json(body);
     } catch (e: any) {
-      res.status(502).json({
-        ok: false,
-        message: e?.response?.data?.message || e?.message || "Failed to load branch detail",
-        status: e?.response?.status ?? null,
+      const detailErrorMessage = e?.response?.data?.message || e?.message || "Failed to load branch detail";
+      const latestSnapshotBranch = getSnapshotBranch() ?? snapshotBranch;
+      const fallbackDetail = buildUnavailableBranchDetail(branch, settings, {
+        branchSnapshot: {
+          ...latestSnapshotBranch,
+          metrics: latestSnapshotBranch.metrics,
+          thresholds: latestSnapshotBranch.thresholds ?? resolveBranchThresholdProfile(branch, settings),
+        },
+        message: `Live orders detail is temporarily unavailable. ${detailErrorMessage}`,
       });
+      res.json(fallbackDetail);
     }
   };
 }

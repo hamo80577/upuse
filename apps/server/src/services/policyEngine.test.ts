@@ -114,6 +114,7 @@ describe("policyEngine.decide", () => {
         lastUpuseCloseReason: "UNASSIGNED",
         lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
         lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
+        lastUpuseCloseEventId: 11,
       },
       nowUtcIso: "2026-03-03T10:05:00.000Z",
       settings,
@@ -131,6 +132,7 @@ describe("policyEngine.decide", () => {
         lastUpuseCloseReason: "LATE",
         lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
         lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
+        lastUpuseCloseEventId: 12,
       },
       nowUtcIso: "2026-03-03T10:05:00.000Z",
       settings,
@@ -154,6 +156,7 @@ describe("policyEngine.decide", () => {
         lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
         lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
         externalOpenDetectedAt: "2026-03-03T10:06:00.000Z",
+        lastUpuseCloseEventId: 13,
       },
       nowUtcIso: "2026-03-03T10:08:00.000Z",
       settings,
@@ -170,6 +173,7 @@ describe("policyEngine.decide", () => {
         lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
         lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
         externalOpenDetectedAt: "2026-03-03T10:01:00.000Z",
+        lastUpuseCloseEventId: 14,
       },
       nowUtcIso: "2026-03-03T10:08:00.000Z",
       settings,
@@ -214,11 +218,33 @@ describe("policyEngine.decide", () => {
       runtime: {
         lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
         lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
+        lastUpuseCloseEventId: 15,
       },
       nowUtcIso: "2026-03-03T10:00:20.000Z",
       settings: baseSettings(),
     });
 
     expect(decision).toEqual({ type: "NOOP", note: "Waiting for close state propagation" });
+  });
+
+  it("ignores untrusted tracked runtime and evaluates the branch as open", () => {
+    const decision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        unassignedNow: 7,
+      },
+      availability: openAvailability(),
+      runtime: {
+        lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
+        lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
+        lastActionAt: "2026-03-03T08:15:00.000Z",
+        lastUpuseCloseEventId: null,
+      },
+      nowUtcIso: "2026-03-03T10:08:00.000Z",
+      settings: baseSettings(),
+    });
+
+    expect(decision).toEqual({ type: "CLOSE", reason: "UNASSIGNED" });
   });
 });

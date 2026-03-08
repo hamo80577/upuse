@@ -1,5 +1,5 @@
-import { renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockApi = vi.hoisted(() => ({
   branchDetail: vi.fn(),
@@ -65,6 +65,10 @@ describe("useBranchDetailState", () => {
     });
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("treats a missing live snapshot as loaded detail instead of a hard error", async () => {
     const { result, unmount } = renderHook(() => useBranchDetailState({
       branchId: 7,
@@ -81,5 +85,46 @@ describe("useBranchDetailState", () => {
     expect(result.current.detail).toEqual(unavailableDetail);
 
     unmount();
+  });
+
+  it("polls the latest log page while the branch detail dialog stays open", async () => {
+    vi.useFakeTimers();
+    mockApi.logs
+      .mockResolvedValueOnce({
+        dayKey: "2026-03-08",
+        dayLabel: "Sun, 08 Mar 2026",
+        items: [{ ts: "2026-03-08T12:00:00.000Z", level: "INFO", message: "OPEN — recovered to zero" }],
+        hasMore: false,
+      })
+      .mockResolvedValue({
+        dayKey: "2026-03-08",
+        dayLabel: "Sun, 08 Mar 2026",
+        items: [
+          { ts: "2026-03-08T12:10:00.000Z", level: "INFO", message: "TEMP CLOSE — Unassigned=7 until 15:40" },
+          { ts: "2026-03-08T12:00:00.000Z", level: "INFO", message: "OPEN — recovered to zero" },
+        ],
+        hasMore: false,
+      });
+
+    const { result } = renderHook(() => useBranchDetailState({
+      branchId: 7,
+      branchSnapshot: null,
+      open: true,
+    }));
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockApi.logs).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockApi.logs).toHaveBeenCalledTimes(2);
+    expect(result.current.logDays[0]?.items).toHaveLength(2);
   });
 });

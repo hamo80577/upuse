@@ -375,4 +375,68 @@ describe("branchDetailRoute", () => {
       preparingOrders: [{ id: "2", externalId: "ORD-2", status: "PREPARING", isUnassigned: false, isLate: false }],
     });
   });
+
+  it("uses the latest branch snapshot when the state changes while detail orders are loading", async () => {
+    mockGetBranchById.mockReturnValue(branchMapping());
+    mockFetchVendorOrdersDetail.mockResolvedValue({
+      metrics: branchSnapshot().metrics,
+      fetchedAt: "2026-03-06T10:05:00.000Z",
+      unassignedOrders: [],
+      preparingOrders: [],
+    });
+    const staleSnapshot = branchSnapshot({
+      status: "TEMP_CLOSE",
+      statusColor: "red",
+      closedUntil: "2026-03-08T14:30:00.000Z",
+    });
+    const freshSnapshot = branchSnapshot({
+      status: "TEMP_CLOSE",
+      statusColor: "red",
+      closedUntil: "2026-03-08T14:49:00.000Z",
+    });
+    const getSnapshot = vi.fn()
+      .mockReturnValueOnce({ branches: [staleSnapshot] })
+      .mockReturnValueOnce({ branches: [freshSnapshot] });
+    const { branchDetailRoute } = await import("./branches.js");
+    const engine: any = { getSnapshot };
+    const req: any = { params: { id: "7" } };
+    const res = createResponse();
+
+    await branchDetailRoute(engine)(req, res);
+
+    expect(getSnapshot).toHaveBeenCalledTimes(2);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      snapshotAvailable: true,
+      branch: freshSnapshot,
+      totals: freshSnapshot.metrics,
+      fetchedAt: "2026-03-06T10:05:00.000Z",
+      unassignedOrders: [],
+      preparingOrders: [],
+    });
+  });
+
+  it("returns snapshot fallback instead of 502 when live order detail cannot be loaded", async () => {
+    mockGetBranchById.mockReturnValue(branchMapping());
+    mockFetchVendorOrdersDetail.mockRejectedValue(new Error("Orders API request failed"));
+    const { branchDetailRoute } = await import("./branches.js");
+    const engine: any = {
+      getSnapshot: () => ({ branches: [branchSnapshot({ status: "TEMP_CLOSE", statusColor: "red" })] }),
+    };
+    const req: any = { params: { id: "7" } };
+    const res = createResponse();
+
+    await branchDetailRoute(engine)(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      snapshotAvailable: false,
+      branch: branchSnapshot({ status: "TEMP_CLOSE", statusColor: "red" }),
+      totals: branchSnapshot({ status: "TEMP_CLOSE", statusColor: "red" }).metrics,
+      fetchedAt: null,
+      unassignedOrders: [],
+      preparingOrders: [],
+      message: "Live orders detail is temporarily unavailable. Orders API request failed",
+    });
+  });
 });

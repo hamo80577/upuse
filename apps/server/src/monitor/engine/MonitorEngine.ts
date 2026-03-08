@@ -215,6 +215,26 @@ export class MonitorEngine {
     return undefined;
   }
 
+  private hasTrustedMonitorRuntime(runtime: RuntimeRow | undefined, settings: Settings) {
+    if (!runtime) return false;
+    if (typeof runtime.lastUpuseCloseEventId === "number" && runtime.lastUpuseCloseEventId > 0) {
+      return true;
+    }
+
+    if (!runtime.lastUpuseCloseAt || !runtime.lastActionAt) {
+      return false;
+    }
+
+    const closeAt = DateTime.fromISO(runtime.lastUpuseCloseAt, { zone: "utc" });
+    const actionAt = DateTime.fromISO(runtime.lastActionAt, { zone: "utc" });
+    if (!closeAt.isValid || !actionAt.isValid) {
+      return false;
+    }
+
+    const toleranceSeconds = Math.max(120, settings.availabilityRefreshSeconds + 30);
+    return Math.abs(actionAt.diff(closeAt).as("seconds")) <= toleranceSeconds;
+  }
+
   private isTrackedUpuseClosure(runtime: RuntimeRow | undefined, closedUntil?: string) {
     if (!closedUntil) return false;
     const lastUntil = runtime?.lastUpuseCloseUntil;
@@ -240,14 +260,17 @@ export class MonitorEngine {
 
   private isMonitorOwnedClosure(runtime: RuntimeRow | undefined, availability?: AvailabilityRecord) {
     if (!availability || availability.availabilityState !== "CLOSED_UNTIL") return false;
+    const settings = getSettings();
+    if (!this.hasTrustedMonitorRuntime(runtime, settings)) return false;
     return (
-      availability.modifiedBy === "log_vendor_monitor" ||
       this.isTrackedUpuseClosure(runtime, availability.closedUntil) ||
       this.matchesExpectedMonitorCloseWindow(runtime, availability.closedUntil)
     );
   }
 
   private hasActiveTrackedMonitorWindow(runtime: RuntimeRow | undefined, nowIso: string) {
+    const settings = getSettings();
+    if (!this.hasTrustedMonitorRuntime(runtime, settings)) return false;
     if (!runtime?.lastUpuseCloseUntil) return false;
 
     const now = DateTime.fromISO(nowIso, { zone: "utc" });
@@ -262,6 +285,28 @@ export class MonitorEngine {
     const end = DateTime.fromISO(closedUntil, { zone: "utc" });
     if (!end.isValid) return undefined;
     return end.minus({ minutes: Math.max(1, durationMinutes) }).toISO({ suppressMilliseconds: false }) ?? undefined;
+  }
+
+  private inferObservedExternalCloseStartedAt(runtime: RuntimeRow | undefined, closedUntil: string | undefined) {
+    if (!runtime?.lastExternalCloseAt || !closedUntil) return undefined;
+    if (runtime.lastExternalCloseUntil !== closedUntil) return undefined;
+
+    const startedAt = DateTime.fromISO(runtime.lastExternalCloseAt, { zone: "utc" });
+    return startedAt.isValid
+      ? startedAt.toISO({ suppressMilliseconds: false }) ?? undefined
+      : undefined;
+  }
+
+  private buildClearedTrackedRuntimePatch(runtime: RuntimeRow | undefined) {
+    const patch: RuntimePatch = {};
+
+    if (runtime?.lastUpuseCloseUntil) patch.lastUpuseCloseUntil = null;
+    if (runtime?.lastUpuseCloseReason) patch.lastUpuseCloseReason = null;
+    if (runtime?.lastUpuseCloseAt) patch.lastUpuseCloseAt = null;
+    if (runtime?.lastUpuseCloseEventId) patch.lastUpuseCloseEventId = null;
+    if (runtime?.externalOpenDetectedAt) patch.externalOpenDetectedAt = null;
+
+    return patch;
   }
 
   private syncTrackedMonitorRuntime(
@@ -407,19 +452,27 @@ export class MonitorEngine {
           externalClosedUntil &&
           (runtime?.lastExternalCloseUntil !== externalClosedUntil || !runtime?.lastExternalCloseAt),
         );
+        const trackedRuntimeReset = !monitorWindowStillActive ? this.buildClearedTrackedRuntimePatch(runtime) : {};
+        const shouldResetTrackedRuntime = Object.keys(trackedRuntimeReset).length > 0;
 
-        if (externalClosedUntil && shouldPersistExternalWindow) {
-          setRuntime(branch.id, {
+        if (externalClosedUntil && (shouldPersistExternalWindow || shouldResetTrackedRuntime)) {
+          runtime = setRuntime(branch.id, {
             lastExternalCloseUntil: externalClosedUntil,
-            lastExternalCloseAt: runtime?.lastExternalCloseAt ?? nowIso,
+            lastExternalCloseAt:
+              runtime?.lastExternalCloseUntil === externalClosedUntil && runtime?.lastExternalCloseAt
+                ? runtime.lastExternalCloseAt
+                : nowIso,
+            ...trackedRuntimeReset,
           });
           const untilDt = DateTime.fromISO(externalClosedUntil, { zone: "utc" }).setZone("Africa/Cairo");
           const untilLabel = untilDt.isValid ? untilDt.toFormat("HH:mm") : null;
-          log(
-            branch.id,
-            "WARN",
-            untilLabel ? `TEMP CLOSE — external source until ${untilLabel}` : "TEMP CLOSE — external source",
-          );
+          if (shouldPersistExternalWindow) {
+            log(
+              branch.id,
+              "WARN",
+              untilLabel ? `TEMP CLOSE — external source until ${untilLabel}` : "TEMP CLOSE — external source",
+            );
+          }
         }
         continue;
       }
@@ -496,11 +549,11 @@ export class MonitorEngine {
           status = "TEMP_CLOSE";
           statusColor = "red";
           closedUntil = av.closedUntil;
-          // Keep the UI timer anchored to the configured closure window:
-          // if a branch reopens at 12:30 and tempCloseMinutes is 30, progress starts at 12:00.
-          closeStartedAt = this.inferCloseStartedAt(av.closedUntil, settings.tempCloseMinutes);
           closedByUpuse = this.isMonitorOwnedClosure(runtime, av);
           closureSource = closedByUpuse ? "UPUSE" : "EXTERNAL";
+          closeStartedAt = closedByUpuse
+            ? this.inferCloseStartedAt(av.closedUntil, settings.tempCloseMinutes)
+            : this.inferObservedExternalCloseStartedAt(runtime, av.closedUntil);
           autoReopen = closedByUpuse;
           if (closedByUpuse) {
             closeReason =
@@ -755,13 +808,17 @@ export class MonitorEngine {
 
       if (
         avCached?.availabilityState === "CLOSED_UNTIL" &&
-        avCached.modifiedBy === "log_vendor_monitor" &&
+        this.isMonitorOwnedClosure(runtime, avCached) &&
         avCached.closedUntil
       ) {
         runtime = this.syncTrackedMonitorRuntime(branch, metrics, runtime, avCached.closedUntil, settings);
       }
 
-      if (avCached?.availabilityState === "OPEN" && runtime?.lastUpuseCloseUntil) {
+      if (
+        avCached?.availabilityState === "OPEN" &&
+        this.hasTrustedMonitorRuntime(runtime, settings) &&
+        runtime?.lastUpuseCloseUntil
+      ) {
         const lastCloseUntil = DateTime.fromISO(runtime.lastUpuseCloseUntil, { zone: "utc" });
         const now = DateTime.fromISO(nowIso, { zone: "utc" });
         if (lastCloseUntil.isValid && now >= lastCloseUntil) {
@@ -868,8 +925,12 @@ export class MonitorEngine {
             "CLOSED_UNTIL",
           );
           if (!this.isLifecycleActive(expectedLifecycleId)) return;
+          const confirmedUntil =
+            syncedAvailability?.availabilityState === "CLOSED_UNTIL"
+              ? syncedAvailability.closedUntil
+              : undefined;
           const actualUntil =
-            syncedAvailability?.closedUntil ??
+            confirmedUntil ??
             this.extractClosedUntilCandidate(mutationResult) ??
             DateTime.fromISO(nowIso, { zone: "utc" })
               .plus({ minutes: settings.tempCloseMinutes })
@@ -883,8 +944,8 @@ export class MonitorEngine {
             modifiedBy: "log_vendor_monitor",
           });
 
-          const untilLabel = actualUntil
-            ? DateTime.fromISO(actualUntil, { zone: "utc" }).setZone("Africa/Cairo").toFormat("HH:mm")
+          const confirmedUntilLabel = confirmedUntil
+            ? DateTime.fromISO(confirmedUntil, { zone: "utc" }).setZone("Africa/Cairo").toFormat("HH:mm")
             : null;
 
           const closeEventId = recordMonitorCloseAction({
@@ -894,11 +955,11 @@ export class MonitorEngine {
             metrics,
             closedUntil: actualUntil,
             note: isReappliedAfterExternalOpen
-              ? untilLabel
-                ? `Temporary closure re-applied after external open grace until ${untilLabel} Cairo time`
+              ? confirmedUntilLabel
+                ? `Temporary closure re-applied after external open grace until ${confirmedUntilLabel} Cairo time`
                 : "Temporary closure re-applied after external open grace"
-              : untilLabel
-                ? `Temporary closure scheduled until ${untilLabel} Cairo time`
+              : confirmedUntilLabel
+                ? `Temporary closure scheduled until ${confirmedUntilLabel} Cairo time`
                 : undefined,
           });
 
@@ -919,11 +980,11 @@ export class MonitorEngine {
             branch.id,
             "INFO",
             isReappliedAfterExternalOpen
-              ? untilLabel
-                ? `TEMP CLOSE — re-applied after external open grace (${tag}) until ${untilLabel}`
+              ? confirmedUntilLabel
+                ? `TEMP CLOSE — re-applied after external open grace (${tag}) until ${confirmedUntilLabel}`
                 : `TEMP CLOSE — re-applied after external open grace (${tag})`
-              : untilLabel
-                ? `TEMP CLOSE — ${tag} until ${untilLabel}`
+              : confirmedUntilLabel
+                ? `TEMP CLOSE — ${tag} until ${confirmedUntilLabel}`
                 : `TEMP CLOSE — ${tag}`,
           );
           return;

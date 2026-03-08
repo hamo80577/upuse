@@ -101,7 +101,9 @@ export function BranchStatusPanel(props: { branch: BranchDetailSnapshot["branch"
             {timerReached
               ? "The timer reached its end. Waiting for the next availability update to confirm the final state."
               : canTrackProgress
-                ? `Duration progress ${Math.round(progressValue)}% from close start until reopen time.`
+                ? props.branch.closureSource === "EXTERNAL"
+                  ? `Observed progress ${Math.round(progressValue)}% from first detected close until reopen time.`
+                  : `Duration progress ${Math.round(progressValue)}% from close start until reopen time.`
                 : "Waiting for the close start timestamp to render duration progress."}
           </Typography>
         </Stack>

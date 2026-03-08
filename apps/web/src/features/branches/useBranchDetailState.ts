@@ -224,7 +224,7 @@ export function useBranchDetailState(options: {
         latestLogRequestRef.current = null;
       }
     };
-  }, [options.branchId, options.open, options.refreshToken]);
+  }, [options.branchId, options.open, options.refreshToken, pollTick]);
 
   useEffect(() => {
     if (!options.open) return;
