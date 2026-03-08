@@ -1,10 +1,3 @@
-import type { Request, RequestHandler } from "express";
-
-function trimHeaderValue(value: string | undefined) {
-  const trimmed = value?.trim();
-  return trimmed && trimmed.length ? trimmed : undefined;
-}
-
 export function parseCorsOrigins(raw: string | undefined) {
   if (!raw) return [];
 
@@ -41,49 +34,5 @@ export function createCorsOptions() {
       callback(new Error("CORS origin not allowed"));
     },
     credentials: true,
-  };
-}
-
-function isUnprotectedApiPath(req: Request) {
-  return req.path === "/api/health";
-}
-
-function hasValidBearerToken(req: Request, adminKey: string) {
-  const auth = trimHeaderValue(req.header("Authorization"));
-  if (!auth) return false;
-
-  const prefix = "Bearer ";
-  if (!auth.startsWith(prefix)) return false;
-
-  return auth.slice(prefix.length).trim() === adminKey;
-}
-
-export function createApiAccessMiddleware(): RequestHandler {
-  return (req, res, next) => {
-    if (!req.path.startsWith("/api/")) {
-      next();
-      return;
-    }
-
-    if (req.method === "OPTIONS" || isUnprotectedApiPath(req)) {
-      next();
-      return;
-    }
-
-    const adminKey = trimHeaderValue(process.env.UPUSE_ADMIN_KEY);
-    if (!adminKey) {
-      next();
-      return;
-    }
-
-    if (hasValidBearerToken(req, adminKey)) {
-      next();
-      return;
-    }
-
-    res.status(401).json({
-      ok: false,
-      message: "Unauthorized",
-    });
   };
 }

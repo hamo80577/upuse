@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
@@ -6,11 +6,20 @@ const mockApi = vi.hoisted(() => ({
   dashboard: vi.fn(),
   getSettings: vi.fn(),
   listBranches: vi.fn(),
+  lookupVendorName: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({
   api: mockApi,
   describeApiError: (error: unknown, fallback = "Request failed") => (error instanceof Error ? error.message : fallback),
+}));
+
+vi.mock("../app/providers/AuthProvider", () => ({
+  useAuth: () => ({
+    canManageBranches: true,
+    canDeleteBranches: true,
+    canManageMonitor: true,
+  }),
 }));
 
 vi.mock("../app/providers/MonitorStatusProvider", () => ({
@@ -32,6 +41,7 @@ describe("BranchesPage", () => {
     mockApi.dashboard.mockReset();
     mockApi.getSettings.mockReset();
     mockApi.listBranches.mockReset();
+    mockApi.lookupVendorName.mockReset();
     mockApi.getSettings.mockResolvedValue({
       ordersToken: "",
       availabilityToken: "",
@@ -62,5 +72,72 @@ describe("BranchesPage", () => {
     });
 
     expect(mockApi.dashboard).not.toHaveBeenCalled();
+  });
+
+  it("fills the branch name from the structured lookup response and shows the lookup note", async () => {
+    mockApi.lookupVendorName.mockResolvedValue({
+      ok: true,
+      name: "Saved Branch",
+      source: "branch_mapping",
+      resolvedGlobalEntityId: "HF_EG",
+      checkedSources: ["branch_mapping"],
+      note: "Name filled from the saved branch mapping for this vendor.",
+    });
+
+    render(
+      <MemoryRouter>
+        <BranchesPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(mockApi.getSettings).toHaveBeenCalled();
+      expect(mockApi.listBranches).toHaveBeenCalled();
+    });
+
+    fireEvent.change(screen.getByLabelText("Orders Vendor ID"), {
+      target: { value: "33" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Auto-fill Name" }));
+
+    await waitFor(() => {
+      expect(mockApi.lookupVendorName).toHaveBeenCalledWith(33, "HF_EG");
+    });
+
+    expect((screen.getByLabelText("Branch Name") as HTMLInputElement).value).toBe("Saved Branch");
+    expect(screen.getByText("Name filled from the saved branch mapping for this vendor.")).toBeInTheDocument();
+  });
+
+  it("shows the explicit unresolved lookup note instead of a generic error", async () => {
+    mockApi.lookupVendorName.mockResolvedValue({
+      ok: true,
+      name: null,
+      source: "none",
+      resolvedGlobalEntityId: "HF_EG",
+      checkedSources: ["branch_mapping", "recent_orders"],
+      note: "Checked saved branch mappings and recent orders in the last 30 days. No name could be inferred for this vendor right now.",
+    });
+
+    render(
+      <MemoryRouter>
+        <BranchesPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(mockApi.getSettings).toHaveBeenCalled();
+      expect(mockApi.listBranches).toHaveBeenCalled();
+    });
+
+    fireEvent.change(screen.getByLabelText("Orders Vendor ID"), {
+      target: { value: "33" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Auto-fill Name" }));
+
+    await waitFor(() => {
+      expect(mockApi.lookupVendorName).toHaveBeenCalledWith(33, "HF_EG");
+    });
+
+    expect(screen.getByText("Checked saved branch mappings and recent orders in the last 30 days. No name could be inferred for this vendor right now.")).toBeInTheDocument();
   });
 });

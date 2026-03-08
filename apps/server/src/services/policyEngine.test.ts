@@ -28,6 +28,8 @@ function baseBranch(): BranchMapping {
     availabilityVendorId: "202",
     globalEntityId: "HF_EG",
     enabled: true,
+    lateThresholdOverride: null,
+    unassignedThresholdOverride: null,
   };
 }
 
@@ -175,6 +177,30 @@ describe("policyEngine.decide", () => {
 
     expect(duringGrace).toEqual({ type: "NOOP", note: "External open grace" });
     expect(afterGrace).toEqual({ type: "CLOSE", reason: "UNASSIGNED" });
+  });
+
+  it("prefers branch-specific threshold overrides over chain thresholds", () => {
+    const decision = decide({
+      branch: {
+        ...baseBranch(),
+        chainName: "Chain A",
+        lateThresholdOverride: 7,
+        unassignedThresholdOverride: 9,
+      },
+      metrics: {
+        ...baseMetrics(),
+        lateNow: 6,
+        unassignedNow: 8,
+      },
+      availability: openAvailability(),
+      nowUtcIso: "2026-03-03T10:00:00.000Z",
+      settings: {
+        ...baseSettings(),
+        chains: [{ name: "Chain A", lateThreshold: 3, unassignedThreshold: 4 }],
+      },
+    });
+
+    expect(decision).toEqual({ type: "NOOP" });
   });
 
   it("ignores source propagation noise immediately after a monitor close", () => {

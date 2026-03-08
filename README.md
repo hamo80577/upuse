@@ -26,19 +26,28 @@ A production-ready monitoring control tower for branch availability, driven by r
 - Tokens are stored encrypted-at-rest using a local key derived from `UPUSE_SECRET` (see `.env.example`).
 - In development only, if `UPUSE_SECRET` is missing, the server creates and reuses `apps/server/data/.dev-secret` with a loud warning so localhost stays usable.
 - In production, `UPUSE_SECRET` is mandatory and the server refuses to start without it.
-- If `UPUSE_ADMIN_KEY` is enabled, the web UI stores the key in `sessionStorage` (8h expiry) from the Settings page and sends it only as `Authorization: Bearer <key>`.
+- Web access is authenticated with email/password sessions and role-based authorization (`admin` / `user`).
+- Session tokens are delivered only through `HttpOnly` same-site cookies. The raw token is never exposed to frontend JavaScript, and the persisted session token is hashed before it is stored in SQLite.
+- For the cookie session model, serve the web app and `/api` from the same site or behind one reverse proxy so the browser can keep the session same-origin.
 
 ## Server env vars
 - `PORT`: API port. Default `8080`.
 - `UPUSE_SECRET`: encryption key seed for stored tokens. Required in production.
 - `UPUSE_DATA_DIR`: optional data directory override for SQLite files. Relative values are resolved from `apps/server`, not the shell working directory. Default stays `apps/server/data`.
-- `UPUSE_ADMIN_KEY`: optional bearer token for API protection. When set, `/api/*` requires `Authorization: Bearer <key>` except `/api/health`.
 - `UPUSE_CORS_ORIGINS`: optional comma-separated allowed origins. By default only `http://localhost:*` and `http://127.0.0.1:*` are allowed.
+- `UPUSE_BOOTSTRAP_ADMIN_EMAIL`: email for creating the first admin account when the database has no users yet.
+- `UPUSE_BOOTSTRAP_ADMIN_PASSWORD`: password for the bootstrap admin account. Minimum 12 characters.
+- `UPUSE_BOOTSTRAP_ADMIN_NAME`: optional display name for the bootstrap admin. Defaults to `Administrator`.
 - `UPUSE_ORDERS_MODE`: optional orders fetching mode. Supported values: `fullday` (default) and `incremental`. The current safe implementation keeps the same full-day fetch window in both modes until a source-safe incremental cursor can be introduced.
 - `UPUSE_BRANCH_DETAIL_CACHE_TTL_SECONDS`: optional in-memory cache TTL for branch detail dialog order fetches. Default `0` (disabled).
 - `UPUSE_ORDERS_CHUNK_CONCURRENCY`: optional concurrency for orders vendor chunks. Default `3` (range `1..8`).
 - `UPUSE_ORDERS_WINDOW_SPLIT_MAX_DEPTH`: optional max recursive depth for automatic time-window split when pagination is too large. Default `8`.
 - `UPUSE_ORDERS_WINDOW_MIN_SPAN_MS`: optional minimum UTC window span (ms) before further split. Default `300000` (5 minutes).
+
+## Auth bootstrap
+- The old hardcoded default admin seed has been removed.
+- On a fresh database, set `UPUSE_BOOTSTRAP_ADMIN_EMAIL` and `UPUSE_BOOTSTRAP_ADMIN_PASSWORD` before the first server start to create the initial admin account.
+- After the initial admin exists, rotate or remove those bootstrap env vars from your deployed environment.
 
 ## Validation commands
 - `npm --workspace apps/server run build`

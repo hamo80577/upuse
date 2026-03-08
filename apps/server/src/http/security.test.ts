@@ -1,99 +1,25 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { createApiAccessMiddleware } from "./security.js";
+import { describe, expect, it } from "vitest";
+import { isAllowedOrigin, parseCorsOrigins } from "./security.js";
 
-function createMockRequest(params: {
-  path: string;
-  method?: string;
-  authorization?: string;
-}) {
-  return {
-    path: params.path,
-    method: params.method ?? "GET",
-    header(name: string) {
-      if (name.toLowerCase() === "authorization") {
-        return params.authorization;
-      }
-
-      return undefined;
-    },
-  };
-}
-
-function createMockResponse() {
-  return {
-    statusCode: 200,
-    payload: null as unknown,
-    status(code: number) {
-      this.statusCode = code;
-      return this;
-    },
-    json(payload: unknown) {
-      this.payload = payload;
-      return this;
-    },
-  };
-}
-
-describe("security.createApiAccessMiddleware", () => {
-  const originalAdminKey = process.env.UPUSE_ADMIN_KEY;
-
-  afterEach(() => {
-    if (originalAdminKey === undefined) {
-      delete process.env.UPUSE_ADMIN_KEY;
-      return;
-    }
-
-    process.env.UPUSE_ADMIN_KEY = originalAdminKey;
+describe("security helpers", () => {
+  it("parses unique configured CORS origins", () => {
+    expect(parseCorsOrigins(" https://a.test , https://b.test, https://a.test ")).toEqual([
+      "https://a.test",
+      "https://b.test",
+    ]);
   });
 
-  it("keeps /api/health unprotected when an admin key is set", () => {
-    process.env.UPUSE_ADMIN_KEY = "audit-key";
-    const middleware = createApiAccessMiddleware();
-    const next = vi.fn();
-
-    middleware(
-      createMockRequest({ path: "/api/health" }) as any,
-      createMockResponse() as any,
-      next,
-    );
-
-    expect(next).toHaveBeenCalledOnce();
+  it("allows localhost origins by default", () => {
+    expect(isAllowedOrigin("http://localhost:5173", [])).toBe(true);
+    expect(isAllowedOrigin("http://127.0.0.1:3000", [])).toBe(true);
   });
 
-  it("protects /api/stream when an admin key is set", () => {
-    process.env.UPUSE_ADMIN_KEY = "audit-key";
-    const middleware = createApiAccessMiddleware();
-    const next = vi.fn();
-    const res = createMockResponse();
-
-    middleware(
-      createMockRequest({ path: "/api/stream" }) as any,
-      res as any,
-      next,
-    );
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res.statusCode).toBe(401);
-    expect(res.payload).toEqual({
-      ok: false,
-      message: "Unauthorized",
-    });
+  it("blocks non-local origins when no explicit allowlist exists", () => {
+    expect(isAllowedOrigin("https://example.com", [])).toBe(false);
   });
 
-  it("accepts protected requests with the correct bearer token", () => {
-    process.env.UPUSE_ADMIN_KEY = "audit-key";
-    const middleware = createApiAccessMiddleware();
-    const next = vi.fn();
-
-    middleware(
-      createMockRequest({
-        path: "/api/dashboard",
-        authorization: "Bearer audit-key",
-      }) as any,
-      createMockResponse() as any,
-      next,
-    );
-
-    expect(next).toHaveBeenCalledOnce();
+  it("uses the explicit allowlist when provided", () => {
+    expect(isAllowedOrigin("https://console.upuse.local", ["https://console.upuse.local"])).toBe(true);
+    expect(isAllowedOrigin("https://other.upuse.local", ["https://console.upuse.local"])).toBe(false);
   });
 });

@@ -1,12 +1,14 @@
 import CloseIcon from "@mui/icons-material/Close";
 import { Alert, Box, CircularProgress, Dialog, DialogContent, DialogTitle, Grid, IconButton, LinearProgress, Skeleton, Stack, Typography } from "@mui/material";
 import type { BranchDetailSnapshot } from "../../../api/types";
+import { useAuth } from "../../../app/providers/AuthProvider";
 import { useBranchDetailState } from "../../../features/branches/useBranchDetailState";
 import { BranchLogPanel } from "./BranchLogPanel";
 import { BranchOrdersSection } from "./BranchOrdersSection";
 import { BranchStatusPanel } from "./BranchStatusPanel";
 import { BranchSummaryStats } from "./BranchSummaryStats";
 import { fmtPlacedAt } from "../lib/time";
+import { resolveDisplayedBranch } from "../lib/resolveDisplayedBranch";
 
 export function BranchDetailDialog(props: {
   branchId: number | null;
@@ -15,6 +17,7 @@ export function BranchDetailDialog(props: {
   refreshToken?: string;
   onClose: () => void;
 }) {
+  const { canManage } = useAuth();
   const {
     detail,
     loading,
@@ -36,14 +39,9 @@ export function BranchDetailDialog(props: {
     refreshToken: props.refreshToken,
   });
 
-  const branch = detail?.branch
-    ? {
-        ...detail.branch,
-        ...(props.branchSnapshot ?? {}),
-        metrics: props.branchSnapshot?.metrics ?? detail.branch.metrics,
-        lastUpdatedAt: props.branchSnapshot?.lastUpdatedAt ?? detail.branch.lastUpdatedAt,
-      }
-    : props.branchSnapshot;
+  const unavailableDetail = detail?.snapshotAvailable === false ? detail : null;
+  const liveSnapshotMissing = Boolean(unavailableDetail);
+  const branch = resolveDisplayedBranch(detail, props.branchSnapshot);
   const queueTotals = detail
     ? {
         activeNow: detail.unassignedOrders.length + detail.preparingOrders.length,
@@ -62,6 +60,7 @@ export function BranchDetailDialog(props: {
     lateNow: queueTotals?.lateNow ?? branch?.metrics.lateNow ?? detail?.totals.lateNow ?? 0,
     unassignedNow: queueTotals?.unassignedNow ?? branch?.metrics.unassignedNow ?? detail?.totals.unassignedNow ?? 0,
   };
+  const unavailableOrdersText = "Live snapshot data is currently unavailable for this branch.";
 
   return (
     <Dialog open={props.open} onClose={props.onClose} fullWidth maxWidth="lg">
@@ -102,7 +101,7 @@ export function BranchDetailDialog(props: {
         ) : detail && branch ? (
           <Stack spacing={1.5}>
             <Box sx={{ minHeight: 6, borderRadius: 999, overflow: "hidden" }}>
-              {refreshing ? (
+            {refreshing ? (
                 <LinearProgress
                   sx={{
                     height: 5,
@@ -118,25 +117,26 @@ export function BranchDetailDialog(props: {
                 <Box sx={{ height: 5, borderRadius: 999, bgcolor: "rgba(148,163,184,0.08)" }} />
               )}
             </Box>
+            {unavailableDetail ? <Alert severity="info" variant="outlined">{unavailableDetail.message}</Alert> : null}
             {error ? <Alert severity="warning" variant="outlined">{error}</Alert> : null}
             <Grid container spacing={2}>
               <Grid item xs={12} md={8}>
                 <Stack spacing={2}>
-                  <BranchSummaryStats totals={liveTotals} />
+                  <BranchSummaryStats totals={liveTotals} thresholds={branch.thresholds} />
 
                   <Stack spacing={1.5}>
                     <BranchOrdersSection
                       title="Unassigned Orders"
                       subtitle="Current unassigned orders in this branch"
                       items={detail.unassignedOrders}
-                      emptyText="No unassigned orders right now."
+                      emptyText={liveSnapshotMissing ? unavailableOrdersText : "No unassigned orders right now."}
                       nowMs={nowMs}
                     />
                     <BranchOrdersSection
                       title="In Preparation"
                       subtitle="Assigned and in-progress orders, including late ones"
                       items={detail.preparingOrders}
-                      emptyText="No active preparation orders right now."
+                      emptyText={liveSnapshotMissing ? unavailableOrdersText : "No active preparation orders right now."}
                       nowMs={nowMs}
                     />
                   </Stack>
@@ -154,12 +154,13 @@ export function BranchDetailDialog(props: {
                     hasMoreLogs={hasMoreLogs}
                     logError={logError}
                     clearingLog={clearingLog}
+                    canClear={canManage}
                     onLoadMore={loadMoreLogs}
                     onClear={clearLog}
                   />
 
                   <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                    Last refresh: {fmtPlacedAt(detail.fetchedAt)}
+                    Last refresh: {detail.fetchedAt ? fmtPlacedAt(detail.fetchedAt) : "unavailable"}
                   </Typography>
                 </Stack>
               </Grid>

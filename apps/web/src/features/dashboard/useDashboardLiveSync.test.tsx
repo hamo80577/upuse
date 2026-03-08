@@ -24,34 +24,41 @@ vi.mock("../../app/providers/MonitorStatusProvider", () => ({
 
 import { useDashboardLiveSync } from "./useDashboardLiveSync";
 
-const baseSnapshot: DashboardSnapshot = {
-  monitoring: {
-    running: true,
-    lastOrdersFetchAt: "2026-03-06T10:00:00.000Z",
-    lastAvailabilityFetchAt: "2026-03-06T10:00:00.000Z",
-    lastHealthyAt: "2026-03-06T10:00:00.000Z",
-    degraded: false,
-    errors: {},
-  },
-  totals: {
-    branchesMonitored: 1,
-    open: 1,
-    tempClose: 0,
-    closed: 0,
-    unknown: 0,
-    ordersToday: 8,
-    cancelledToday: 1,
-    doneToday: 3,
-    activeNow: 4,
-    lateNow: 0,
-    unassignedNow: 1,
-  },
-  branches: [],
-};
+function createSnapshot(overrides?: Partial<DashboardSnapshot>): DashboardSnapshot {
+  const nowIso = new Date(Date.now()).toISOString();
+
+  return {
+    monitoring: {
+      running: true,
+      lastOrdersFetchAt: nowIso,
+      lastAvailabilityFetchAt: nowIso,
+      lastHealthyAt: nowIso,
+      degraded: false,
+      errors: {},
+      ...overrides?.monitoring,
+    },
+    totals: {
+      branchesMonitored: 1,
+      open: 1,
+      tempClose: 0,
+      closed: 0,
+      unknown: 0,
+      ordersToday: 8,
+      cancelledToday: 1,
+      doneToday: 3,
+      activeNow: 4,
+      lateNow: 0,
+      unassignedNow: 1,
+      ...overrides?.totals,
+    },
+    branches: overrides?.branches ?? [],
+  };
+}
 
 describe("useDashboardLiveSync", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-06T10:00:00.000Z"));
     mockApi.dashboard.mockReset();
     mockApi.getSettings.mockReset();
     mockApi.monitorStatus.mockReset();
@@ -74,6 +81,7 @@ describe("useDashboardLiveSync", () => {
   };
 
   it("applies snapshots from the live stream without polling the dashboard", async () => {
+    const baseSnapshot = createSnapshot();
     mockApi.streamDashboard.mockImplementation(({ onOpen, onSnapshot }: any) => {
       onOpen?.();
       onSnapshot(baseSnapshot);
@@ -91,7 +99,40 @@ describe("useDashboardLiveSync", () => {
     expect(mockApplyMonitoring).toHaveBeenCalledWith(baseSnapshot.monitoring);
   });
 
+  it("falls back to an empty snapshot when the stream payload is malformed", async () => {
+    mockApi.streamDashboard.mockImplementation(({ onOpen, onSnapshot }: any) => {
+      onOpen?.();
+      onSnapshot(undefined);
+      return new Promise<void>(() => {});
+    });
+
+    const { result } = renderHook(() => useDashboardLiveSync());
+
+    await flushEffects();
+
+    expect(result.current.connectionState).toBe("live");
+    expect(result.current.snap).toEqual({
+      monitoring: { running: false },
+      totals: {
+        branchesMonitored: 0,
+        open: 0,
+        tempClose: 0,
+        closed: 0,
+        unknown: 0,
+        ordersToday: 0,
+        cancelledToday: 0,
+        doneToday: 0,
+        activeNow: 0,
+        lateNow: 0,
+        unassignedNow: 0,
+      },
+      branches: [],
+    });
+    expect(mockApplyMonitoring).toHaveBeenCalledWith({ running: false });
+  });
+
   it("switches to fallback polling when the stream closes", async () => {
+    const baseSnapshot = createSnapshot();
     let closeStream!: () => void;
     mockApi.streamDashboard
       .mockImplementationOnce(({ onOpen, onSnapshot }: any) => {
@@ -140,6 +181,7 @@ describe("useDashboardLiveSync", () => {
   });
 
   it("stops fallback polling once the stream reconnects", async () => {
+    const baseSnapshot = createSnapshot();
     let closeStream!: () => void;
     mockApi.streamDashboard
       .mockImplementationOnce(({ onOpen, onSnapshot }: any) => {

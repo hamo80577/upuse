@@ -16,10 +16,12 @@ export function BranchLogPanel(props: {
   hasMoreLogs: boolean;
   logError: string | null;
   clearingLog: boolean;
+  canClear?: boolean;
   onLoadMore: () => void;
   onClear: () => void;
 }) {
   const loadedLogCount = props.logDays.reduce((sum, group) => sum + group.items.length, 0);
+  const canClear = props.canClear ?? true;
 
   return (
     <Box
@@ -45,11 +47,11 @@ export function BranchLogPanel(props: {
             size="small"
             color="error"
             variant="text"
-            disabled={!loadedLogCount || props.clearingLog}
+            disabled={!canClear || !loadedLogCount || props.clearingLog}
             onClick={props.onClear}
             sx={{ minWidth: 0, fontWeight: 800 }}
           >
-            {props.clearingLog ? "Clearing..." : "Clear Log"}
+            {!canClear ? "No Access" : props.clearingLog ? "Clearing..." : "Clear Log"}
           </Button>
         </Stack>
       </Box>

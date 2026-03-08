@@ -1,5 +1,6 @@
 import { Alert, AlertTitle, Backdrop, Box, Button, Chip, CircularProgress, Container, Snackbar, Stack, Typography } from "@mui/material";
 import { lazy, Suspense, useDeferredValue, useMemo, useState } from "react";
+import { useAuth } from "../../../app/providers/AuthProvider";
 import { ChainGroupsSection } from "../../../features/dashboard/ChainGroupsSection";
 import { DashboardToolbarControls } from "../../../features/dashboard/DashboardToolbarControls";
 import { OperationsSummaryCard } from "../../../widgets/operations-summary/ui/OperationsSummaryCard";
@@ -32,6 +33,7 @@ function fmtIssueAt(iso?: string) {
 }
 
 export function DashboardPage() {
+  const { canManageMonitor, canRefreshOrdersNow } = useAuth();
   const {
     snap,
     connectionState,
@@ -90,6 +92,7 @@ export function DashboardPage() {
         branchSummary={snap.branches}
         onStart={onStart}
         onStop={onStop}
+        canControlMonitor={canManageMonitor}
       />
 
       <Container maxWidth="xl" sx={{ py: 3 }}>
@@ -137,8 +140,14 @@ export function DashboardPage() {
                 </Typography>
               </Box>
 
-              <Button variant="contained" color="error" onClick={onStop} sx={{ minWidth: 150, alignSelf: { xs: "stretch", md: "center" } }}>
-                Stop Monitor
+              <Button
+                variant="contained"
+                color="error"
+                onClick={onStop}
+                disabled={!canManageMonitor}
+                sx={{ minWidth: 150, alignSelf: { xs: "stretch", md: "center" } }}
+              >
+                {canManageMonitor ? "Stop Monitor" : "No Access"}
               </Button>
             </Stack>
           </Alert>
@@ -147,6 +156,7 @@ export function DashboardPage() {
           totals={snap.totals}
           updatedAt={latestMonitoringUpdateAt}
           connectionState={connectionState}
+          canRefreshNow={canRefreshOrdersNow}
           syncGuard={{
             stale: isSyncStale,
             recovering: syncRecovering,

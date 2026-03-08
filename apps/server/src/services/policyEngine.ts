@@ -1,5 +1,6 @@
 import { DateTime } from "luxon";
 import type { BranchMapping, CloseReason, OrdersMetrics, AvailabilityRecord, Settings } from "../types/models.js";
+import { resolveBranchThresholdProfile } from "./thresholds.js";
 
 export interface PolicyInput {
   branch: BranchMapping;
@@ -55,29 +56,6 @@ function isMonitorOwnedClosure(
   return Math.abs(actualUntil.diff(expectedUntil).as("seconds")) <= toleranceSeconds;
 }
 
-function resolveThresholds(branch: BranchMapping, settings: Settings) {
-  const chainKey = branch.chainName.trim().toLowerCase();
-  if (!chainKey) {
-    return {
-      lateThreshold: settings.lateThreshold,
-      unassignedThreshold: settings.unassignedThreshold,
-    };
-  }
-
-  const match = settings.chains.find((item) => item.name.trim().toLowerCase() === chainKey);
-  if (!match) {
-    return {
-      lateThreshold: settings.lateThreshold,
-      unassignedThreshold: settings.unassignedThreshold,
-    };
-  }
-
-  return {
-    lateThreshold: match.lateThreshold,
-    unassignedThreshold: match.unassignedThreshold,
-  };
-}
-
 export function decide(input: PolicyInput): PolicyDecision {
   const { branch, metrics, availability, runtime, nowUtcIso, settings } = input;
   if (!branch.enabled) return { type: "NOOP" };
@@ -85,7 +63,7 @@ export function decide(input: PolicyInput): PolicyDecision {
   if (!availability.changeable) return { type: "NOOP" };
 
   const now = DateTime.fromISO(nowUtcIso, { zone: "utc" });
-  const thresholds = resolveThresholds(branch, settings);
+  const thresholds = resolveBranchThresholdProfile(branch, settings);
 
   const exceedLate = metrics.lateNow >= thresholds.lateThreshold && thresholds.lateThreshold > 0;
   const exceedUnassigned = metrics.unassignedNow >= thresholds.unassignedThreshold && thresholds.unassignedThreshold > 0;

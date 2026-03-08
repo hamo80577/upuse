@@ -123,31 +123,30 @@ export function useDashboardPageState() {
     });
     startLoadingGuard(requestId, 25_000);
 
-    void Promise.allSettled([api.monitorRefreshOrders(), attemptSyncRecovery(true)])
-      .then((results) => {
+    void (async () => {
+      try {
+        const refreshed = await api.monitorRefreshOrders();
         if (loadingRequestRef.current !== requestId) return;
-        const [ordersRefresh, syncRefresh] = results;
 
-        if (ordersRefresh.status === "fulfilled" && ordersRefresh.value.snapshot) {
-          setSnap(ordersRefresh.value.snapshot);
-        }
+        setSnap(refreshed.snapshot);
+        setToast({
+          type: "success",
+          msg: refreshed.message || (refreshed.inProgress ? "Orders refresh started" : "Sync refreshed"),
+        });
+      } catch (error) {
+        try {
+          await attemptSyncRecovery(true);
+        } catch {}
 
-        if (syncRefresh.status === "fulfilled") {
-          setToast({
-            type: syncRefresh.value.ok ? "success" : "error",
-            msg: syncRefresh.value.ok ? "Sync refreshed" : syncRefresh.value.message || "Refresh failed",
-          });
-          return;
-        }
-
+        if (loadingRequestRef.current !== requestId) return;
         setToast({
           type: "error",
-          msg: describeApiError(syncRefresh.reason, "Refresh failed"),
+          msg: describeApiError(error, "Refresh failed"),
         });
-      })
-      .finally(() => {
+      } finally {
         finishLoadingGuard(requestId);
-      });
+      }
+    })();
   };
 
   const toggleGroup = (groupKey: string) => {

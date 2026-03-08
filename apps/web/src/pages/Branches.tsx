@@ -3,6 +3,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import { useEffect, useState } from "react";
 import { api, describeApiError } from "../api/client";
+import { useAuth } from "../app/providers/AuthProvider";
 import { useMonitorStatus } from "../app/providers/MonitorStatusProvider";
 import type { BranchMappingItem } from "../api/types";
 import { TopBar } from "../components/TopBar";
@@ -30,11 +31,12 @@ function describeBranchSaveError(error: unknown, fallback: string) {
 }
 
 export function Branches() {
+  const { canManageBranches, canDeleteBranches, canManageMonitor } = useAuth();
   const { monitoring, startMonitoring, stopMonitoring } = useMonitorStatus();
 
   const [items, setItems] = useState<BranchMappingItem[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const [toast, setToast] = useState<{ type: "success" | "error" | "info"; msg: string } | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [defaultGlobalEntityId, setDefaultGlobalEntityId] = useState("HF_EG");
   const [chainNames, setChainNames] = useState<string[]>([]);
@@ -66,6 +68,10 @@ export function Branches() {
   }, []);
 
   const onStart = async () => {
+    if (!canManageMonitor) {
+      setToast({ type: "info", msg: "No access" });
+      return;
+    }
     try {
       await startMonitoring();
       setToast({ type: "success", msg: "Monitoring started" });
@@ -74,6 +80,10 @@ export function Branches() {
     }
   };
   const onStop = async () => {
+    if (!canManageMonitor) {
+      setToast({ type: "info", msg: "No access" });
+      return;
+    }
     try {
       await stopMonitoring();
       setToast({ type: "success", msg: "Monitoring stopped" });
@@ -83,6 +93,10 @@ export function Branches() {
   };
 
   const add = async () => {
+    if (!canManageBranches) {
+      setToast({ type: "info", msg: "No access" });
+      return;
+    }
     try {
       const payload = {
         name: form.name,
@@ -113,6 +127,7 @@ export function Branches() {
   };
 
   const startEdit = (item: BranchMappingItem) => {
+    if (!canManageBranches) return;
     setEditingId(item.id);
     setForm({
       name: item.name,
@@ -130,6 +145,10 @@ export function Branches() {
   };
 
   const del = async (id: number) => {
+    if (!canDeleteBranches) {
+      setToast({ type: "info", msg: "Admins only" });
+      return;
+    }
     try {
       await api.deleteBranch(id);
       setToast({ type: "success", msg: "Deleted" });
@@ -143,14 +162,22 @@ export function Branches() {
   };
 
   const fetchName = async () => {
+    if (!canManageBranches) {
+      setToast({ type: "info", msg: "No access" });
+      return;
+    }
     const id = Number(form.ordersVendorId);
     if (!id) return setToast({ type: "error", msg: "Enter Orders Vendor ID" });
 
     try {
       setAutoNameLoading(true);
       const r = await api.lookupVendorName(id, form.globalEntityId);
-      if (r.name) setForm((p: any) => ({ ...p, name: r.name }));
-      else setToast({ type: "error", msg: r.note || "Name not found" });
+      if (r.name) {
+        setForm((p: any) => ({ ...p, name: r.name }));
+        setToast({ type: "success", msg: r.note });
+      } else {
+        setToast({ type: "info", msg: r.note });
+      }
     } catch (error) {
       setToast({ type: "error", msg: describeApiError(error, "Name lookup failed") });
     } finally {
@@ -162,7 +189,13 @@ export function Branches() {
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
-      <TopBar running={monitoring.running} degraded={monitoring.degraded} onStart={onStart} onStop={onStop} />
+      <TopBar
+        running={monitoring.running}
+        degraded={monitoring.degraded}
+        onStart={onStart}
+        onStop={onStop}
+        canControlMonitor={canManageMonitor}
+      />
 
       <Container maxWidth="md" sx={{ py: 3 }}>
         <Card>
@@ -198,10 +231,10 @@ export function Branches() {
                       Orders Vendor: {b.ordersVendorId} • Availability Vendor: {b.availabilityVendorId}
                     </Typography>
                   </Box>
-                  <IconButton onClick={() => startEdit(b)} color={editingId === b.id ? "primary" : "default"}>
+                  <IconButton onClick={() => startEdit(b)} color={editingId === b.id ? "primary" : "default"} disabled={!canManageBranches}>
                     <EditOutlinedIcon />
                   </IconButton>
-                  <IconButton onClick={() => del(b.id)}>
+                  <IconButton onClick={() => del(b.id)} disabled={!canDeleteBranches}>
                     <DeleteOutlineIcon />
                   </IconButton>
                 </Box>
@@ -219,12 +252,14 @@ export function Branches() {
                 label="Orders Vendor ID"
                 value={form.ordersVendorId}
                 onChange={(e) => setForm((p: any) => ({ ...p, ordersVendorId: e.target.value }))}
+                disabled={!canManageBranches}
                 fullWidth
               />
               <TextField
                 label="Availability Vendor ID"
                 value={form.availabilityVendorId}
                 onChange={(e) => setForm((p: any) => ({ ...p, availabilityVendorId: e.target.value }))}
+                disabled={!canManageBranches}
                 fullWidth
               />
             </Stack>
@@ -234,6 +269,7 @@ export function Branches() {
                 label="Branch Name"
                 value={form.name}
                 onChange={(e) => setForm((p: any) => ({ ...p, name: e.target.value }))}
+                disabled={!canManageBranches}
                 fullWidth
               />
               <TextField
@@ -241,7 +277,8 @@ export function Branches() {
                 label="Chain Name"
                 value={form.chainName ?? ""}
                 onChange={(e) => setForm((p: any) => ({ ...p, chainName: e.target.value }))}
-                helperText={chainNames.length ? "Managed from Settings" : "Add chains first in Settings"}
+                helperText={chainNames.length ? "Managed from Threshold Rules" : "Add chains first in Threshold Rules"}
+                disabled={!canManageBranches}
                 fullWidth
               >
                 <MenuItem value="">No Chain</MenuItem>
@@ -258,19 +295,20 @@ export function Branches() {
                 label="Global Entity ID"
                 value={form.globalEntityId}
                 onChange={(e) => setForm((p: any) => ({ ...p, globalEntityId: e.target.value }))}
+                disabled={!canManageBranches}
                 fullWidth
               />
             </Stack>
 
             <Stack direction="row" spacing={1.2}>
-              <Button variant="outlined" onClick={fetchName} disabled={autoNameLoading}>
+              <Button variant="outlined" onClick={fetchName} disabled={!canManageBranches || autoNameLoading}>
                 Auto-fill Name
               </Button>
-              <Button variant="contained" onClick={add}>
-                {editingId ? "Save Changes" : "Add"}
+              <Button variant="contained" onClick={add} disabled={!canManageBranches}>
+                {canManageBranches ? (editingId ? "Save Changes" : "Add") : "Read Only"}
               </Button>
               {editingId ? (
-                <Button variant="text" onClick={cancelEdit}>
+                <Button variant="text" onClick={cancelEdit} disabled={!canManageBranches}>
                   Cancel
                 </Button>
               ) : null}

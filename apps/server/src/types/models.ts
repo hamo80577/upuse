@@ -2,6 +2,8 @@ export type AvailabilityState = "OPEN" | "CLOSED_UNTIL" | "CLOSED";
 
 export type OrdersVendorId = number;
 export type AvailabilityVendorId = string;
+export type AppUserRole = "admin" | "user";
+export type ThresholdSource = "branch" | "chain" | "global";
 
 export type CloseReason = "LATE" | "UNASSIGNED";
 export type MonitorIssueSource = "orders" | "availability";
@@ -10,6 +12,12 @@ export interface ChainThreshold {
   name: string;
   lateThreshold: number;
   unassignedThreshold: number;
+}
+
+export interface ThresholdProfile {
+  lateThreshold: number;
+  unassignedThreshold: number;
+  source: ThresholdSource;
 }
 
 export interface MonitorSourceError {
@@ -46,6 +54,8 @@ export interface BranchMapping {
   availabilityVendorId: AvailabilityVendorId;
   globalEntityId: string;
   enabled: boolean;
+  lateThresholdOverride?: number | null;
+  unassignedThresholdOverride?: number | null;
 }
 
 export interface OrdersMetrics {
@@ -104,6 +114,7 @@ export interface BranchSnapshot {
   autoReopen?: boolean;
 
   changeable?: boolean;
+  thresholds?: ThresholdProfile;
 
   metrics: OrdersMetrics;
 
@@ -139,13 +150,26 @@ export interface DashboardSnapshot {
   branches: BranchSnapshot[];
 }
 
-export interface BranchDetailSnapshot {
+export interface BranchDetailSnapshotAvailable {
+  snapshotAvailable: true;
   branch: BranchSnapshot;
   totals: OrdersMetrics;
   fetchedAt: string;
   unassignedOrders: BranchLiveOrder[];
   preparingOrders: BranchLiveOrder[];
 }
+
+export interface BranchDetailSnapshotUnavailable {
+  snapshotAvailable: false;
+  branch: BranchSnapshot;
+  totals: OrdersMetrics;
+  fetchedAt: null;
+  unassignedOrders: BranchLiveOrder[];
+  preparingOrders: BranchLiveOrder[];
+  message: string;
+}
+
+export type BranchDetailSnapshot = BranchDetailSnapshotAvailable | BranchDetailSnapshotUnavailable;
 
 export interface TokenTestResult {
   configured: boolean;
@@ -178,8 +202,45 @@ export interface SettingsTokenTestResponse {
   };
 }
 
+export type LookupVendorNameSource = "branch_mapping" | "recent_orders" | "none";
+export type LookupVendorNameCheckedSource = "branch_mapping" | "recent_orders";
+
 export interface LookupVendorNameResponse {
   ok: boolean;
   name: string | null;
-  note?: string;
+  source: LookupVendorNameSource;
+  resolvedGlobalEntityId: string;
+  checkedSources: LookupVendorNameCheckedSource[];
+  note: string;
+}
+
+export interface AppUser {
+  id: number;
+  email: string;
+  name: string;
+  role: AppUserRole;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface AuthSession {
+  token: string;
+  userId: number;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface LoginResponse {
+  ok: true;
+  user: AppUser;
+}
+
+export interface AuthMeResponse {
+  ok: true;
+  user: AppUser;
+}
+
+export interface AuthUsersResponse {
+  ok: true;
+  items: AppUser[];
 }

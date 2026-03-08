@@ -1,4 +1,5 @@
 node_modules/
 apps/server/dist/
 apps/web/dist/
-
+apps/server/data/*.sqlite-shm
+apps/server/data/*.sqlite-wal

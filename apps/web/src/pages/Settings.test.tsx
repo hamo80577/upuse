@@ -5,14 +5,22 @@ import { MemoryRouter } from "react-router-dom";
 const mockApi = vi.hoisted(() => ({
   dashboard: vi.fn(),
   getSettings: vi.fn(),
+  listBranches: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({
   api: mockApi,
-  clearStoredAdminKey: vi.fn(),
   describeApiError: (error: unknown, fallback = "Request failed") => (error instanceof Error ? error.message : fallback),
-  getStoredAdminKey: vi.fn(() => ""),
-  setStoredAdminKey: vi.fn(),
+}));
+
+vi.mock("../app/providers/AuthProvider", () => ({
+  useAuth: () => ({
+    canManageMonitor: true,
+    canManageSettings: true,
+    canManageTokens: true,
+    canTestTokens: true,
+    canManage: true,
+  }),
 }));
 
 vi.mock("../app/providers/MonitorStatusProvider", () => ({
@@ -28,16 +36,13 @@ vi.mock("../components/TopBar", () => ({
   TopBar: () => null,
 }));
 
-vi.mock("../features/settings/ChainThresholdManager", () => ({
-  ChainThresholdManager: () => null,
-}));
-
 import { SettingsPage } from "./Settings";
 
 describe("SettingsPage", () => {
   beforeEach(() => {
     mockApi.dashboard.mockReset();
     mockApi.getSettings.mockReset();
+    mockApi.listBranches.mockReset();
     mockApi.getSettings.mockResolvedValue({
       ordersToken: "",
       availabilityToken: "",
@@ -52,6 +57,7 @@ describe("SettingsPage", () => {
       availabilityRefreshSeconds: 30,
       maxVendorsPerOrdersRequest: 50,
     });
+    mockApi.listBranches.mockResolvedValue({ items: [] });
   });
 
   it("loads settings without fetching the full dashboard snapshot", async () => {
@@ -66,5 +72,6 @@ describe("SettingsPage", () => {
     });
 
     expect(mockApi.dashboard).not.toHaveBeenCalled();
+    expect(mockApi.listBranches).not.toHaveBeenCalled();
   });
 });

@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   mockGetSettings,
+  mockUpdateSettings,
   mockFetchAvailabilities,
   mockResolveOrdersGlobalEntityId,
   mockLookupVendorName,
   mockListBranches,
 } = vi.hoisted(() => ({
   mockGetSettings: vi.fn(),
+  mockUpdateSettings: vi.fn(),
   mockFetchAvailabilities: vi.fn(),
   mockResolveOrdersGlobalEntityId: vi.fn(),
   mockLookupVendorName: vi.fn(),
@@ -16,7 +18,7 @@ const {
 
 vi.mock("../services/settingsStore.js", () => ({
   getSettings: mockGetSettings,
-  updateSettings: vi.fn(),
+  updateSettings: mockUpdateSettings,
 }));
 
 vi.mock("../services/availabilityClient.js", () => ({
@@ -35,7 +37,7 @@ vi.mock("../services/branchStore.js", () => ({
   listBranches: mockListBranches,
 }));
 
-import { testTokensRoute } from "./settings.js";
+import { putSettingsRoute, testTokensRoute } from "./settings.js";
 
 function createResponse() {
   const res: any = {
@@ -56,6 +58,7 @@ function createResponse() {
 describe("testTokensRoute", () => {
   beforeEach(() => {
     mockGetSettings.mockReset();
+    mockUpdateSettings.mockReset();
     mockFetchAvailabilities.mockReset();
     mockResolveOrdersGlobalEntityId.mockReset();
     mockLookupVendorName.mockReset();
@@ -149,6 +152,64 @@ describe("testTokensRoute", () => {
       passedBranchCount: 0,
       failedBranchCount: 0,
       branches: [],
+    });
+  });
+});
+
+describe("putSettingsRoute", () => {
+  beforeEach(() => {
+    mockUpdateSettings.mockReset();
+    mockUpdateSettings.mockImplementation((patch: Record<string, unknown>) => ({
+      ordersToken: patch.ordersToken ?? "orders-token",
+      availabilityToken: patch.availabilityToken ?? "availability-token",
+      globalEntityId: "HF_EG",
+      chainNames: [],
+      chains: [],
+      lateThreshold: 5,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 30,
+      availabilityRefreshSeconds: 30,
+      maxVendorsPerOrdersRequest: 50,
+    }));
+  });
+
+  it("allows user accounts to update API tokens", () => {
+    const req: any = {
+      authUser: { role: "user" },
+      body: {
+        ordersToken: "user-orders-token",
+      },
+    };
+    const res = createResponse();
+
+    putSettingsRoute(req, res);
+
+    expect(mockUpdateSettings).toHaveBeenCalledWith({
+      ordersToken: "user-orders-token",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ ok: true });
+  });
+
+  it("rejects non-token settings changes from user accounts", () => {
+    const req: any = {
+      authUser: { role: "user" },
+      body: {
+        ordersToken: "user-orders-token",
+        globalEntityId: "HF_SA",
+      },
+    };
+    const res = createResponse();
+
+    putSettingsRoute(req, res);
+
+    expect(mockUpdateSettings).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toEqual({
+      ok: false,
+      message: "User can update tokens only.",
     });
   });
 });

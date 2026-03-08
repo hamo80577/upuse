@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type PropsWithChildren } from "react";
 import { api } from "../../api/client";
 import type { DashboardSnapshot } from "../../api/types";
+import { useAuth } from "./AuthProvider";
 
 interface MonitorStatusContextValue {
   monitoring: DashboardSnapshot["monitoring"];
@@ -17,6 +18,7 @@ const initialMonitoring: DashboardSnapshot["monitoring"] = {
 const MonitorStatusContext = createContext<MonitorStatusContextValue | null>(null);
 
 export function MonitorStatusProvider(props: PropsWithChildren) {
+  const { status } = useAuth();
   const [monitoring, setMonitoring] = useState<DashboardSnapshot["monitoring"]>(initialMonitoring);
 
   const applyMonitoring = (nextMonitoring: DashboardSnapshot["monitoring"]) => {
@@ -59,8 +61,13 @@ export function MonitorStatusProvider(props: PropsWithChildren) {
   };
 
   useEffect(() => {
+    if (status !== "authenticated") {
+      setMonitoring(initialMonitoring);
+      return;
+    }
+
     void refreshStatus().catch(() => {});
-  }, []);
+  }, [status]);
 
   return (
     <MonitorStatusContext.Provider

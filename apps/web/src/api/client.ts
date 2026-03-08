@@ -1,7 +1,5 @@
 export {
+  AUTH_UNAUTHORIZED_EVENT,
   api,
-  clearStoredAdminKey,
   describeApiError,
-  getStoredAdminKey,
-  setStoredAdminKey,
 } from "../shared/api/endpoints";

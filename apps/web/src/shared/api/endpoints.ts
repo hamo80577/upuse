@@ -1,4 +1,8 @@
 import type {
+  AuthMeResponse,
+  AuthUsersResponse,
+  LoginResponse,
+  AppUserRole,
   BranchDetailSnapshot,
   BranchMappingItem,
   DashboardSnapshot,
@@ -6,11 +10,25 @@ import type {
   SettingsMasked,
   SettingsTokenTestResponse,
 } from "../../api/types";
-import { clearStoredAdminKey, getStoredAdminKey, setStoredAdminKey } from "./adminKeyStorage";
-import { describeApiError, requestCsvDownload, requestJson, requestJsonEventStream } from "./httpClient";
+import { AUTH_UNAUTHORIZED_EVENT, describeApiError, requestCsvDownload, requestJson, requestJsonEventStream } from "./httpClient";
 
 export const api = {
   health: () => requestJson<{ ok: boolean }>("/api/health", undefined, { timeoutMs: 10_000 }),
+  login: (payload: { email: string; password: string }) =>
+    requestJson<LoginResponse>("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  me: () => requestJson<AuthMeResponse>("/api/auth/me"),
+  logout: () => requestJson<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
+  listUsers: () => requestJson<AuthUsersResponse>("/api/auth/users"),
+  createUser: (payload: { email: string; password: string; name: string; role: AppUserRole }) =>
+    requestJson<{ ok: boolean; user: AuthUsersResponse["items"][number] }>("/api/auth/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
   dashboard: () => requestJson<DashboardSnapshot>("/api/dashboard", undefined, { timeoutMs: 20_000 }),
   streamDashboard: (options: {
     signal?: AbortSignal;
@@ -33,7 +51,7 @@ export const api = {
     }),
   monitorStatus: () => requestJson<DashboardSnapshot["monitoring"]>("/api/monitor/status", undefined, { timeoutMs: 20_000 }),
   monitorRefreshOrders: () =>
-    requestJson<{ ok: boolean; running: boolean; message?: string; snapshot: DashboardSnapshot }>("/api/monitor/refresh-orders", {
+    requestJson<{ ok: boolean; running: boolean; inProgress?: boolean; message?: string; snapshot: DashboardSnapshot }>("/api/monitor/refresh-orders", {
       method: "POST",
     }, {
       timeoutMs: 70_000,
@@ -89,4 +107,7 @@ export const api = {
     }),
 };
 
-export { clearStoredAdminKey, describeApiError, getStoredAdminKey, setStoredAdminKey };
+export {
+  AUTH_UNAUTHORIZED_EVENT,
+  describeApiError,
+};

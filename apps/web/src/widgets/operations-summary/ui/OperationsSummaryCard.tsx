@@ -34,6 +34,7 @@ export function OperationsSummaryCard(props: {
   totals: DashboardSnapshot["totals"];
   updatedAt?: string;
   connectionState: DashboardLiveConnectionState;
+  canRefreshNow?: boolean;
   syncGuard: {
     stale: boolean;
     recovering: boolean;
@@ -43,6 +44,7 @@ export function OperationsSummaryCard(props: {
   onRefreshNow: () => void;
   onOpenReport: () => void;
 }) {
+  const canRefreshNow = props.canRefreshNow ?? true;
   const metrics: Array<{
     label: string;
     value: number;
@@ -199,11 +201,11 @@ export function OperationsSummaryCard(props: {
               size="small"
               variant="contained"
               color="error"
-              disabled={props.syncGuard.recovering}
+              disabled={!canRefreshNow || props.syncGuard.recovering}
               onClick={props.onRefreshNow}
               sx={{ fontWeight: 800, minWidth: 126 }}
             >
-              {props.syncGuard.recovering ? "Recovering..." : "Refresh Now"}
+              {!canRefreshNow ? "No Access" : props.syncGuard.recovering ? "Recovering..." : "Refresh Now"}
             </Button>
           )}
         >
@@ -230,11 +232,11 @@ export function OperationsSummaryCard(props: {
               size="small"
               variant="contained"
               color="warning"
-              disabled={props.syncGuard.recovering}
+              disabled={!canRefreshNow || props.syncGuard.recovering}
               onClick={props.onRefreshNow}
               sx={{ fontWeight: 800, minWidth: 126 }}
             >
-              {props.syncGuard.recovering ? "Recovering..." : "Refresh Now"}
+              {!canRefreshNow ? "No Access" : props.syncGuard.recovering ? "Recovering..." : "Refresh Now"}
             </Button>
           }
         >

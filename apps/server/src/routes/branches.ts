@@ -5,9 +5,10 @@ import { addBranch, deleteBranch, getBranchById, listBranches, updateBranch } fr
 import { resolveOrdersGlobalEntityId } from "../services/monitorOrdersPolling.js";
 import { getSettings } from "../services/settingsStore.js";
 import { fetchVendorOrdersDetail, lookupVendorName } from "../services/ordersClient.js";
+import { resolveBranchThresholdProfile } from "../services/thresholds.js";
 import { buildDeleteBranchResponse, parseBranchIdParam } from "./branchRouteHelpers.js";
 import { ORDERS_VENDOR_NAME_LOOKBACK_DAYS } from "../services/orders/lookup.js";
-import type { LookupVendorNameResponse } from "../types/models.js";
+import type { BranchDetailSnapshot, BranchMapping, BranchSnapshot, LookupVendorNameResponse, OrdersMetrics } from "../types/models.js";
 
 const BranchBody = z.object({
   name: z.string().min(1),
@@ -16,6 +17,18 @@ const BranchBody = z.object({
   availabilityVendorId: z.string().min(1),
   globalEntityId: z.string().max(20).default(""),
   enabled: z.boolean().default(true),
+  lateThresholdOverride: z.number().int().min(0).max(999).nullable().optional(),
+  unassignedThresholdOverride: z.number().int().min(0).max(999).nullable().optional(),
+}).superRefine((value, ctx) => {
+  const hasLate = value.lateThresholdOverride != null;
+  const hasUnassigned = value.unassignedThresholdOverride != null;
+  if (hasLate === hasUnassigned) return;
+
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: "Branch threshold overrides must include both late and unassigned values.",
+    path: ["lateThresholdOverride"],
+  });
 });
 
 type BranchConflictField = "availabilityVendorId" | "ordersVendorId";
@@ -39,12 +52,54 @@ function uniqueFieldMessage(field: BranchConflictField) {
   return "Orders Vendor ID already exists";
 }
 
+function emptyOrdersMetrics(): OrdersMetrics {
+  return {
+    totalToday: 0,
+    cancelledToday: 0,
+    doneToday: 0,
+    activeNow: 0,
+    lateNow: 0,
+    unassignedNow: 0,
+  };
+}
+
+function buildUnavailableBranchSnapshot(branch: BranchMapping, settings = getSettings()): BranchSnapshot {
+  return {
+    branchId: branch.id,
+    name: branch.name,
+    chainName: branch.chainName,
+    ordersVendorId: branch.ordersVendorId,
+    availabilityVendorId: branch.availabilityVendorId,
+    status: "UNKNOWN",
+    statusColor: "grey",
+    thresholds: resolveBranchThresholdProfile(branch, settings),
+    metrics: emptyOrdersMetrics(),
+  };
+}
+
+function buildUnavailableBranchDetail(branch: BranchMapping, settings = getSettings()): BranchDetailSnapshot {
+  return {
+    snapshotAvailable: false,
+    branch: buildUnavailableBranchSnapshot(branch, settings),
+    totals: emptyOrdersMetrics(),
+    fetchedAt: null,
+    unassignedOrders: [],
+    preparingOrders: [],
+    message: "This branch exists, but its live snapshot is currently unavailable.",
+  };
+}
+
 export function listBranchesRoute(_req: Request, res: Response) {
   res.json({ items: listBranches() });
 }
 
 export function addBranchRoute(req: Request, res: Response) {
-  const input = BranchBody.parse(req.body);
+  const parsed = BranchBody.parse(req.body);
+  const input = {
+    ...parsed,
+    lateThresholdOverride: parsed.lateThresholdOverride ?? null,
+    unassignedThresholdOverride: parsed.unassignedThresholdOverride ?? null,
+  };
 
   try {
     const id = addBranch(input as any);
@@ -68,7 +123,12 @@ export function updateBranchRoute(req: Request, res: Response) {
     return res.status(400).json({ ok: false, message: "Invalid branch id" });
   }
 
-  const input = BranchBody.parse(req.body);
+  const parsed = BranchBody.parse(req.body);
+  const input = {
+    ...parsed,
+    lateThresholdOverride: parsed.lateThresholdOverride ?? null,
+    unassignedThresholdOverride: parsed.unassignedThresholdOverride ?? null,
+  };
   try {
     const updated = updateBranch(id, input as any);
     res.json({ ok: true, item: { id, ...updated } });
@@ -107,12 +167,13 @@ export function branchDetailRoute(engine: MonitorEngine) {
       return res.status(404).json({ ok: false, message: "Branch not found" });
     }
 
+    const settings = getSettings();
     const snapshotBranch = engine.getSnapshot().branches.find((item) => item.branchId === id);
     if (!snapshotBranch) {
-      return res.status(404).json({ ok: false, message: "Branch snapshot not found" });
+      const fallbackDetail = buildUnavailableBranchDetail(branch, settings);
+      return res.json(fallbackDetail);
     }
 
-    const settings = getSettings();
     try {
       const detail = await fetchVendorOrdersDetail({
         token: settings.ordersToken,
@@ -120,16 +181,19 @@ export function branchDetailRoute(engine: MonitorEngine) {
         vendorId: branch.ordersVendorId,
       });
 
-      res.json({
+      const body: BranchDetailSnapshot = {
+        snapshotAvailable: true,
         branch: {
           ...snapshotBranch,
           metrics: snapshotBranch.metrics,
+          thresholds: snapshotBranch.thresholds ?? resolveBranchThresholdProfile(branch, settings),
         },
         totals: snapshotBranch.metrics,
         fetchedAt: detail.fetchedAt,
         unassignedOrders: detail.unassignedOrders,
         preparingOrders: detail.preparingOrders,
-      });
+      };
+      res.json(body);
     } catch (e: any) {
       res.status(502).json({
         ok: false,
@@ -146,16 +210,41 @@ export async function lookupVendorNameRoute(req: Request, res: Response) {
 
   const s = getSettings();
   const requestedGlobalEntityId = typeof req.query.globalEntityId === "string" ? req.query.globalEntityId : "";
+  const resolvedGlobalEntityId = resolveOrdersGlobalEntityId({ globalEntityId: requestedGlobalEntityId }, s.globalEntityId);
+  const branches = listBranches();
+  const mappedBranch = branches.find((branch) => (
+    branch.ordersVendorId === ordersVendorId &&
+    resolveOrdersGlobalEntityId(branch, s.globalEntityId) === resolvedGlobalEntityId &&
+    branch.name.trim().length > 0
+  ));
+
+  if (mappedBranch) {
+    const body: LookupVendorNameResponse = {
+      ok: true,
+      name: mappedBranch.name.trim(),
+      source: "branch_mapping",
+      resolvedGlobalEntityId,
+      checkedSources: ["branch_mapping"],
+      note: "Name filled from the saved branch mapping for this vendor.",
+    };
+    return res.json(body);
+  }
+
   try {
     const name = await lookupVendorName({
       token: s.ordersToken,
-      globalEntityId: resolveOrdersGlobalEntityId({ globalEntityId: requestedGlobalEntityId }, s.globalEntityId),
+      globalEntityId: resolvedGlobalEntityId,
       ordersVendorId,
     });
     const body: LookupVendorNameResponse = {
       ok: true,
       name,
-      note: name ? undefined : `No recent orders found for this vendor in the last ${ORDERS_VENDOR_NAME_LOOKBACK_DAYS} days.`,
+      source: name ? "recent_orders" : "none",
+      resolvedGlobalEntityId,
+      checkedSources: ["branch_mapping", "recent_orders"],
+      note: name
+        ? `Name inferred from recent orders seen in the last ${ORDERS_VENDOR_NAME_LOOKBACK_DAYS} days.`
+        : `Checked saved branch mappings and recent orders in the last ${ORDERS_VENDOR_NAME_LOOKBACK_DAYS} days. No name could be inferred for this vendor right now.`,
     };
     res.json(body);
   } catch (e: any) {

@@ -148,9 +148,14 @@ describe("monitorEngine.getSnapshot", () => {
     expect(branch.closeReason).toBe("UNASSIGNED");
     expect(branch.closeStartedAt).toBe("2026-03-04T12:46:59.000Z");
     expect(branch.closeStartedAt).not.toBe("2026-03-03T14:48:24.286Z");
+    expect(branch.thresholds).toEqual({
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      source: "global",
+    });
   });
 
-  it("uses external close start timestamp for externally owned temporary closures", () => {
+  it("derives external temporary-close start time from the configured closure window", () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",
       availabilityToken: "",
@@ -184,7 +189,7 @@ describe("monitorEngine.getSnapshot", () => {
       lastUpuseCloseReason: null,
       lastUpuseCloseAt: null,
       lastExternalCloseUntil: "2026-03-04T13:30:00.000Z",
-      lastExternalCloseAt: "2026-03-04T13:00:00.000Z",
+      lastExternalCloseAt: "2026-03-04T13:18:00.000Z",
       externalOpenDetectedAt: null,
       lastActionAt: null,
     });
@@ -224,5 +229,68 @@ describe("monitorEngine.getSnapshot", () => {
     expect(branch.status).toBe("TEMP_CLOSE");
     expect(branch.closureSource).toBe("EXTERNAL");
     expect(branch.closeStartedAt).toBe("2026-03-04T13:00:00.000Z");
+    expect(branch.closeStartedAt).not.toBe("2026-03-04T13:18:00.000Z");
+    expect(branch.thresholds).toEqual({
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      source: "global",
+    });
+  });
+});
+
+describe("monitorEngine.stop", () => {
+  beforeEach(() => {
+    mockGetSettings.mockReset();
+    mockListBranches.mockReset();
+    mockGetRuntime.mockReset();
+    mockSetRuntime.mockReset();
+  });
+
+  it("clears live monitor caches and timing state back to standby", () => {
+    mockListBranches.mockReturnValue([]);
+
+    const engine = new MonitorEngine() as any;
+    engine.running = true;
+    engine.ordersFresh = true;
+    engine.degraded = true;
+    engine.errors = {
+      orders: {
+        source: "orders",
+        message: "Orders API request failed",
+        at: "2026-03-07T00:00:00.000Z",
+      },
+    };
+    engine.ordersByVendor = new Map([[101, {
+      totalToday: 10,
+      cancelledToday: 1,
+      doneToday: 3,
+      activeNow: 6,
+      lateNow: 2,
+      unassignedNow: 1,
+    }]]);
+    engine.availabilityByVendor = new Map([["av-1", {
+      platformKey: "test",
+      changeable: true,
+      availabilityState: "OPEN",
+      platformRestaurantId: "av-1",
+      globalEntityId: "HF_EG",
+    }]]);
+    engine.lastOrdersFetchAt = "2026-03-07T01:00:00.000Z";
+    engine.lastAvailabilityFetchAt = "2026-03-07T01:00:10.000Z";
+    engine.lastHealthyAt = "2026-03-07T01:00:10.000Z";
+    engine.closedOrdersSnapshotDayByBranch = new Map([[1, "2026-03-07"]]);
+
+    engine.stop();
+
+    expect(engine.isRunning()).toBe(false);
+    expect(engine.ordersFresh).toBe(false);
+    expect(engine.degraded).toBe(false);
+    expect(engine.errors).toEqual({});
+    expect(engine.ordersByVendor.size).toBe(0);
+    expect(engine.availabilityByVendor.size).toBe(0);
+    expect(engine.lastOrdersFetchAt).toBeUndefined();
+    expect(engine.lastAvailabilityFetchAt).toBeUndefined();
+    expect(engine.lastHealthyAt).toBeUndefined();
+    expect(engine.closedOrdersSnapshotDayByBranch.size).toBe(0);
   });
 });

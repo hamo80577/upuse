@@ -1,55 +1,28 @@
+import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
 import { Alert, Box, Button, Card, CardContent, Container, Divider, Snackbar, Stack, TextField, Typography } from "@mui/material";
 import { useEffect, useState } from "react";
-import { api, clearStoredAdminKey, describeApiError, getStoredAdminKey, setStoredAdminKey } from "../api/client";
+import { useNavigate } from "react-router-dom";
+import { api, describeApiError } from "../api/client";
+import { useAuth } from "../app/providers/AuthProvider";
 import { useMonitorStatus } from "../app/providers/MonitorStatusProvider";
-import type { ChainThreshold, SettingsMasked, SettingsTokenTestResponse } from "../api/types";
+import type { SettingsMasked, SettingsTokenTestResponse } from "../api/types";
 import { TopBar } from "../components/TopBar";
-import { ChainThresholdManager, type ChainEditorDraft } from "../features/settings/ChainThresholdManager";
-
-function normalizeChains(chains: ChainThreshold[]) {
-  const seen = new Set<string>();
-  const out: ChainThreshold[] = [];
-
-  for (const chain of chains) {
-    const name = chain.name.trim();
-    if (!name) continue;
-
-    const key = name.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    out.push({
-      name,
-      lateThreshold: Math.max(0, Math.round(chain.lateThreshold)),
-      unassignedThreshold: Math.max(0, Math.round(chain.unassignedThreshold)),
-    });
-  }
-
-  return out;
-}
-
-function emptyChainEditor() {
-  return { name: "", lateThreshold: "5", unassignedThreshold: "5" };
-}
 
 export function Settings() {
-  const { monitoring, refreshStatus, startMonitoring, stopMonitoring } = useMonitorStatus();
+  const navigate = useNavigate();
+  const { canManageMonitor, canManageSettings, canManageTokens, canTestTokens } = useAuth();
+  const { monitoring, startMonitoring, stopMonitoring } = useMonitorStatus();
 
   const [s, setS] = useState<SettingsMasked | null>(null);
   const [form, setForm] = useState<any>({});
-  const [toast, setToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const [toast, setToast] = useState<{ type: "success" | "error" | "info"; msg: string } | null>(null);
   const [test, setTest] = useState<SettingsTokenTestResponse | null>(null);
-  const [chainEditor, setChainEditor] = useState<ChainEditorDraft>(emptyChainEditor());
-  const [editingChainIndex, setEditingChainIndex] = useState<number | null>(null);
-  const [adminKey, setAdminKey] = useState(() => getStoredAdminKey());
+  const canSave = canManageSettings || canManageTokens;
 
   const applySettings = (settings: SettingsMasked) => {
     setS(settings);
     setForm({
       globalEntityId: settings.globalEntityId,
-      chains: normalizeChains(settings.chains),
-      lateThreshold: settings.lateThreshold,
-      unassignedThreshold: settings.unassignedThreshold,
       tempCloseMinutes: settings.tempCloseMinutes,
       graceMinutes: settings.graceMinutes,
       ordersRefreshSeconds: settings.ordersRefreshSeconds,
@@ -78,12 +51,11 @@ export function Settings() {
     void loadProtectedData();
   }, []);
 
-  const resetChainEditor = () => {
-    setEditingChainIndex(null);
-    setChainEditor(emptyChainEditor());
-  };
-
   const onStart = async () => {
+    if (!canManageMonitor) {
+      setToast({ type: "info", msg: "No access" });
+      return;
+    }
     try {
       await startMonitoring();
       setToast({ type: "success", msg: "Monitoring started" });
@@ -91,7 +63,12 @@ export function Settings() {
       setToast({ type: "error", msg: "Failed to start" });
     }
   };
+
   const onStop = async () => {
+    if (!canManageMonitor) {
+      setToast({ type: "info", msg: "No access" });
+      return;
+    }
     try {
       await stopMonitoring();
       setToast({ type: "success", msg: "Monitoring stopped" });
@@ -100,38 +77,35 @@ export function Settings() {
     }
   };
 
-  const saveAdminKey = async () => {
-    const normalized = adminKey.trim();
-    if (normalized) {
-      setStoredAdminKey(normalized);
-    } else {
-      clearStoredAdminKey();
-    }
-
-    const [loaded] = await Promise.all([
-      loadProtectedData({ silent: true }),
-      refreshStatus().catch((error) => ({ error })),
-    ]);
-    setToast({
-      type: loaded.ok ? "success" : "error",
-      msg: loaded.ok
-        ? (normalized ? "Admin key saved" : "Admin key cleared")
-        : loaded.message,
-    });
-  };
-
-  const resetAdminKey = () => {
-    clearStoredAdminKey();
-    setAdminKey("");
-    setToast({ type: "success", msg: "Admin key cleared" });
-  };
-
   const save = async () => {
+    if (!canSave) {
+      setToast({ type: "info", msg: "No access" });
+      return;
+    }
     try {
-      const payload: any = {
-        ...form,
-        chains: normalizeChains(form.chains ?? []),
-      };
+      const payload: any = canManageSettings
+        ? {
+            globalEntityId: form.globalEntityId,
+            tempCloseMinutes: form.tempCloseMinutes,
+            graceMinutes: form.graceMinutes,
+            ordersRefreshSeconds: form.ordersRefreshSeconds,
+            availabilityRefreshSeconds: form.availabilityRefreshSeconds,
+            maxVendorsPerOrdersRequest: form.maxVendorsPerOrdersRequest,
+          }
+        : {};
+
+      if (canManageTokens) {
+        const ordersToken = String(form.ordersToken ?? "").trim();
+        const availabilityToken = String(form.availabilityToken ?? "").trim();
+
+        if (ordersToken) payload.ordersToken = ordersToken;
+        if (availabilityToken) payload.availabilityToken = availabilityToken;
+      }
+
+      if (!canManageSettings && !Object.keys(payload).length) {
+        setToast({ type: "info", msg: "Enter at least one token before saving." });
+        return;
+      }
 
       if (!payload.ordersToken) delete payload.ordersToken;
       if (!payload.availabilityToken) delete payload.availabilityToken;
@@ -139,7 +113,6 @@ export function Settings() {
       await api.putSettings(payload);
       const fresh = await api.getSettings();
       applySettings(fresh);
-      resetChainEditor();
       setToast({ type: "success", msg: "Saved" });
       setTest(null);
     } catch {
@@ -148,6 +121,10 @@ export function Settings() {
   };
 
   const runTest = async () => {
+    if (!canTestTokens) {
+      setToast({ type: "info", msg: "No access" });
+      return;
+    }
     try {
       const r = await api.testTokens();
       setTest(r);
@@ -156,86 +133,15 @@ export function Settings() {
     }
   };
 
-  const persistChains = async (nextChains: ChainThreshold[]) => {
-    const normalized = normalizeChains(nextChains);
-
-    try {
-      await api.putSettings({ chains: normalized });
-      setS((current) => (
-        current
-          ? {
-              ...current,
-              chainNames: normalized.map((item) => item.name),
-              chains: normalized,
-            }
-          : current
-      ));
-      setForm((current: any) => ({
-        ...current,
-        chains: normalized,
-      }));
-      resetChainEditor();
-      setToast({ type: "success", msg: "Chains saved" });
-    } catch {
-      setToast({ type: "error", msg: "Chain save failed" });
-    }
-  };
-
-  const upsertChain = async () => {
-    const name = chainEditor.name.trim();
-    const lateThreshold = Number(chainEditor.lateThreshold);
-    const unassignedThreshold = Number(chainEditor.unassignedThreshold);
-
-    if (!name) {
-      setToast({ type: "error", msg: "Enter chain name" });
-      return;
-    }
-    if (!Number.isFinite(lateThreshold) || lateThreshold < 0) {
-      setToast({ type: "error", msg: "Enter valid late threshold" });
-      return;
-    }
-    if (!Number.isFinite(unassignedThreshold) || unassignedThreshold < 0) {
-      setToast({ type: "error", msg: "Enter valid unassigned threshold" });
-      return;
-    }
-
-    const nextChains = normalizeChains(
-      (form.chains ?? []).filter(
-        (_item: ChainThreshold, index: number) => index !== editingChainIndex,
-      ),
-    ).filter((item) => item.name.trim().toLowerCase() !== name.toLowerCase());
-
-    nextChains.push({
-      name,
-      lateThreshold: Math.round(lateThreshold),
-      unassignedThreshold: Math.round(unassignedThreshold),
-    });
-    nextChains.sort((a, b) => a.name.localeCompare(b.name));
-
-    await persistChains(nextChains);
-  };
-
-  const startChainEdit = (chain: ChainThreshold, index: number) => {
-    setEditingChainIndex(index);
-    setChainEditor({
-      name: chain.name,
-      lateThreshold: String(chain.lateThreshold),
-      unassignedThreshold: String(chain.unassignedThreshold),
-    });
-  };
-
-  const removeChain = async (index: number) => {
-    const nextChains = (form.chains ?? []).filter(
-      (_item: ChainThreshold, itemIndex: number) => itemIndex !== index,
-    );
-    await persistChains(nextChains);
-  };
-
-  const chains: ChainThreshold[] = form.chains ?? [];
-
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
-      <TopBar running={monitoring.running} degraded={monitoring.degraded} onStart={onStart} onStop={onStop} />
+      <TopBar
+        running={monitoring.running}
+        degraded={monitoring.degraded}
+        onStart={onStart}
+        onStop={onStop}
+        canControlMonitor={canManageMonitor}
+      />
 
       <Container maxWidth="lg" sx={{ py: 3 }}>
         <Card
@@ -246,59 +152,32 @@ export function Settings() {
           }}
         >
           <CardContent sx={{ display: "flex", flexDirection: "column", gap: 2.25, p: { xs: 2, md: 2.5 } }}>
-            <Box>
-              <Typography variant="h6" sx={{ fontWeight: 900 }}>
-                Settings
-              </Typography>
-              <Typography variant="body2" sx={{ color: "text.secondary" }}>
-                Manage monitor timing, tokens, and per-chain thresholds.
-              </Typography>
-            </Box>
+            <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} justifyContent="space-between" alignItems={{ xs: "flex-start", md: "center" }}>
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                  Settings
+                </Typography>
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                  Manage monitor timing and API tokens.
+                </Typography>
+              </Box>
 
-            <ChainThresholdManager
-              chains={chains}
-              editingChainIndex={editingChainIndex}
-              chainEditor={chainEditor}
-              onChangeEditor={(patch) => setChainEditor((current) => ({ ...current, ...patch }))}
-              onEditChain={startChainEdit}
-              onRemoveChain={removeChain}
-              onSaveChain={upsertChain}
-              onCancelEdit={resetChainEditor}
-            />
-
-            <Divider />
-
-            <Stack spacing={1.2}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
-                Admin Key
-              </Typography>
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-                <TextField
-                  label="Browser Admin Key"
-                  type="password"
-                  value={adminKey}
-                  onChange={(e) => setAdminKey(e.target.value)}
-                  helperText="Stored in this browser session for 8 hours and sent only as Authorization header."
-                  fullWidth
-                />
-                <Stack direction="row" spacing={1.2}>
-                  <Button variant="outlined" onClick={saveAdminKey}>
-                    Save Key
-                  </Button>
-                  <Button variant="text" onClick={resetAdminKey}>
-                    Clear Key
-                  </Button>
-                </Stack>
-              </Stack>
+              <Button
+                variant="outlined"
+                startIcon={<TuneRoundedIcon />}
+                onClick={() => navigate("/settings/thresholds")}
+                sx={{ borderRadius: 999, fontWeight: 800 }}
+              >
+                Threshold Rules
+              </Button>
             </Stack>
-
-            <Divider />
 
             <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
               <TextField
                 label="Global Entity ID"
                 value={form.globalEntityId ?? ""}
                 onChange={(e) => setForm((p: any) => ({ ...p, globalEntityId: e.target.value }))}
+                disabled={!canManageSettings}
                 fullWidth
               />
               <TextField
@@ -306,6 +185,7 @@ export function Settings() {
                 type="number"
                 value={form.tempCloseMinutes ?? 30}
                 onChange={(e) => setForm((p: any) => ({ ...p, tempCloseMinutes: Number(e.target.value) }))}
+                disabled={!canManageSettings}
                 fullWidth
               />
               <TextField
@@ -313,6 +193,7 @@ export function Settings() {
                 type="number"
                 value={form.graceMinutes ?? 5}
                 onChange={(e) => setForm((p: any) => ({ ...p, graceMinutes: Number(e.target.value) }))}
+                disabled={!canManageSettings}
                 fullWidth
               />
             </Stack>
@@ -323,6 +204,7 @@ export function Settings() {
                 type="number"
                 value={form.ordersRefreshSeconds ?? 30}
                 onChange={(e) => setForm((p: any) => ({ ...p, ordersRefreshSeconds: Number(e.target.value) }))}
+                disabled={!canManageSettings}
                 fullWidth
               />
               <TextField
@@ -330,6 +212,7 @@ export function Settings() {
                 type="number"
                 value={form.availabilityRefreshSeconds ?? 30}
                 onChange={(e) => setForm((p: any) => ({ ...p, availabilityRefreshSeconds: Number(e.target.value) }))}
+                disabled={!canManageSettings}
                 fullWidth
               />
               <TextField
@@ -337,6 +220,7 @@ export function Settings() {
                 type="number"
                 value={form.maxVendorsPerOrdersRequest ?? 50}
                 onChange={(e) => setForm((p: any) => ({ ...p, maxVendorsPerOrdersRequest: Number(e.target.value) }))}
+                disabled={!canManageSettings}
                 fullWidth
               />
             </Stack>
@@ -346,6 +230,7 @@ export function Settings() {
             <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
               Tokens
             </Typography>
+
             <Stack spacing={1.5}>
               <TextField
                 label="Orders API Token"
@@ -353,6 +238,7 @@ export function Settings() {
                 placeholder={s?.ordersToken ? s.ordersToken : ""}
                 value={form.ordersToken ?? ""}
                 onChange={(e) => setForm((p: any) => ({ ...p, ordersToken: e.target.value }))}
+                disabled={!canManageTokens}
                 fullWidth
               />
               <TextField
@@ -361,15 +247,16 @@ export function Settings() {
                 placeholder={s?.availabilityToken ? s.availabilityToken : ""}
                 value={form.availabilityToken ?? ""}
                 onChange={(e) => setForm((p: any) => ({ ...p, availabilityToken: e.target.value }))}
+                disabled={!canManageTokens}
                 fullWidth
               />
             </Stack>
 
             <Stack direction="row" spacing={1.2} sx={{ mt: 1 }}>
-              <Button variant="contained" onClick={save}>
-                Save
+              <Button variant="contained" onClick={save} disabled={!canSave}>
+                {canSave ? "Save" : "Read Only"}
               </Button>
-              <Button variant="outlined" onClick={runTest}>
+              <Button variant="outlined" onClick={runTest} disabled={!canTestTokens}>
                 Test Tokens
               </Button>
             </Stack>
@@ -378,7 +265,7 @@ export function Settings() {
               <Box sx={{ mt: 1 }}>
                 <Stack spacing={1}>
                   <Alert severity={test.availability.ok ? "success" : test.availability.configured ? "error" : "warning"}>
-                    Availability Token: {" "}
+                    Availability Token:{" "}
                     {test.availability.ok
                       ? "OK"
                       : test.availability.message || `Failed${test.availability.status ? ` (HTTP ${test.availability.status})` : ""}`}
@@ -394,8 +281,8 @@ export function Settings() {
                     <Stack spacing={0.75}>
                       {test.orders.branches.map((branch) => (
                         <Alert key={branch.branchId} severity={branch.ok ? "success" : "error"} variant="outlined">
-                          {branch.name} ({branch.ordersVendorId}, {branch.globalEntityId || "missing entity"})
-                          : {branch.ok ? branch.sampleVendorName || branch.message || "Token OK" : branch.message || `Failed${branch.status ? ` (HTTP ${branch.status})` : ""}`}
+                          {branch.name} ({branch.ordersVendorId}, {branch.globalEntityId || "missing entity"}):{" "}
+                          {branch.ok ? branch.sampleVendorName || branch.message || "Token OK" : branch.message || `Failed${branch.status ? ` (HTTP ${branch.status})` : ""}`}
                         </Alert>
                       ))}
                     </Stack>

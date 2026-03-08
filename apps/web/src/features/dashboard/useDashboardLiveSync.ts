@@ -25,6 +25,36 @@ const emptySnap: DashboardSnapshot = {
   branches: [],
 };
 
+function normalizeDashboardSnapshot(snapshot: DashboardSnapshot | null | undefined): DashboardSnapshot {
+  if (!snapshot || typeof snapshot !== "object") {
+    return emptySnap;
+  }
+
+  const monitoring =
+    snapshot.monitoring && typeof snapshot.monitoring === "object"
+      ? {
+          ...emptySnap.monitoring,
+          ...snapshot.monitoring,
+        }
+      : emptySnap.monitoring;
+
+  const totals =
+    snapshot.totals && typeof snapshot.totals === "object"
+      ? {
+          ...emptySnap.totals,
+          ...snapshot.totals,
+        }
+      : emptySnap.totals;
+
+  const branches = Array.isArray(snapshot.branches) ? snapshot.branches : emptySnap.branches;
+
+  return {
+    monitoring,
+    totals,
+    branches,
+  };
+}
+
 function isAbortError(error: unknown) {
   return error instanceof Error && error.name === "AbortError";
 }
@@ -61,16 +91,20 @@ export function useDashboardLiveSync() {
     setConnectionStateState(nextState);
   };
 
-  const applySnapshot = (nextSnap: DashboardSnapshot) => {
+  const applySnapshot = (nextSnap: DashboardSnapshot | null | undefined) => {
+    const normalized = normalizeDashboardSnapshot(nextSnap);
     hasSnapshotRef.current = true;
-    setSnapState(nextSnap);
+    setSnapState(normalized);
     setSyncError(null);
-    applyMonitoringRef.current(nextSnap.monitoring);
+    applyMonitoringRef.current(normalized.monitoring);
   };
 
   const loadDashboard = async (options?: { silent?: boolean }) => {
     try {
       const data = await api.dashboard();
+      if (!mountedRef.current) {
+        return { ok: false as const, message: "Unmounted" };
+      }
       applySnapshot(data);
       setSyncError(null);
       if (connectionStateRef.current !== "live") {
@@ -78,6 +112,9 @@ export function useDashboardLiveSync() {
       }
       return { ok: true as const };
     } catch (error) {
+      if (!mountedRef.current) {
+        return { ok: false as const, message: "Unmounted" };
+      }
       const message = describeApiError(error, "Failed to load dashboard");
       if (!options?.silent) {
         setSyncError(message);
@@ -275,8 +312,14 @@ export function useDashboardLiveSync() {
     setSyncRecovering(true);
     try {
       const monitoring = await api.monitorStatus();
+      if (!mountedRef.current) {
+        return { ok: false, manual, message: "Unmounted" };
+      }
       applyMonitoringRef.current(monitoring);
       const fresh = await api.dashboard();
+      if (!mountedRef.current) {
+        return { ok: false, manual, message: "Unmounted" };
+      }
       applySnapshot(fresh);
       setSyncError(null);
       if (connectionStateRef.current !== "live") {
@@ -284,6 +327,9 @@ export function useDashboardLiveSync() {
       }
       return { ok: true, manual, message: undefined as string | undefined };
     } catch (error) {
+      if (!mountedRef.current) {
+        return { ok: false, manual, message: "Unmounted" };
+      }
       const message = describeApiError(error, "Refresh failed");
       setSyncError(message);
       if (connectionStateRef.current !== "live") {
@@ -291,7 +337,9 @@ export function useDashboardLiveSync() {
       }
       return { ok: false, manual, message };
     } finally {
-      setSyncRecovering(false);
+      if (mountedRef.current) {
+        setSyncRecovering(false);
+      }
     }
   };
 

@@ -13,6 +13,12 @@ vi.mock("../../api/client", () => ({
   api: mockApi,
 }));
 
+vi.mock("./AuthProvider", () => ({
+  useAuth: () => ({
+    status: "authenticated",
+  }),
+}));
+
 function Probe() {
   const { monitoring } = useMonitorStatus();
   return <div>{monitoring.running ? "running" : "stopped"}</div>;

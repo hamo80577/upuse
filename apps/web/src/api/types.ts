@@ -1,9 +1,17 @@
 export type CloseReason = "LATE" | "UNASSIGNED";
+export type AppUserRole = "admin" | "user";
+export type ThresholdSource = "branch" | "chain" | "global";
 
 export interface ChainThreshold {
   name: string;
   lateThreshold: number;
   unassignedThreshold: number;
+}
+
+export interface ThresholdProfile {
+  lateThreshold: number;
+  unassignedThreshold: number;
+  source: ThresholdSource;
 }
 
 export interface MonitorSourceError {
@@ -52,6 +60,7 @@ export interface BranchSnapshot {
   closeReason?: CloseReason;
   autoReopen?: boolean;
   changeable?: boolean;
+  thresholds?: ThresholdProfile;
 
   metrics: OrdersMetrics;
   lastUpdatedAt?: string;
@@ -65,6 +74,8 @@ export interface BranchMappingItem {
   availabilityVendorId: string;
   globalEntityId: string;
   enabled: boolean;
+  lateThresholdOverride?: number | null;
+  unassignedThresholdOverride?: number | null;
 }
 
 export interface DashboardSnapshot {
@@ -96,13 +107,26 @@ export interface DashboardSnapshot {
   branches: BranchSnapshot[];
 }
 
-export interface BranchDetailSnapshot {
+export interface BranchDetailSnapshotAvailable {
+  snapshotAvailable: true;
   branch: BranchSnapshot;
   totals: OrdersMetrics;
   fetchedAt: string;
   unassignedOrders: BranchLiveOrder[];
   preparingOrders: BranchLiveOrder[];
 }
+
+export interface BranchDetailSnapshotUnavailable {
+  snapshotAvailable: false;
+  branch: BranchSnapshot;
+  totals: OrdersMetrics;
+  fetchedAt: null;
+  unassignedOrders: BranchLiveOrder[];
+  preparingOrders: BranchLiveOrder[];
+  message: string;
+}
+
+export type BranchDetailSnapshot = BranchDetailSnapshotAvailable | BranchDetailSnapshotUnavailable;
 
 export type DashboardLiveConnectionState = "connecting" | "live" | "fallback" | "disconnected";
 
@@ -156,8 +180,38 @@ export interface SettingsTokenTestResponse {
   };
 }
 
+export type LookupVendorNameSource = "branch_mapping" | "recent_orders" | "none";
+export type LookupVendorNameCheckedSource = "branch_mapping" | "recent_orders";
+
 export interface LookupVendorNameResponse {
   ok: boolean;
   name: string | null;
-  note?: string;
+  source: LookupVendorNameSource;
+  resolvedGlobalEntityId: string;
+  checkedSources: LookupVendorNameCheckedSource[];
+  note: string;
+}
+
+export interface AppUser {
+  id: number;
+  email: string;
+  name: string;
+  role: AppUserRole;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface LoginResponse {
+  ok: true;
+  user: AppUser;
+}
+
+export interface AuthMeResponse {
+  ok: true;
+  user: AppUser;
+}
+
+export interface AuthUsersResponse {
+  ok: true;
+  items: AppUser[];
 }

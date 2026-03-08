@@ -17,6 +17,7 @@ import { log } from "../../services/logger.js";
 import { markCloseEventReopened, recordMonitorCloseAction } from "../../services/actionReportStore.js";
 import { createOrdersPollingPlan, createOrdersPollingRequests, resolveOrdersGlobalEntityId } from "../../services/monitorOrdersPolling.js";
 import { decide } from "../../services/policyEngine.js";
+import { resolveBranchThresholdProfile } from "../../services/thresholds.js";
 import { Mutex } from "../../utils/mutex.js";
 import { nowUtcIso } from "../../utils/time.js";
 
@@ -197,27 +198,11 @@ export class MonitorEngine {
     };
   }
 
-  private resolveThresholds(branch: Pick<BranchMapping, "chainName">, settings: Settings) {
-    const chainKey = branch.chainName.trim().toLowerCase();
-    if (!chainKey) {
-      return {
-        lateThreshold: settings.lateThreshold,
-        unassignedThreshold: settings.unassignedThreshold,
-      };
-    }
-
-    const match = settings.chains.find((item) => item.name.trim().toLowerCase() === chainKey);
-    if (!match) {
-      return {
-        lateThreshold: settings.lateThreshold,
-        unassignedThreshold: settings.unassignedThreshold,
-      };
-    }
-
-    return {
-      lateThreshold: match.lateThreshold,
-      unassignedThreshold: match.unassignedThreshold,
-    };
+  private resolveThresholds(
+    branch: Pick<BranchMapping, "chainName" | "lateThresholdOverride" | "unassignedThresholdOverride">,
+    settings: Settings,
+  ) {
+    return resolveBranchThresholdProfile(branch, settings);
   }
 
   private inferMonitorCloseReason(branch: BranchMapping, metrics: OrdersMetrics, settings: Settings): CloseReason | undefined {
@@ -474,6 +459,7 @@ export class MonitorEngine {
     };
 
     const branchSnapshots = branches.map((b) => {
+      const thresholds = this.resolveThresholds(b, settings);
       const rawMetrics = this.ordersByVendor.get(b.ordersVendorId) ?? {
         totalToday: 0,
         cancelledToday: 0,
@@ -510,6 +496,9 @@ export class MonitorEngine {
           status = "TEMP_CLOSE";
           statusColor = "red";
           closedUntil = av.closedUntil;
+          // Keep the UI timer anchored to the configured closure window:
+          // if a branch reopens at 12:30 and tempCloseMinutes is 30, progress starts at 12:00.
+          closeStartedAt = this.inferCloseStartedAt(av.closedUntil, settings.tempCloseMinutes);
           closedByUpuse = this.isMonitorOwnedClosure(runtime, av);
           closureSource = closedByUpuse ? "UPUSE" : "EXTERNAL";
           autoReopen = closedByUpuse;
@@ -517,11 +506,7 @@ export class MonitorEngine {
             closeReason =
               (runtime?.lastUpuseCloseReason as DashboardSnapshot["branches"][number]["closeReason"]) ??
               this.inferMonitorCloseReason(b, rawMetrics, settings);
-            closeStartedAt =
-              runtime?.lastUpuseCloseAt ??
-              this.inferCloseStartedAt(av.closedUntil, settings.tempCloseMinutes);
           } else {
-            closeStartedAt = runtime?.lastExternalCloseAt ?? undefined;
             closeReason = undefined;
           }
           totals.tempClose += 1;
@@ -549,6 +534,7 @@ export class MonitorEngine {
         closeReason,
         autoReopen,
         changeable: av?.changeable,
+        thresholds,
         metrics,
         lastUpdatedAt: this.lastHealthyAt,
       };
@@ -587,6 +573,12 @@ export class MonitorEngine {
     this.ordersFresh = false;
     this.manualOrdersRefreshPromise = null;
     this.errors = {};
+    this.ordersByVendor.clear();
+    this.availabilityByVendor.clear();
+    this.lastOrdersFetchAt = undefined;
+    this.lastAvailabilityFetchAt = undefined;
+    this.lastHealthyAt = undefined;
+    this.closedOrdersSnapshotDayByBranch.clear();
     this.syncDegraded();
     this.clearScheduleHandles();
     log(null, "INFO", "Monitoring stopped");

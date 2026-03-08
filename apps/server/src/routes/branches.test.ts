@@ -72,6 +72,48 @@ function validBranchBody() {
   };
 }
 
+function branchMapping(overrides?: Partial<ReturnType<typeof validBranchBody> & { id: number }>) {
+  return {
+    id: 7,
+    name: "Branch 1",
+    chainName: "Chain A",
+    ordersVendorId: 111,
+    availabilityVendorId: "222",
+    globalEntityId: "HF_EG",
+    enabled: true,
+    lateThresholdOverride: null,
+    unassignedThresholdOverride: null,
+    ...overrides,
+  };
+}
+
+function branchSnapshot(overrides?: Record<string, unknown>) {
+  return {
+    branchId: 7,
+    name: "Branch 1",
+    chainName: "Chain A",
+    ordersVendorId: 111,
+    availabilityVendorId: "222",
+    status: "OPEN",
+    statusColor: "green",
+    thresholds: {
+      lateThreshold: 5,
+      unassignedThreshold: 5,
+      source: "chain",
+    },
+    metrics: {
+      totalToday: 6,
+      cancelledToday: 1,
+      doneToday: 2,
+      activeNow: 3,
+      lateNow: 0,
+      unassignedNow: 1,
+    },
+    lastUpdatedAt: "2026-03-06T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
 describe("branches routes unique-constraint handling", () => {
   beforeEach(() => {
     mockAddBranch.mockReset();
@@ -128,15 +170,70 @@ describe("lookupVendorNameRoute", () => {
   beforeEach(() => {
     mockLookupVendorName.mockReset();
     mockGetSettings.mockReset();
+    mockListBranches.mockReset();
     mockResolveOrdersGlobalEntityId.mockReset();
     mockResolveOrdersGlobalEntityId.mockImplementation((_branch: unknown, fallback: string) => fallback);
     mockGetSettings.mockReturnValue({
       ordersToken: "orders-token",
       globalEntityId: "HF_EG",
+      chains: [{ name: "Chain A", lateThreshold: 5, unassignedThreshold: 5 }],
+      lateThreshold: 5,
+      unassignedThreshold: 5,
+    });
+    mockListBranches.mockReturnValue([]);
+  });
+
+  it("resolves the vendor name from a saved branch mapping before querying recent orders", async () => {
+    mockListBranches.mockReturnValue([
+      branchMapping({
+        id: 1,
+        name: "Saved Branch",
+        ordersVendorId: 33,
+      }),
+    ]);
+    const { lookupVendorNameRoute } = await import("./branches.js");
+    const req: any = { query: { ordersVendorId: "33", globalEntityId: "" } };
+    const res = createResponse();
+
+    await lookupVendorNameRoute(req, res);
+
+    expect(mockLookupVendorName).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      ok: true,
+      name: "Saved Branch",
+      source: "branch_mapping",
+      resolvedGlobalEntityId: "HF_EG",
+      checkedSources: ["branch_mapping"],
+      note: "Name filled from the saved branch mapping for this vendor.",
     });
   });
 
-  it("returns a note when no recent vendor name can be inferred", async () => {
+  it("falls back to recent orders when branch mapping data is unavailable", async () => {
+    mockLookupVendorName.mockResolvedValue("Orders Branch");
+    const { lookupVendorNameRoute } = await import("./branches.js");
+    const req: any = { query: { ordersVendorId: "33", globalEntityId: "" } };
+    const res = createResponse();
+
+    await lookupVendorNameRoute(req, res);
+
+    expect(mockLookupVendorName).toHaveBeenCalledWith({
+      token: "orders-token",
+      globalEntityId: "HF_EG",
+      ordersVendorId: 33,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      ok: true,
+      name: "Orders Branch",
+      source: "recent_orders",
+      resolvedGlobalEntityId: "HF_EG",
+      checkedSources: ["branch_mapping", "recent_orders"],
+      note: "Name inferred from recent orders seen in the last 30 days.",
+    });
+  });
+
+  it("returns an explicit unresolved result when neither mapping nor recent orders can infer a name", async () => {
     mockLookupVendorName.mockResolvedValue(null);
     const { lookupVendorNameRoute } = await import("./branches.js");
     const req: any = { query: { ordersVendorId: "33", globalEntityId: "" } };
@@ -148,7 +245,134 @@ describe("lookupVendorNameRoute", () => {
     expect(res.body).toEqual({
       ok: true,
       name: null,
-      note: "No recent orders found for this vendor in the last 30 days.",
+      source: "none",
+      resolvedGlobalEntityId: "HF_EG",
+      checkedSources: ["branch_mapping", "recent_orders"],
+      note: "Checked saved branch mappings and recent orders in the last 30 days. No name could be inferred for this vendor right now.",
+    });
+  });
+});
+
+describe("branchDetailRoute", () => {
+  beforeEach(() => {
+    mockGetBranchById.mockReset();
+    mockFetchVendorOrdersDetail.mockReset();
+    mockGetSettings.mockReset();
+    mockResolveOrdersGlobalEntityId.mockReset();
+    mockResolveOrdersGlobalEntityId.mockImplementation((_branch: unknown, fallback: string) => fallback);
+    mockGetSettings.mockReturnValue({
+      ordersToken: "orders-token",
+      globalEntityId: "HF_EG",
+      chains: [{ name: "Chain A", lateThreshold: 5, unassignedThreshold: 5 }],
+      lateThreshold: 5,
+      unassignedThreshold: 5,
+    });
+  });
+
+  it("returns 404 only when the persisted branch mapping is missing", async () => {
+    mockGetBranchById.mockReturnValue(null);
+    const { branchDetailRoute } = await import("./branches.js");
+    const engine: any = {
+      getSnapshot: () => ({ branches: [] }),
+    };
+    const req: any = { params: { id: "7" } };
+    const res = createResponse();
+
+    await branchDetailRoute(engine)(req, res);
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toEqual({ ok: false, message: "Branch not found" });
+  });
+
+  it("returns a fallback payload when the branch exists but its live snapshot is unavailable", async () => {
+    mockGetBranchById.mockReturnValue(branchMapping());
+    const { branchDetailRoute } = await import("./branches.js");
+    const engine: any = {
+      getSnapshot: () => ({ branches: [] }),
+    };
+    const req: any = { params: { id: "7" } };
+    const res = createResponse();
+
+    await branchDetailRoute(engine)(req, res);
+
+    expect(mockFetchVendorOrdersDetail).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      snapshotAvailable: false,
+      branch: {
+        branchId: 7,
+        name: "Branch 1",
+        chainName: "Chain A",
+        ordersVendorId: 111,
+      availabilityVendorId: "222",
+      status: "UNKNOWN",
+      statusColor: "grey",
+      thresholds: {
+        lateThreshold: 5,
+        unassignedThreshold: 5,
+        source: "chain",
+      },
+      metrics: {
+        totalToday: 0,
+          cancelledToday: 0,
+          doneToday: 0,
+          activeNow: 0,
+          lateNow: 0,
+          unassignedNow: 0,
+        },
+      },
+      totals: {
+        totalToday: 0,
+        cancelledToday: 0,
+        doneToday: 0,
+        activeNow: 0,
+        lateNow: 0,
+        unassignedNow: 0,
+      },
+      fetchedAt: null,
+      unassignedOrders: [],
+      preparingOrders: [],
+      message: "This branch exists, but its live snapshot is currently unavailable.",
+    });
+  });
+
+  it("returns live branch detail when snapshot data is present", async () => {
+    mockGetBranchById.mockReturnValue(branchMapping());
+    mockFetchVendorOrdersDetail.mockResolvedValue({
+      metrics: {
+        totalToday: 6,
+        cancelledToday: 1,
+        doneToday: 2,
+        activeNow: 3,
+        lateNow: 0,
+        unassignedNow: 1,
+      },
+      fetchedAt: "2026-03-06T10:05:00.000Z",
+      unassignedOrders: [{ id: "1", externalId: "ORD-1", status: "UNASSIGNED", isUnassigned: true, isLate: false }],
+      preparingOrders: [{ id: "2", externalId: "ORD-2", status: "PREPARING", isUnassigned: false, isLate: false }],
+    });
+    const { branchDetailRoute } = await import("./branches.js");
+    const engine: any = {
+      getSnapshot: () => ({ branches: [branchSnapshot()] }),
+    };
+    const req: any = { params: { id: "7" } };
+    const res = createResponse();
+
+    await branchDetailRoute(engine)(req, res);
+
+    expect(mockFetchVendorOrdersDetail).toHaveBeenCalledWith({
+      token: "orders-token",
+      globalEntityId: "HF_EG",
+      vendorId: 111,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      snapshotAvailable: true,
+      branch: branchSnapshot(),
+      totals: branchSnapshot().metrics,
+      fetchedAt: "2026-03-06T10:05:00.000Z",
+      unassignedOrders: [{ id: "1", externalId: "ORD-1", status: "UNASSIGNED", isUnassigned: true, isLate: false }],
+      preparingOrders: [{ id: "2", externalId: "ORD-2", status: "PREPARING", isUnassigned: false, isLate: false }],
     });
   });
 });

@@ -3,6 +3,70 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import { resolveDataDir, resolveDbFilePath } from "./paths.js";
 import { resolveEncryptionSecret } from "./secret.js";
+import { hashPassword, normalizeEmail } from "../services/auth/passwords.js";
+
+function isProduction() {
+  return process.env.NODE_ENV?.trim().toLowerCase() === "production";
+}
+
+function resolveBootstrapAdmin(env: NodeJS.ProcessEnv) {
+  const email = env.UPUSE_BOOTSTRAP_ADMIN_EMAIL?.trim() || "";
+  const password = env.UPUSE_BOOTSTRAP_ADMIN_PASSWORD?.trim() || "";
+  const name = env.UPUSE_BOOTSTRAP_ADMIN_NAME?.trim() || "Administrator";
+  const hasAnyValue = [email, password, env.UPUSE_BOOTSTRAP_ADMIN_NAME?.trim() || ""].some((value) => value.length > 0);
+
+  if (!hasAnyValue) return null;
+  if (!email || !password) {
+    throw new Error(
+      "UPUSE_BOOTSTRAP_ADMIN_EMAIL and UPUSE_BOOTSTRAP_ADMIN_PASSWORD must both be set when bootstrapping the first admin user.",
+    );
+  }
+  if (password.length < 12) {
+    throw new Error("UPUSE_BOOTSTRAP_ADMIN_PASSWORD must be at least 12 characters long.");
+  }
+
+  return {
+    email: normalizeEmail(email),
+    password,
+    name,
+    role: "admin" as const,
+  };
+}
+
+function maybeSeedBootstrapAdmin() {
+  const usersCountRow = db.prepare("SELECT COUNT(*) AS count FROM users").get() as { count: number };
+  const bootstrapAdmin = resolveBootstrapAdmin(process.env);
+
+  if (!bootstrapAdmin) {
+    if (!usersCountRow.count) {
+      const message =
+        "No application users exist. Set UPUSE_BOOTSTRAP_ADMIN_EMAIL and UPUSE_BOOTSTRAP_ADMIN_PASSWORD to create the first admin account.";
+      if (isProduction()) {
+        throw new Error(message);
+      }
+      console.warn(`WARNING: ${message}`);
+    }
+    return;
+  }
+
+  const existingUser = db
+    .prepare<[string], { id: number }>("SELECT id FROM users WHERE email = ?")
+    .get(bootstrapAdmin.email);
+  if (existingUser) return;
+
+  db.prepare(`
+    INSERT INTO users (email, name, role, passwordHash, active, createdAt)
+    VALUES (?, ?, ?, ?, 1, ?)
+  `).run(
+    bootstrapAdmin.email,
+    bootstrapAdmin.name,
+    bootstrapAdmin.role,
+    hashPassword(bootstrapAdmin.password),
+    new Date().toISOString(),
+  );
+
+  console.warn(`Created bootstrap admin user for ${bootstrapAdmin.email}. Rotate bootstrap credentials after first use.`);
+}
 
 export const dataDir = resolveDataDir({ env: process.env });
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
@@ -59,6 +123,61 @@ function readExistingEncryptedSettings() {
   );
 }
 
+function migrateLegacyUserRoles() {
+  const usersTable = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users' LIMIT 1")
+    .get() as { sql?: string } | undefined;
+
+  if (!usersTable) return;
+
+  const hasLegacyConstraint = typeof usersTable.sql === "string" && usersTable.sql.includes("'viewer'");
+  const hasUnsupportedRoles = Boolean(
+    db.prepare("SELECT 1 FROM users WHERE LOWER(TRIM(role)) NOT IN ('admin', 'user') LIMIT 1").get(),
+  );
+
+  if (!hasLegacyConstraint && !hasUnsupportedRoles) return;
+
+  const runMigration = db.transaction(() => {
+    db.exec(`
+      DROP TABLE IF EXISTS users_next;
+
+      CREATE TABLE users_next (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
+        passwordHash TEXT NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1,
+        createdAt TEXT NOT NULL
+      );
+
+      INSERT INTO users_next (id, email, name, role, passwordHash, active, createdAt)
+      SELECT
+        id,
+        email,
+        name,
+        CASE
+          WHEN LOWER(TRIM(role)) = 'admin' THEN 'admin'
+          ELSE 'user'
+        END,
+        passwordHash,
+        active,
+        createdAt
+      FROM users;
+
+      DROP TABLE users;
+      ALTER TABLE users_next RENAME TO users;
+    `);
+  });
+
+  db.pragma("foreign_keys = OFF");
+  try {
+    runMigration();
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+}
+
 export function migrate() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
@@ -84,7 +203,9 @@ export function migrate() {
       ordersVendorId INTEGER NOT NULL,
       availabilityVendorId TEXT NOT NULL,
       globalEntityId TEXT NOT NULL,
-      enabled INTEGER NOT NULL DEFAULT 1
+      enabled INTEGER NOT NULL DEFAULT 1,
+      lateThresholdOverride INTEGER,
+      unassignedThresholdOverride INTEGER
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_branches_ordersVendorId ON branches(ordersVendorId);
@@ -140,7 +261,29 @@ export function migrate() {
 
     CREATE INDEX IF NOT EXISTS idx_action_events_ts ON action_events(ts);
     CREATE INDEX IF NOT EXISTS idx_action_events_branch_ts ON action_events(branchId, ts);
+
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
+      passwordHash TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      createdAt TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      userId INTEGER NOT NULL,
+      expiresAt TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sessions_expiresAt ON sessions(expiresAt);
   `);
+
+  migrateLegacyUserRoles();
 
   const settingsColumns = db.prepare("PRAGMA table_info(settings)").all() as Array<{ name: string }>;
   if (!settingsColumns.some((column) => column.name === "chainNamesJson")) {
@@ -153,6 +296,12 @@ export function migrate() {
   const branchColumns = db.prepare("PRAGMA table_info(branches)").all() as Array<{ name: string }>;
   if (!branchColumns.some((column) => column.name === "chainName")) {
     db.exec("ALTER TABLE branches ADD COLUMN chainName TEXT NOT NULL DEFAULT ''");
+  }
+  if (!branchColumns.some((column) => column.name === "lateThresholdOverride")) {
+    db.exec("ALTER TABLE branches ADD COLUMN lateThresholdOverride INTEGER");
+  }
+  if (!branchColumns.some((column) => column.name === "unassignedThresholdOverride")) {
+    db.exec("ALTER TABLE branches ADD COLUMN unassignedThresholdOverride INTEGER");
   }
 
   const branchRuntimeColumns = db.prepare("PRAGMA table_info(branch_runtime)").all() as Array<{ name: string }>;
@@ -235,6 +384,8 @@ export function migrate() {
       }
     }
   }
+
+  maybeSeedBootstrapAdmin();
 }
 
 export function pruneLogs(branchId: number | null, keep: number) {

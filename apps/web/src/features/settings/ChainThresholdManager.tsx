@@ -16,13 +16,14 @@ export function ChainThresholdManager(props: {
   chains: ChainThreshold[];
   editingChainIndex: number | null;
   chainEditor: ChainEditorDraft;
+  readOnly?: boolean;
   onChangeEditor: (patch: Partial<ChainEditorDraft>) => void;
   onEditChain: (chain: ChainThreshold, index: number) => void;
   onRemoveChain: (index: number) => void;
   onSaveChain: () => void;
   onCancelEdit: () => void;
 }) {
-  const { chains, editingChainIndex, chainEditor } = props;
+  const { chains, editingChainIndex, chainEditor, readOnly = false } = props;
 
   return (
     <Box
@@ -44,7 +45,7 @@ export function ChainThresholdManager(props: {
             Chains
           </Typography>
           <Typography variant="caption" sx={{ color: "text.secondary" }}>
-            Each chain has its own late and unassigned thresholds.
+            Each chain has its own late and unassigned thresholds. Branch overrides can inherit from these values.
           </Typography>
         </Box>
 
@@ -105,10 +106,14 @@ export function ChainThresholdManager(props: {
                 />
               </Stack>
 
-              <IconButton onClick={() => props.onEditChain(chain, index)} color={editingChainIndex === index ? "primary" : "default"}>
+              <IconButton
+                onClick={() => props.onEditChain(chain, index)}
+                color={editingChainIndex === index ? "primary" : "default"}
+                disabled={readOnly}
+              >
                 <EditOutlinedIcon />
               </IconButton>
-              <IconButton onClick={() => props.onRemoveChain(index)} color="default">
+              <IconButton onClick={() => props.onRemoveChain(index)} color="default" disabled={readOnly}>
                 <DeleteOutlineIcon />
               </IconButton>
             </Box>
@@ -138,6 +143,7 @@ export function ChainThresholdManager(props: {
             label="Chain Name"
             value={chainEditor.name}
             onChange={(event) => props.onChangeEditor({ name: event.target.value })}
+            disabled={readOnly}
             fullWidth
           />
           <TextField
@@ -146,6 +152,7 @@ export function ChainThresholdManager(props: {
             value={chainEditor.lateThreshold}
             onChange={(event) => props.onChangeEditor({ lateThreshold: event.target.value })}
             inputProps={{ min: 0 }}
+            disabled={readOnly}
             sx={{ width: { xs: "100%", md: 180 } }}
           />
           <TextField
@@ -154,6 +161,7 @@ export function ChainThresholdManager(props: {
             value={chainEditor.unassignedThreshold}
             onChange={(event) => props.onChangeEditor({ unassignedThreshold: event.target.value })}
             inputProps={{ min: 0 }}
+            disabled={readOnly}
             sx={{ width: { xs: "100%", md: 180 } }}
           />
         </Stack>
@@ -162,6 +170,7 @@ export function ChainThresholdManager(props: {
           <Button
             variant="contained"
             onClick={props.onSaveChain}
+            disabled={readOnly}
             startIcon={editingChainIndex !== null ? <SaveRoundedIcon /> : <AddRoundedIcon />}
           >
             {editingChainIndex !== null ? "Save Chain" : "Add Chain"}

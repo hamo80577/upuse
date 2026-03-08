@@ -1,7 +1,6 @@
-import { getStoredAdminKey } from "./adminKeyStorage";
-
 const DEFAULT_TIMEOUT_MS = 25_000;
 const TIMEOUT_MESSAGE = "Request timed out. Please try again.";
+export const AUTH_UNAUTHORIZED_EVENT = "upuse:auth:unauthorized";
 
 export interface HttpRequestOptions {
   timeoutMs?: number;
@@ -17,7 +16,7 @@ export interface JsonEventStreamOptions {
 export function describeApiError(error: unknown, fallback = "Request failed") {
   if (error instanceof Error && error.message.trim()) {
     if (error.message === "Unauthorized") {
-      return "Enter the Admin Key to access protected API routes.";
+      return "Sign in again to access protected routes.";
     }
 
     return error.message;
@@ -28,22 +27,23 @@ export function describeApiError(error: unknown, fallback = "Request failed") {
 
 function withApiInit(init?: RequestInit): RequestInit | undefined {
   const headers = new Headers(init?.headers);
-  const adminKey = getStoredAdminKey();
-  if (adminKey && !headers.has("Authorization")) {
-    headers.set("Authorization", `Bearer ${adminKey}`);
-  }
-
-  if (!init && !headers.has("Authorization")) {
-    return undefined;
-  }
-
   return {
     ...init,
+    credentials: init?.credentials ?? "same-origin",
     headers,
   };
 }
 
-async function createResponseError(response: Response) {
+function notifyUnauthorized() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(AUTH_UNAUTHORIZED_EVENT));
+}
+
+async function createResponseError(response: Response, requestUrl?: string) {
+  if (response.status === 401 && requestUrl !== "/api/auth/login") {
+    notifyUnauthorized();
+  }
+
   const text = await response.text().catch(() => "");
   if (text) {
     let parsedMessage = "";
@@ -113,7 +113,7 @@ async function fetchWithTimeout(url: string, init: RequestInit | undefined, time
 export async function requestJson<T>(url: string, init?: RequestInit, options?: HttpRequestOptions): Promise<T> {
   const response = await fetchWithTimeout(url, withApiInit(init), options?.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   if (!response.ok) {
-    throw await createResponseError(response);
+    throw await createResponseError(response, url);
   }
   return response.json() as Promise<T>;
 }
@@ -168,7 +168,7 @@ export async function requestJsonEventStream(url: string, options: JsonEventStre
     : options.init;
   const response = await fetch(url, withApiInit(streamInit));
   if (!response.ok) {
-    throw await createResponseError(response);
+    throw await createResponseError(response, url);
   }
 
   if (!response.body || typeof response.body.getReader !== "function") {
