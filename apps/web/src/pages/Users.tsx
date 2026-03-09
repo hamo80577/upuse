@@ -82,7 +82,7 @@ export function UsersPage() {
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
       <TopBar running={monitoring.running} degraded={monitoring.degraded} onStart={onStart} onStop={onStop} canControlMonitor />
 
-      <Container maxWidth="lg" sx={{ py: 3 }}>
+      <Container maxWidth="lg" sx={{ py: { xs: 2, md: 3 } }}>
         <Stack spacing={2}>
           <Card>
             <CardContent sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -90,7 +90,7 @@ export function UsersPage() {
                 <Typography variant="h6" sx={{ fontWeight: 900 }}>
                   User Access
                 </Typography>
-                <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                <Typography variant="body2" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
                   Create users and assign roles.
                 </Typography>
               </Box>
@@ -113,7 +113,8 @@ export function UsersPage() {
                       sx={{
                         display: "flex",
                         gap: 1.2,
-                        alignItems: "center",
+                        alignItems: { xs: "flex-start", sm: "center" },
+                        flexDirection: { xs: "column", sm: "row" },
                         p: 1.2,
                         borderRadius: 2.5,
                         border: "1px solid rgba(148,163,184,0.12)",
@@ -199,7 +200,7 @@ export function UsersPage() {
                 </TextField>
               </Stack>
 
-              <Stack direction="row" spacing={1.2}>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
                 <Button variant="contained" startIcon={<PersonAddAlt1RoundedIcon />} onClick={create} disabled={submitting}>
                   {submitting ? "Creating..." : "Create User"}
                 </Button>

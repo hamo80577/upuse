@@ -18,6 +18,10 @@ interface ThresholdGroup {
   profile: ThresholdProfile;
 }
 
+function safeText(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
 function resolveEffectiveThresholdProfile(
   branch: Pick<BranchMappingItem, "chainName" | "lateThresholdOverride" | "unassignedThresholdOverride">,
   chains: ChainThreshold[],
@@ -31,7 +35,7 @@ function resolveEffectiveThresholdProfile(
     };
   }
 
-  const chainKey = branch.chainName.trim().toLowerCase();
+  const chainKey = safeText(branch.chainName).trim().toLowerCase();
   if (chainKey) {
     const chain = chains.find((item) => item.name.trim().toLowerCase() === chainKey);
     if (chain) {
@@ -73,7 +77,7 @@ function buildThresholdGroups(
   }
 
   for (const branch of branches) {
-    const chainName = branch.chainName.trim();
+    const chainName = safeText(branch.chainName).trim();
     const key = chainName ? chainName.toLowerCase() : "__no_chain__";
     const existing = groups.get(key);
 
@@ -112,7 +116,8 @@ function buildThresholdGroups(
 
 function branchSourceLabel(branch: BranchMappingItem, effective: ThresholdProfile) {
   if (effective.source === "branch") return "Custom";
-  if (effective.source === "chain" && branch.chainName.trim()) return `Inherits ${branch.chainName.trim()}`;
+  const chainName = safeText(branch.chainName).trim();
+  if (effective.source === "chain" && chainName) return `Inherits ${chainName}`;
   return "Global default";
 }
 
@@ -158,7 +163,7 @@ export function BranchThresholdOverrideManager(props: {
           <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
             Branch Overrides
           </Typography>
-          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+          <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
             Optional branch-specific thresholds.
           </Typography>
         </Box>
@@ -183,7 +188,8 @@ export function BranchThresholdOverrideManager(props: {
             <Accordion
               key={group.key}
               disableGutters
-              defaultExpanded={group.overrideCount > 0}
+              defaultExpanded={false}
+              TransitionProps={{ unmountOnExit: true }}
               sx={{
                 borderRadius: "18px !important",
                 border: "1px solid rgba(148,163,184,0.14)",
@@ -198,7 +204,7 @@ export function BranchThresholdOverrideManager(props: {
                     <Typography sx={{ fontWeight: 900, color: "#0f172a" }} noWrap>
                       {group.label}
                     </Typography>
-                    <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                    <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
                       {group.branches.length} branch{group.branches.length === 1 ? "" : "es"} • {group.overrideCount} custom override{group.overrideCount === 1 ? "" : "s"}
                     </Typography>
                   </Box>
@@ -250,8 +256,11 @@ export function BranchThresholdOverrideManager(props: {
                                 <Typography sx={{ fontWeight: 900, color: "#0f172a" }} noWrap>
                                   {branch.name}
                                 </Typography>
-                                <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                                <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
                                   {branchSourceLabel(branch, effective)} • Orders {branch.ordersVendorId} • Availability {branch.availabilityVendorId}
+                                </Typography>
+                                <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "block", sm: "none" } }}>
+                                  {branchSourceLabel(branch, effective)}
                                 </Typography>
                               </Box>
 
@@ -324,16 +333,17 @@ export function BranchThresholdOverrideManager(props: {
                                   />
                                 </Stack>
 
-                                <Stack direction="row" spacing={1} sx={{ mt: 1.1 }}>
+                                <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mt: 1.1 }}>
                                   <Button
                                     variant="contained"
                                     startIcon={<SaveRoundedIcon />}
                                     onClick={() => props.onSaveBranch(branch)}
                                     disabled={readOnly || isSaving}
+                                    sx={{ width: { xs: "100%", sm: "auto" } }}
                                   >
                                     {isSaving ? "Saving..." : "Save Override"}
                                   </Button>
-                                  <Button variant="text" onClick={props.onCancelEdit} disabled={isSaving}>
+                                  <Button variant="text" onClick={props.onCancelEdit} disabled={isSaving} sx={{ width: { xs: "100%", sm: "auto" } }}>
                                     Cancel
                                   </Button>
                                 </Stack>

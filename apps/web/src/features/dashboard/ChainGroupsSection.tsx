@@ -26,7 +26,7 @@ export function ChainGroupsSection(props: {
         <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
           No branches match this view
         </Typography>
-        <Typography variant="body2" sx={{ mt: 0.4, color: "text.secondary" }}>
+        <Typography variant="body2" sx={{ mt: 0.4, color: "text.secondary", display: { xs: "none", sm: "block" } }}>
           Change the filter or grouping to bring branches back into the board.
         </Typography>
       </Box>
@@ -50,8 +50,8 @@ export function ChainGroupsSection(props: {
               }}
               sx={{
                 mb: 1,
-                px: { xs: 1.05, md: 1.2 },
-                py: 1,
+                px: { xs: 0.95, md: 1.2 },
+                py: { xs: 0.9, md: 1 },
                 borderRadius: 3,
                 border: "1px solid rgba(148,163,184,0.12)",
                 bgcolor: "rgba(255,255,255,0.9)",
@@ -101,20 +101,30 @@ export function ChainGroupsSection(props: {
                     <Typography
                       sx={{
                         fontWeight: 900,
-                        fontSize: 18,
+                        fontSize: { xs: 16, md: 18 },
                         lineHeight: 1.1,
                         color: "#0f172a",
                       }}
                     >
                       {group.label}
                     </Typography>
-                    <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                    <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
                       {group.items.length} branches
                     </Typography>
                   </Box>
                 </Stack>
 
                 <Stack direction="row" spacing={0.8} sx={{ flexWrap: "wrap", rowGap: 0.8 }}>
+                  <Chip
+                    size="small"
+                    label={`${group.items.length} br`}
+                    sx={{
+                      display: { xs: "inline-flex", sm: "none" },
+                      fontWeight: 800,
+                      bgcolor: "rgba(15,23,42,0.06)",
+                      color: "#334155",
+                    }}
+                  />
                   {group.totals.open > 0 ? (
                     <Chip
                       size="small"

@@ -17,16 +17,22 @@ function BranchCardStatusBase(props: {
     <Box
       sx={{
         minWidth: 0,
-        p: 0.25,
+        p: { xs: 1, md: 0.25 },
         pl: { lg: 0.5 },
         display: "flex",
         flexDirection: "column",
         justifyContent: "center",
-        textAlign: "center",
+        textAlign: { xs: "left", md: "center" },
+        borderRadius: { xs: 2.8, md: 0 },
+        bgcolor: {
+          xs: props.branch.status === "TEMP_CLOSE" ? "rgba(255,241,242,0.48)" : "rgba(248,250,252,0.9)",
+          md: "transparent",
+        },
+        border: { xs: "1px solid rgba(148,163,184,0.12)", md: "none" },
       }}
     >
-      <Stack direction="column" alignItems="center" gap={0.6} sx={{ mb: 0.8 }}>
-        <Typography variant="caption" sx={{ fontWeight: 800, color: meta.titleColor, textAlign: "center" }}>
+      <Stack direction="column" alignItems={{ xs: "flex-start", md: "center" }} gap={0.6} sx={{ mb: 0.8 }}>
+        <Typography variant="caption" sx={{ fontWeight: 800, color: meta.titleColor, textAlign: "center", display: { xs: "none", sm: "block" } }}>
           Branch Status
         </Typography>
         <Chip
@@ -49,13 +55,17 @@ function BranchCardStatusBase(props: {
               color: "#166534",
               lineHeight: 1,
               fontVariantNumeric: "tabular-nums",
-              textAlign: "center",
+              textAlign: { xs: "left", md: "center" },
+              fontSize: { xs: 28, md: 24 },
             }}
           >
             {fmtCountdown(props.branch.closedUntil, props.nowMs)}
           </Typography>
-          <Typography variant="caption" sx={{ color: "#166534", fontWeight: 700, textAlign: "center" }}>
+          <Typography variant="caption" sx={{ color: "#166534", fontWeight: 700, textAlign: "center", display: { xs: "none", sm: "block" } }}>
             {props.timerReached ? "Window reached at" : "Reopens at"} {fmtTimeCairo(props.branch.closedUntil)}
+          </Typography>
+          <Typography variant="caption" sx={{ color: "#166534", fontWeight: 700, textAlign: { xs: "left", md: "center" }, display: { xs: "block", sm: "none" } }}>
+            {props.timerReached ? "Reached" : "Reopens"} {fmtTimeCairo(props.branch.closedUntil)}
           </Typography>
           <LinearProgress
             variant={props.canTrackProgress ? "determinate" : "indeterminate"}
@@ -73,18 +83,28 @@ function BranchCardStatusBase(props: {
             }}
           />
           {!props.timerReached && props.canTrackProgress ? (
-            <Typography variant="caption" sx={{ color: "text.secondary", textAlign: "center", lineHeight: 1.35 }}>
+            <Typography variant="caption" sx={{ color: "text.secondary", textAlign: "center", lineHeight: 1.35, display: { xs: "none", sm: "block" } }}>
               Duration progress {Math.round(props.progressValue)}%
             </Typography>
           ) : null}
+          {!props.timerReached && props.canTrackProgress ? (
+            <Typography variant="caption" sx={{ color: "text.secondary", textAlign: "center", lineHeight: 1.35, display: { xs: "block", sm: "none" } }}>
+              {Math.round(props.progressValue)}% progress
+            </Typography>
+          ) : null}
           {props.timerReached ? (
-            <Typography variant="caption" sx={{ color: "text.secondary", textAlign: "center", lineHeight: 1.35 }}>
+            <Typography variant="caption" sx={{ color: "text.secondary", textAlign: "center", lineHeight: 1.35, display: { xs: "none", sm: "block" } }}>
               Waiting for the next availability update.
+            </Typography>
+          ) : null}
+          {props.timerReached ? (
+            <Typography variant="caption" sx={{ color: "text.secondary", textAlign: "center", lineHeight: 1.35, display: { xs: "block", sm: "none" } }}>
+              Waiting update
             </Typography>
           ) : null}
         </Stack>
       ) : meta.note ? (
-        <Typography variant="body2" sx={{ color: "text.secondary", lineHeight: 1.55, textAlign: "center" }}>
+        <Typography variant="body2" sx={{ color: "text.secondary", lineHeight: 1.55, textAlign: "center", display: { xs: "none", sm: "block" } }}>
           {meta.note}
         </Typography>
       ) : null}

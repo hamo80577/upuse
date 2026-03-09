@@ -87,8 +87,8 @@ export function OperationsSummaryCard(props: {
     <Box
       sx={{
         mb: 2,
-        p: { xs: 1.4, md: 1.85 },
-        borderRadius: 4,
+        p: { xs: 1.2, md: 1.85 },
+        borderRadius: { xs: 3, md: 4 },
         border: "1px solid rgba(148,163,184,0.14)",
         background: "linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.98) 100%)",
         boxShadow: "0 18px 40px rgba(15,23,42,0.06)",
@@ -111,12 +111,17 @@ export function OperationsSummaryCard(props: {
           >
             Live Operations
           </Typography>
-          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+          <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
             Real-time view across all chains
           </Typography>
         </Box>
 
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "stretch", sm: "center" }}>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1}
+          alignItems={{ xs: "stretch", sm: "center" }}
+          sx={{ width: { xs: "100%", md: "auto" }, display: { xs: "none", sm: "flex" } }}
+        >
           <Chip
             size="small"
             color={
@@ -178,15 +183,23 @@ export function OperationsSummaryCard(props: {
       {props.connectionState === "connecting" && !props.updatedAt ? (
         <Alert severity="info" variant="outlined" sx={{ mt: 1.5, borderRadius: 3 }}>
           <AlertTitle sx={{ mb: 0.4, fontWeight: 900 }}>Connecting Live Sync</AlertTitle>
-          <Typography variant="body2">Opening the dashboard stream and waiting for the first snapshot.</Typography>
+          <Typography variant="body2" sx={{ display: { xs: "none", sm: "block" } }}>
+            Opening the dashboard stream and waiting for the first snapshot.
+          </Typography>
+          <Typography variant="body2" sx={{ display: { xs: "block", sm: "none" } }}>
+            Waiting for the first live snapshot.
+          </Typography>
         </Alert>
       ) : null}
 
       {props.connectionState === "fallback" ? (
         <Alert severity="warning" variant="outlined" sx={{ mt: 1.5, borderRadius: 3 }}>
           <AlertTitle sx={{ mb: 0.4, fontWeight: 900 }}>Fallback Polling Active</AlertTitle>
-          <Typography variant="body2">
+          <Typography variant="body2" sx={{ display: { xs: "none", sm: "block" } }}>
             The live stream disconnected. The dashboard is polling every 15 seconds until streaming reconnects.
+          </Typography>
+          <Typography variant="body2" sx={{ display: { xs: "block", sm: "none" } }}>
+            Live stream dropped. Polling every 15s.
           </Typography>
         </Alert>
       ) : null}
@@ -210,8 +223,11 @@ export function OperationsSummaryCard(props: {
           )}
         >
           <AlertTitle sx={{ mb: 0.4, fontWeight: 900 }}>Live Sync Disconnected</AlertTitle>
-          <Typography variant="body2">
+          <Typography variant="body2" sx={{ display: { xs: "none", sm: "block" } }}>
             The dashboard could not keep a live connection or fallback refresh healthy. Use a manual refresh while it retries.
+          </Typography>
+          <Typography variant="body2" sx={{ display: { xs: "block", sm: "none" } }}>
+            Live sync is down. Use manual refresh.
           </Typography>
         </Alert>
       ) : null}
@@ -244,8 +260,11 @@ export function OperationsSummaryCard(props: {
           <Typography variant="body2" sx={{ fontWeight: 700, color: "#78350f" }}>
             No fresh monitor update for {fmtSyncAge(props.syncGuard.ageMs)}.
           </Typography>
-          <Typography variant="caption" sx={{ display: "block", mt: 0.45, color: "#92400e" }}>
+          <Typography variant="caption" sx={{ display: { xs: "none", sm: "block" }, mt: 0.45, color: "#92400e" }}>
             Expected a refresh within {fmtSyncAge(props.syncGuard.thresholdMs)}. The dashboard is trying to restart live sync first, then you can force a refresh.
+          </Typography>
+          <Typography variant="caption" sx={{ display: { xs: "block", sm: "none" }, mt: 0.45, color: "#92400e" }}>
+            Expected within {fmtSyncAge(props.syncGuard.thresholdMs)}.
           </Typography>
         </Alert>
       ) : null}

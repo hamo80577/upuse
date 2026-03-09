@@ -2,9 +2,10 @@ import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import AutoFixHighRoundedIcon from "@mui/icons-material/AutoFixHighRounded";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
+import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import RestartAltRoundedIcon from "@mui/icons-material/RestartAltRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
-import { Alert, Box, Button, Card, CardContent, Chip, Container, IconButton, InputAdornment, MenuItem, Snackbar, Stack, Switch, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, Card, CardContent, Chip, Collapse, Container, IconButton, InputAdornment, MenuItem, Snackbar, Stack, Switch, Tab, Tabs, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
 import { api, describeApiError } from "../api/client";
 import { useAuth } from "../app/providers/AuthProvider";
@@ -117,6 +118,8 @@ function sectionCardSx() {
 }
 
 export function Mapping() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { canManageBranches, canDeleteBranches, canManageMonitor, canManageSettings } = useAuth();
   const { monitoring, startMonitoring, stopMonitoring } = useMonitorStatus();
 
@@ -141,6 +144,10 @@ export function Mapping() {
   const [editingThresholdBranchId, setEditingThresholdBranchId] = useState<number | null>(null);
   const [savingThresholdBranchId, setSavingThresholdBranchId] = useState<number | null>(null);
   const [savingMonitorBranchId, setSavingMonitorBranchId] = useState<number | null>(null);
+  const [mobileStudioSection, setMobileStudioSection] = useState<"branches" | "editor">("branches");
+  const [mobileRulesSection, setMobileRulesSection] = useState<"base" | "rules">("rules");
+  const [pausedExpanded, setPausedExpanded] = useState(true);
+  const [monitoredExpanded, setMonitoredExpanded] = useState(true);
 
   const applySettings = (nextSettings: SettingsMasked) => {
     const normalizedChains = normalizeChains(nextSettings.chains);
@@ -245,6 +252,7 @@ export function Mapping() {
       }
 
       resetBranchEditor();
+      if (isMobile) setMobileStudioSection("branches");
       await loadMappingData({ silent: true });
     } catch (error) {
       setToast({
@@ -257,6 +265,7 @@ export function Mapping() {
   const startBranchEdit = (branch: BranchMappingItem) => {
     if (!canManageBranches) return;
     setEditingBranchId(branch.id);
+    if (isMobile) setMobileStudioSection("editor");
     setBranchForm({
       name: branch.name,
       chainName: branch.chainName ?? "",
@@ -602,7 +611,7 @@ export function Mapping() {
         }}
       >
         <Stack spacing={1}>
-          <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="flex-start">
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={0.85} justifyContent="space-between" alignItems={{ xs: "stretch", sm: "flex-start" }}>
             <Stack direction="row" spacing={1} sx={{ minWidth: 0, flex: 1 }}>
               <Box
                 sx={{
@@ -635,7 +644,7 @@ export function Mapping() {
               </Box>
             </Stack>
 
-            <Stack direction="row" spacing={0.35}>
+            <Stack direction="row" spacing={0.35} justifyContent={{ xs: "flex-end", sm: "flex-start" }}>
               <IconButton
                 onClick={() => startBranchEdit(branch)}
                 color={selected ? "primary" : "default"}
@@ -669,7 +678,16 @@ export function Mapping() {
             />
             <Chip
               size="small"
-              label={paused ? "Paused" : "In Monitor"}
+              label={(
+                <>
+                  <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
+                    {paused ? "Paused" : "Live"}
+                  </Box>
+                  <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+                    {paused ? "Paused" : "In Monitor"}
+                  </Box>
+                </>
+              )}
               sx={{
                 fontWeight: 800,
                 bgcolor: paused ? "rgba(99,102,241,0.12)" : "rgba(22,163,74,0.10)",
@@ -688,11 +706,14 @@ export function Mapping() {
             }}
           >
             <Box>
-              <Typography variant="caption" sx={{ color: "#64748b", fontWeight: 800 }}>
+              <Typography variant="caption" sx={{ color: "#64748b", fontWeight: 800, display: { xs: "none", sm: "block" } }}>
                 Monitor
               </Typography>
-              <Typography variant="caption" sx={{ display: "block", color: paused ? "#4338ca" : "#166534", fontWeight: 800 }}>
+              <Typography variant="caption" sx={{ display: { xs: "none", sm: "block" }, color: paused ? "#4338ca" : "#166534", fontWeight: 800 }}>
                 {paused ? "Skipped from live cycles" : "Included in live cycles"}
+              </Typography>
+              <Typography variant="caption" sx={{ display: { xs: "block", sm: "none" }, color: paused ? "#4338ca" : "#166534", fontWeight: 800 }}>
+                {paused ? "Paused from monitor" : "Live in monitor"}
               </Typography>
             </Box>
             <Switch
@@ -707,6 +728,66 @@ export function Mapping() {
     );
   };
 
+  const renderBranchSectionHeader = (options: {
+    label: string;
+    count: number;
+    expanded: boolean;
+    onToggle: () => void;
+    tone: "paused" | "live";
+  }) => (
+    <Box
+      role="button"
+      tabIndex={0}
+      onClick={options.onToggle}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          options.onToggle();
+        }
+      }}
+      sx={{
+        p: 1,
+        borderRadius: 2.6,
+        border: options.tone === "paused" ? "1px solid rgba(99,102,241,0.12)" : "1px solid rgba(22,163,74,0.12)",
+        bgcolor: options.tone === "paused" ? "rgba(238,242,255,0.72)" : "rgba(240,253,244,0.8)",
+        cursor: "pointer",
+        transition: "border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease",
+        "&:hover": {
+          borderColor: options.tone === "paused" ? "rgba(79,70,229,0.18)" : "rgba(22,163,74,0.18)",
+          boxShadow: "0 10px 22px rgba(15,23,42,0.05)",
+        },
+        "&:focus-visible": {
+          outline: "2px solid rgba(37,99,235,0.24)",
+          outlineOffset: 2,
+        },
+      }}
+    >
+      <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}>
+        <Stack direction="row" spacing={0.9} alignItems="center" sx={{ minWidth: 0 }}>
+          <ExpandMoreRoundedIcon
+            sx={{
+              color: options.tone === "paused" ? "#4338ca" : "#166534",
+              transform: options.expanded ? "rotate(180deg)" : "rotate(90deg)",
+              transition: "transform 180ms ease",
+            }}
+          />
+          <Typography sx={{ fontWeight: 900, color: options.tone === "paused" ? "#312e81" : "#166534" }}>
+            {options.label}
+          </Typography>
+        </Stack>
+        <Chip
+          size="small"
+          label={options.count}
+          sx={{
+            fontWeight: 900,
+            bgcolor: options.tone === "paused" ? "rgba(99,102,241,0.12)" : "rgba(22,163,74,0.10)",
+            color: options.tone === "paused" ? "#4338ca" : "#166534",
+          }}
+        />
+      </Stack>
+    </Box>
+  );
+
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
       <TopBar
@@ -717,29 +798,7 @@ export function Mapping() {
         canControlMonitor={canManageMonitor}
       />
 
-      <Container maxWidth="xl" sx={{ py: 3 }}>
-        <Box
-          sx={{
-            mb: 2.2,
-            px: { xs: 1.7, md: 2 },
-            py: { xs: 1.5, md: 1.7 },
-            borderRadius: 3.5,
-            border: "1px solid rgba(148,163,184,0.14)",
-            bgcolor: "rgba(255,255,255,0.96)",
-            backgroundImage: "radial-gradient(circle at top right, rgba(37,99,235,0.10), transparent 42%)",
-            boxShadow: "0 18px 34px rgba(15,23,42,0.05)",
-          }}
-        >
-          <Box>
-            <Typography variant="caption" sx={{ color: "#475569", fontWeight: 900, letterSpacing: 0.4 }}>
-              Branches
-            </Typography>
-            <Typography sx={{ fontWeight: 900, color: "#0f172a", fontSize: { xs: 28, md: 34 }, lineHeight: 1 }}>
-              {branchCount}
-            </Typography>
-          </Box>
-        </Box>
-
+      <Container maxWidth="xl" sx={{ py: { xs: 2, md: 3 } }}>
         {loadError ? (
           <Alert severity="error" variant="outlined" sx={{ mb: 2 }}>
             {loadError}
@@ -749,7 +808,7 @@ export function Mapping() {
         <Box
           sx={{
             display: "grid",
-            gap: 2,
+            gap: { xs: 1.5, md: 2 },
             gridTemplateColumns: { xs: "1fr", xl: "minmax(0, 1.22fr) minmax(370px, 0.92fr)" },
             alignItems: "start",
           }}
@@ -763,9 +822,26 @@ export function Mapping() {
                 gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 1.08fr) minmax(330px, 0.92fr)" },
               }}
             >
+              {isMobile ? (
+                <Box
+                  sx={{
+                    gridColumn: "1 / -1",
+                    borderRadius: 999,
+                    border: "1px solid rgba(148,163,184,0.14)",
+                    bgcolor: "rgba(248,250,252,0.92)",
+                    overflow: "hidden",
+                  }}
+                >
+                  <Tabs value={mobileStudioSection} onChange={(_event, value) => setMobileStudioSection(value)} variant="fullWidth" sx={{ minHeight: 42, "& .MuiTab-root": { minHeight: 42, fontWeight: 900, textTransform: "none" } }}>
+                    <Tab value="branches" label={`Branches ${filteredBranches.length}`} />
+                    <Tab value="editor" label={editingBranchId ? "Edit" : "New"} />
+                  </Tabs>
+                </Box>
+              ) : null}
               <Box
                 sx={{
                   minWidth: 0,
+                  display: { xs: !isMobile || mobileStudioSection === "branches" ? "block" : "none", lg: "block" },
                   p: { xs: 1.25, md: 1.45 },
                   borderRadius: 3.5,
                   border: "1px solid rgba(148,163,184,0.12)",
@@ -777,7 +853,7 @@ export function Mapping() {
                     <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
                       Branch Studio
                     </Typography>
-                    <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                    <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
                       Search, scan, edit
                     </Typography>
                   </Box>
@@ -797,7 +873,7 @@ export function Mapping() {
                   sx={{
                     display: "grid",
                     gap: 1,
-                    gridTemplateColumns: { xs: "1fr", sm: "repeat(3, minmax(0, 1fr))" },
+                    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
                     mb: 1.2,
                   }}
                 >
@@ -812,7 +888,7 @@ export function Mapping() {
                     <Typography variant="caption" sx={{ color: "#1d4ed8", fontWeight: 900 }}>
                       Shown
                     </Typography>
-                    <Typography sx={{ mt: 0.2, fontWeight: 900, color: "#0f172a", fontSize: 22, lineHeight: 1 }}>
+                    <Typography sx={{ mt: 0.2, fontWeight: 900, color: "#0f172a", fontSize: { xs: 18, md: 22 }, lineHeight: 1 }}>
                       {filteredBranches.length}
                     </Typography>
                   </Box>
@@ -825,9 +901,14 @@ export function Mapping() {
                     }}
                   >
                     <Typography variant="caption" sx={{ color: "#166534", fontWeight: 900 }}>
-                      In Monitor
+                      <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
+                        Live
+                      </Box>
+                      <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+                        In Monitor
+                      </Box>
                     </Typography>
-                    <Typography sx={{ mt: 0.2, fontWeight: 900, color: "#0f172a", fontSize: 22, lineHeight: 1 }}>
+                    <Typography sx={{ mt: 0.2, fontWeight: 900, color: "#0f172a", fontSize: { xs: 18, md: 22 }, lineHeight: 1 }}>
                       {monitoredBranchCount}
                     </Typography>
                   </Box>
@@ -842,14 +923,14 @@ export function Mapping() {
                     <Typography variant="caption" sx={{ color: "#4338ca", fontWeight: 900 }}>
                       Paused
                     </Typography>
-                    <Typography sx={{ mt: 0.2, fontWeight: 900, color: "#0f172a", fontSize: 22, lineHeight: 1 }}>
+                    <Typography sx={{ mt: 0.2, fontWeight: 900, color: "#0f172a", fontSize: { xs: 18, md: 22 }, lineHeight: 1 }}>
                       {pausedBranchCount}
                     </Typography>
                   </Box>
                 </Box>
 
                 <TextField
-                  placeholder="Search branch, chain, vendor"
+                  placeholder="Search branch or vendor"
                   value={branchQuery}
                   onChange={(event) => setBranchQuery(event.target.value)}
                   fullWidth
@@ -875,74 +956,63 @@ export function Mapping() {
                     display: "flex",
                     flexDirection: "column",
                     gap: 1,
-                    maxHeight: { xs: "none", lg: 640 },
-                    overflowY: { xs: "visible", lg: "auto" },
-                    pr: { lg: 0.5 },
                   }}
                 >
                   {filteredBranches.length ? (
                     <Stack spacing={1.15}>
-                      <Box
-                        sx={{
-                          p: 1,
-                          borderRadius: 2.6,
-                          border: "1px solid rgba(99,102,241,0.12)",
-                          bgcolor: "rgba(238,242,255,0.72)",
-                        }}
-                      >
-                        <Stack direction="row" justifyContent="space-between" alignItems="center">
-                          <Typography sx={{ fontWeight: 900, color: "#312e81" }}>
-                            Paused
-                          </Typography>
-                          <Chip size="small" label={filteredPausedBranches.length} sx={{ fontWeight: 900, bgcolor: "rgba(99,102,241,0.12)", color: "#4338ca" }} />
+                      {renderBranchSectionHeader({
+                        label: "Paused",
+                        count: filteredPausedBranches.length,
+                        expanded: pausedExpanded,
+                        onToggle: () => setPausedExpanded((current) => !current),
+                        tone: "paused",
+                      })}
+                      <Collapse in={pausedExpanded} timeout={180} unmountOnExit>
+                        <Stack spacing={1.15} sx={{ pt: 1 }}>
+                          {filteredPausedBranches.length ? filteredPausedBranches.map(renderBranchCard) : (
+                            <Box
+                              sx={{
+                                px: 1.1,
+                                py: 0.9,
+                                borderRadius: 2.6,
+                                border: "1px dashed rgba(148,163,184,0.24)",
+                                bgcolor: "rgba(248,250,252,0.55)",
+                              }}
+                            >
+                              <Typography variant="caption" sx={{ color: "#64748b", fontWeight: 700 }}>
+                                No paused branches
+                              </Typography>
+                            </Box>
+                          )}
                         </Stack>
-                      </Box>
-                      {filteredPausedBranches.length ? filteredPausedBranches.map(renderBranchCard) : (
-                        <Box
-                          sx={{
-                            px: 1.1,
-                            py: 0.9,
-                            borderRadius: 2.6,
-                            border: "1px dashed rgba(148,163,184,0.24)",
-                            bgcolor: "rgba(248,250,252,0.55)",
-                          }}
-                        >
-                          <Typography variant="caption" sx={{ color: "#64748b", fontWeight: 700 }}>
-                            No paused branches
-                          </Typography>
-                        </Box>
-                      )}
+                      </Collapse>
 
-                      <Box
-                        sx={{
-                          p: 1,
-                          borderRadius: 2.6,
-                          border: "1px solid rgba(22,163,74,0.12)",
-                          bgcolor: "rgba(240,253,244,0.8)",
-                        }}
-                      >
-                        <Stack direction="row" justifyContent="space-between" alignItems="center">
-                          <Typography sx={{ fontWeight: 900, color: "#166534" }}>
-                            In Monitor
-                          </Typography>
-                          <Chip size="small" label={filteredMonitoredBranches.length} sx={{ fontWeight: 900, bgcolor: "rgba(22,163,74,0.10)", color: "#166534" }} />
+                      {renderBranchSectionHeader({
+                        label: "In Monitor",
+                        count: filteredMonitoredBranches.length,
+                        expanded: monitoredExpanded,
+                        onToggle: () => setMonitoredExpanded((current) => !current),
+                        tone: "live",
+                      })}
+                      <Collapse in={monitoredExpanded} timeout={180} unmountOnExit>
+                        <Stack spacing={1.15} sx={{ pt: 1 }}>
+                          {filteredMonitoredBranches.length ? filteredMonitoredBranches.map(renderBranchCard) : (
+                            <Box
+                              sx={{
+                                px: 1.1,
+                                py: 0.9,
+                                borderRadius: 2.6,
+                                border: "1px dashed rgba(148,163,184,0.24)",
+                                bgcolor: "rgba(248,250,252,0.55)",
+                              }}
+                            >
+                              <Typography variant="caption" sx={{ color: "#64748b", fontWeight: 700 }}>
+                                No live branches in this view
+                              </Typography>
+                            </Box>
+                          )}
                         </Stack>
-                      </Box>
-                      {filteredMonitoredBranches.length ? filteredMonitoredBranches.map(renderBranchCard) : (
-                        <Box
-                          sx={{
-                            px: 1.1,
-                            py: 0.9,
-                            borderRadius: 2.6,
-                            border: "1px dashed rgba(148,163,184,0.24)",
-                            bgcolor: "rgba(248,250,252,0.55)",
-                          }}
-                        >
-                          <Typography variant="caption" sx={{ color: "#64748b", fontWeight: 700 }}>
-                            No live branches in this view
-                          </Typography>
-                        </Box>
-                      )}
+                      </Collapse>
                     </Stack>
                   ) : (
                     <Box
@@ -957,7 +1027,7 @@ export function Mapping() {
                       <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
                         No match
                       </Typography>
-                      <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                      <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
                         Try another name or vendor ID.
                       </Typography>
                     </Box>
@@ -967,6 +1037,7 @@ export function Mapping() {
 
               <Box
                 sx={{
+                  display: { xs: !isMobile || mobileStudioSection === "editor" ? "block" : "none", lg: "block" },
                   alignSelf: "start",
                   position: { lg: "sticky" },
                   top: { lg: 88 },
@@ -987,7 +1058,7 @@ export function Mapping() {
                       <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
                         {editingBranchId ? "Edit branch" : "New branch"}
                       </Typography>
-                      <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                      <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
                         {editingBranchId ? "Update mapping" : "Create mapping"}
                       </Typography>
                     </Box>
@@ -1081,6 +1152,9 @@ export function Mapping() {
                         <Typography sx={{ fontWeight: 900, color: "#0f172a", lineHeight: 1.1 }}>
                           {branchForm.enabled ? "Running" : "Paused"}
                         </Typography>
+                        <Typography variant="caption" sx={{ color: "#64748b", display: { xs: "none", sm: "block" } }}>
+                          {branchForm.enabled ? "Included in live cycles" : "Skipped from live cycles"}
+                        </Typography>
                       </Box>
                       <Switch
                         checked={!!branchForm.enabled}
@@ -1117,14 +1191,29 @@ export function Mapping() {
           </Card>
 
           <Stack spacing={2} sx={{ position: { xl: "sticky" }, top: { xl: 88 } }}>
-            <Card sx={sectionCardSx()}>
+            {isMobile ? (
+              <Box
+                sx={{
+                  borderRadius: 999,
+                  border: "1px solid rgba(148,163,184,0.14)",
+                  bgcolor: "rgba(248,250,252,0.92)",
+                  overflow: "hidden",
+                }}
+              >
+                <Tabs value={mobileRulesSection} onChange={(_event, value) => setMobileRulesSection(value)} variant="fullWidth" sx={{ minHeight: 42, "& .MuiTab-root": { minHeight: 42, fontWeight: 900, textTransform: "none" } }}>
+                  <Tab value="base" label="Base" />
+                  <Tab value="rules" label="Rules" />
+                </Tabs>
+              </Box>
+            ) : null}
+            <Card sx={{ ...sectionCardSx(), display: { xs: !isMobile || mobileRulesSection === "base" ? "block" : "none", xl: "block" } }}>
               <CardContent sx={{ p: { xs: 1.4, md: 1.7 } }}>
                 <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }}>
                   <Box>
                     <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
                       Base
                     </Typography>
-                    <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                    <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
                       Default fallback
                     </Typography>
                   </Box>
@@ -1211,14 +1300,14 @@ export function Mapping() {
                   variant="contained"
                   onClick={saveGlobalThresholds}
                   disabled={!canManageSettings}
-                  sx={{ mt: 1.2, minWidth: 120, borderRadius: 999 }}
+                  sx={{ mt: 1.2, minWidth: { xs: "100%", sm: 120 }, borderRadius: 999 }}
                 >
                   {canManageSettings ? "Save" : "Locked"}
                 </Button>
               </CardContent>
             </Card>
 
-            <Card sx={sectionCardSx()}>
+            <Card sx={{ ...sectionCardSx(), display: { xs: !isMobile || mobileRulesSection === "rules" ? "block" : "none", xl: "block" } }}>
               <CardContent sx={{ p: { xs: 1.45, md: 1.7 } }}>
                 <Stack spacing={1.35}>
                   <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }}>
@@ -1226,7 +1315,7 @@ export function Mapping() {
                       <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
                         Rule Studio
                       </Typography>
-                      <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                      <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
                         Chains first. Overrides only when needed.
                       </Typography>
                     </Box>
@@ -1253,13 +1342,14 @@ export function Mapping() {
                       borderRadius: 999,
                       bgcolor: "rgba(15,23,42,0.05)",
                       border: "1px solid rgba(148,163,184,0.14)",
+                      width: { xs: "100%", sm: "auto" },
                     }}
                   >
                     <Button
                       variant={rulesMode === "chains" ? "contained" : "text"}
                       size="small"
                       onClick={() => setRulesMode("chains")}
-                      sx={{ minWidth: 104, borderRadius: 999, fontWeight: 800 }}
+                      sx={{ minWidth: 104, borderRadius: 999, fontWeight: 800, flex: 1 }}
                     >
                       Chains
                     </Button>
@@ -1267,7 +1357,7 @@ export function Mapping() {
                       variant={rulesMode === "overrides" ? "contained" : "text"}
                       size="small"
                       onClick={() => setRulesMode("overrides")}
-                      sx={{ minWidth: 104, borderRadius: 999, fontWeight: 800 }}
+                      sx={{ minWidth: 104, borderRadius: 999, fontWeight: 800, flex: 1 }}
                     >
                       Overrides
                     </Button>

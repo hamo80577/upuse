@@ -38,7 +38,7 @@ export function BranchLogPanel(props: {
             <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 800 }}>
               Recent Log
             </Typography>
-            <Typography variant="caption" sx={{ display: "block", color: "text.secondary" }}>
+            <Typography variant="caption" sx={{ display: { xs: "none", sm: "block" }, color: "text.secondary" }}>
               {loadedLogCount ? `${fmtInt(loadedLogCount)} loaded entries` : "No saved entries"}
             </Typography>
           </Box>
@@ -56,7 +56,7 @@ export function BranchLogPanel(props: {
         </Stack>
       </Box>
       <Divider />
-      <Stack spacing={0} sx={{ maxHeight: 240, overflowY: "auto" }}>
+      <Stack spacing={0} sx={{ maxHeight: { xs: "none", sm: 240 }, overflowY: { xs: "visible", sm: "auto" } }}>
         {props.logLoading && !loadedLogCount ? (
           <Stack spacing={0.8} sx={{ px: 1.35, py: 1.2 }}>
             <Skeleton animation="wave" variant="rounded" height={20} />

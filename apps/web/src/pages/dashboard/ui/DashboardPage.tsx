@@ -94,7 +94,7 @@ export function DashboardPage() {
         canControlMonitor={canManageMonitor}
       />
 
-      <Container maxWidth="xl" sx={{ py: 3 }}>
+      <Container maxWidth="xl" sx={{ py: { xs: 2, md: 3 } }}>
         {syncError ? (
           <Alert severity="error" variant="outlined" sx={{ mb: 2, borderRadius: 3, borderColor: "rgba(220,38,38,0.22)" }}>
             {syncError}
@@ -134,8 +134,11 @@ export function DashboardPage() {
                   />
                 </Stack>
 
-                <Typography variant="caption" sx={{ display: "block", mt: 1.25, color: "text.secondary" }}>
+                <Typography variant="caption" sx={{ display: { xs: "none", sm: "block" }, mt: 1.25, color: "text.secondary" }}>
                   Monitoring is still running, but live orders metrics may be stale. Review the error, then stop monitoring until the Orders API recovers or the token is fixed.
+                </Typography>
+                <Typography variant="caption" sx={{ display: { xs: "block", sm: "none" }, mt: 1.25, color: "text.secondary" }}>
+                  Orders metrics may be stale.
                 </Typography>
               </Box>
 
@@ -144,9 +147,18 @@ export function DashboardPage() {
                 color="error"
                 onClick={onStop}
                 disabled={!canManageMonitor}
-                sx={{ minWidth: 150, alignSelf: { xs: "stretch", md: "center" } }}
+                sx={{ minWidth: { xs: "100%", md: 150 }, alignSelf: { xs: "stretch", md: "center" } }}
               >
-                {canManageMonitor ? "Stop Monitor" : "No Access"}
+                {canManageMonitor ? (
+                  <>
+                    <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
+                      Stop
+                    </Box>
+                    <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+                      Stop Monitor
+                    </Box>
+                  </>
+                ) : "No Access"}
               </Button>
             </Stack>
           </Alert>

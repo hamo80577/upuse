@@ -1,5 +1,5 @@
 import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
-import { Alert, Box, Button, Card, CardContent, Container, Divider, Snackbar, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, Card, CardContent, Container, Divider, Snackbar, Stack, Tab, Tabs, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, describeApiError } from "../api/client";
@@ -9,6 +9,8 @@ import type { SettingsMasked, SettingsTokenTestResponse } from "../api/types";
 import { TopBar } from "../components/TopBar";
 
 export function Settings() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const navigate = useNavigate();
   const { canManageMonitor, canManageSettings, canManageTokens, canTestTokens } = useAuth();
   const { monitoring, startMonitoring, stopMonitoring } = useMonitorStatus();
@@ -17,6 +19,7 @@ export function Settings() {
   const [form, setForm] = useState<any>({});
   const [toast, setToast] = useState<{ type: "success" | "error" | "info"; msg: string } | null>(null);
   const [test, setTest] = useState<SettingsTokenTestResponse | null>(null);
+  const [mobileSection, setMobileSection] = useState<"monitor" | "tokens">("monitor");
   const canSave = canManageSettings || canManageTokens;
 
   const applySettings = (settings: SettingsMasked) => {
@@ -143,7 +146,7 @@ export function Settings() {
         canControlMonitor={canManageMonitor}
       />
 
-      <Container maxWidth="lg" sx={{ py: 3 }}>
+      <Container maxWidth="lg" sx={{ py: { xs: 2, md: 3 } }}>
         <Card
           sx={{
             borderRadius: 4,
@@ -157,7 +160,7 @@ export function Settings() {
                 <Typography variant="h6" sx={{ fontWeight: 900 }}>
                   Settings
                 </Typography>
-                <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                <Typography variant="body2" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
                   Manage monitor timing and API tokens.
                 </Typography>
               </Box>
@@ -172,124 +175,150 @@ export function Settings() {
               </Button>
             </Stack>
 
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-              <TextField
-                label="Global Entity ID"
-                value={form.globalEntityId ?? ""}
-                onChange={(e) => setForm((p: any) => ({ ...p, globalEntityId: e.target.value }))}
-                disabled={!canManageSettings}
-                fullWidth
-              />
-              <TextField
-                label="Temp Close (minutes)"
-                type="number"
-                value={form.tempCloseMinutes ?? 30}
-                onChange={(e) => setForm((p: any) => ({ ...p, tempCloseMinutes: Number(e.target.value) }))}
-                disabled={!canManageSettings}
-                fullWidth
-              />
-              <TextField
-                label="Grace (minutes)"
-                type="number"
-                value={form.graceMinutes ?? 5}
-                onChange={(e) => setForm((p: any) => ({ ...p, graceMinutes: Number(e.target.value) }))}
-                disabled={!canManageSettings}
-                fullWidth
-              />
-            </Stack>
-
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-              <TextField
-                label="Orders Refresh (seconds)"
-                type="number"
-                value={form.ordersRefreshSeconds ?? 30}
-                onChange={(e) => setForm((p: any) => ({ ...p, ordersRefreshSeconds: Number(e.target.value) }))}
-                disabled={!canManageSettings}
-                fullWidth
-              />
-              <TextField
-                label="Availability Refresh (seconds)"
-                type="number"
-                value={form.availabilityRefreshSeconds ?? 30}
-                onChange={(e) => setForm((p: any) => ({ ...p, availabilityRefreshSeconds: Number(e.target.value) }))}
-                disabled={!canManageSettings}
-                fullWidth
-              />
-              <TextField
-                label="Max Vendors / Orders Request"
-                type="number"
-                value={form.maxVendorsPerOrdersRequest ?? 50}
-                onChange={(e) => setForm((p: any) => ({ ...p, maxVendorsPerOrdersRequest: Number(e.target.value) }))}
-                disabled={!canManageSettings}
-                fullWidth
-              />
-            </Stack>
-
-            <Divider />
-
-            <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
-              Tokens
-            </Typography>
-
-            <Stack spacing={1.5}>
-              <TextField
-                label="Orders API Token"
-                type="password"
-                placeholder={s?.ordersToken ? s.ordersToken : ""}
-                value={form.ordersToken ?? ""}
-                onChange={(e) => setForm((p: any) => ({ ...p, ordersToken: e.target.value }))}
-                disabled={!canManageTokens}
-                fullWidth
-              />
-              <TextField
-                label="Availability API Token"
-                type="password"
-                placeholder={s?.availabilityToken ? s.availabilityToken : ""}
-                value={form.availabilityToken ?? ""}
-                onChange={(e) => setForm((p: any) => ({ ...p, availabilityToken: e.target.value }))}
-                disabled={!canManageTokens}
-                fullWidth
-              />
-            </Stack>
-
-            <Stack direction="row" spacing={1.2} sx={{ mt: 1 }}>
-              <Button variant="contained" onClick={save} disabled={!canSave}>
-                {canSave ? "Save" : "Read Only"}
-              </Button>
-              <Button variant="outlined" onClick={runTest} disabled={!canTestTokens}>
-                Test Tokens
-              </Button>
-            </Stack>
-
-            {test ? (
-              <Box sx={{ mt: 1 }}>
-                <Stack spacing={1}>
-                  <Alert severity={test.availability.ok ? "success" : test.availability.configured ? "error" : "warning"}>
-                    Availability Token:{" "}
-                    {test.availability.ok
-                      ? "OK"
-                      : test.availability.message || `Failed${test.availability.status ? ` (HTTP ${test.availability.status})` : ""}`}
-                  </Alert>
-                  <Alert severity={test.orders.configValid ? "success" : "warning"}>
-                    Orders Config: {test.orders.configValid ? "Ready for branch checks" : test.orders.configMessage || "Configuration incomplete"}
-                  </Alert>
-                  <Alert severity={test.orders.ok ? "success" : test.orders.failedBranchCount > 0 ? "warning" : "info"}>
-                    Orders Branch Sweep: {test.orders.passedBranchCount}/{test.orders.enabledBranchCount} enabled branches passed
-                    {test.orders.failedBranchCount > 0 ? `, ${test.orders.failedBranchCount} failed` : ""}
-                  </Alert>
-                  {test.orders.branches.length ? (
-                    <Stack spacing={0.75}>
-                      {test.orders.branches.map((branch) => (
-                        <Alert key={branch.branchId} severity={branch.ok ? "success" : "error"} variant="outlined">
-                          {branch.name} ({branch.ordersVendorId}, {branch.globalEntityId || "missing entity"}):{" "}
-                          {branch.ok ? branch.sampleVendorName || branch.message || "Token OK" : branch.message || `Failed${branch.status ? ` (HTTP ${branch.status})` : ""}`}
-                        </Alert>
-                      ))}
-                    </Stack>
-                  ) : null}
-                </Stack>
+            {isMobile ? (
+              <Box
+                sx={{
+                  borderRadius: 999,
+                  border: "1px solid rgba(148,163,184,0.14)",
+                  bgcolor: "rgba(248,250,252,0.92)",
+                  overflow: "hidden",
+                }}
+              >
+                <Tabs value={mobileSection} onChange={(_event, value) => setMobileSection(value)} variant="fullWidth" sx={{ minHeight: 42, "& .MuiTab-root": { minHeight: 42, fontWeight: 900, textTransform: "none" } }}>
+                  <Tab value="monitor" label="Monitor" />
+                  <Tab value="tokens" label="Tokens" />
+                </Tabs>
               </Box>
             ) : null}
+
+            <Box sx={{ display: { xs: !isMobile || mobileSection === "monitor" ? "block" : "none", sm: "block" } }}>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+                <TextField
+                  label="Global Entity ID"
+                  value={form.globalEntityId ?? ""}
+                  onChange={(e) => setForm((p: any) => ({ ...p, globalEntityId: e.target.value }))}
+                  disabled={!canManageSettings}
+                  fullWidth
+                />
+                <TextField
+                  label="Temp Close (minutes)"
+                  type="number"
+                  value={form.tempCloseMinutes ?? 30}
+                  onChange={(e) => setForm((p: any) => ({ ...p, tempCloseMinutes: Number(e.target.value) }))}
+                  disabled={!canManageSettings}
+                  fullWidth
+                />
+                <TextField
+                  label="Grace (minutes)"
+                  type="number"
+                  value={form.graceMinutes ?? 5}
+                  onChange={(e) => setForm((p: any) => ({ ...p, graceMinutes: Number(e.target.value) }))}
+                  disabled={!canManageSettings}
+                  fullWidth
+                />
+              </Stack>
+
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mt: 1.5 }}>
+                <TextField
+                  label="Orders Refresh (seconds)"
+                  type="number"
+                  value={form.ordersRefreshSeconds ?? 30}
+                  onChange={(e) => setForm((p: any) => ({ ...p, ordersRefreshSeconds: Number(e.target.value) }))}
+                  disabled={!canManageSettings}
+                  fullWidth
+                />
+                <TextField
+                  label="Availability Refresh (seconds)"
+                  type="number"
+                  value={form.availabilityRefreshSeconds ?? 30}
+                  onChange={(e) => setForm((p: any) => ({ ...p, availabilityRefreshSeconds: Number(e.target.value) }))}
+                  disabled={!canManageSettings}
+                  fullWidth
+                />
+                <TextField
+                  label="Max Vendors / Orders Request"
+                  type="number"
+                  value={form.maxVendorsPerOrdersRequest ?? 50}
+                  onChange={(e) => setForm((p: any) => ({ ...p, maxVendorsPerOrdersRequest: Number(e.target.value) }))}
+                  disabled={!canManageSettings}
+                  fullWidth
+                />
+              </Stack>
+
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2} sx={{ mt: 1.5 }}>
+                <Button variant="contained" onClick={save} disabled={!canSave}>
+                  {canSave ? "Save" : "Read Only"}
+                </Button>
+              </Stack>
+            </Box>
+
+            <Box sx={{ display: { xs: !isMobile || mobileSection === "tokens" ? "block" : "none", sm: "block" } }}>
+              <Divider sx={{ display: { xs: isMobile ? "none" : "block", sm: "block" }, mb: { xs: 0, sm: 0 } }} />
+
+              <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 1.5, display: { xs: "none", sm: "block" } }}>
+                Tokens
+              </Typography>
+
+              <Stack spacing={1.5}>
+                <TextField
+                  label="Orders API Token"
+                  type="password"
+                  placeholder={s?.ordersToken ? s.ordersToken : ""}
+                  value={form.ordersToken ?? ""}
+                  onChange={(e) => setForm((p: any) => ({ ...p, ordersToken: e.target.value }))}
+                  disabled={!canManageTokens}
+                  fullWidth
+                />
+                <TextField
+                  label="Availability API Token"
+                  type="password"
+                  placeholder={s?.availabilityToken ? s.availabilityToken : ""}
+                  value={form.availabilityToken ?? ""}
+                  onChange={(e) => setForm((p: any) => ({ ...p, availabilityToken: e.target.value }))}
+                  disabled={!canManageTokens}
+                  fullWidth
+                />
+              </Stack>
+
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2} sx={{ mt: 1.5 }}>
+                <Button variant="contained" onClick={save} disabled={!canSave}>
+                  {canSave ? "Save" : "Read Only"}
+                </Button>
+                <Button variant="outlined" onClick={runTest} disabled={!canTestTokens}>
+                  Test Tokens
+                </Button>
+              </Stack>
+
+              {test ? (
+                <Box sx={{ mt: 1 }}>
+                  <Stack spacing={1}>
+                    <Alert severity={test.availability.ok ? "success" : test.availability.configured ? "error" : "warning"}>
+                      Availability Token:{" "}
+                      {test.availability.ok
+                        ? "OK"
+                        : test.availability.message || `Failed${test.availability.status ? ` (HTTP ${test.availability.status})` : ""}`}
+                    </Alert>
+                    <Alert severity={test.orders.configValid ? "success" : "warning"}>
+                      Orders Config: {test.orders.configValid ? "Ready for branch checks" : test.orders.configMessage || "Configuration incomplete"}
+                    </Alert>
+                    <Alert severity={test.orders.ok ? "success" : test.orders.failedBranchCount > 0 ? "warning" : "info"}>
+                      Orders Branch Sweep: {test.orders.passedBranchCount}/{test.orders.enabledBranchCount} enabled branches passed
+                      {test.orders.failedBranchCount > 0 ? `, ${test.orders.failedBranchCount} failed` : ""}
+                    </Alert>
+                    {test.orders.branches.length ? (
+                      <Stack spacing={0.75}>
+                        {test.orders.branches.map((branch) => (
+                          <Alert key={branch.branchId} severity={branch.ok ? "success" : "error"} variant="outlined">
+                            {branch.name} ({branch.ordersVendorId}, {branch.globalEntityId || "missing entity"}):{" "}
+                            {branch.ok ? branch.sampleVendorName || branch.message || "Token OK" : branch.message || `Failed${branch.status ? ` (HTTP ${branch.status})` : ""}`}
+                          </Alert>
+                        ))}
+                      </Stack>
+                    ) : null}
+                  </Stack>
+                </Box>
+              ) : null}
+            </Box>
           </CardContent>
         </Card>
       </Container>

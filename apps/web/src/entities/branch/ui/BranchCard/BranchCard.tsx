@@ -62,14 +62,15 @@ function BranchCardBase(props: {
         },
       }}
     >
-      <CardContent sx={{ p: { xs: 1.35, md: 1.65 }, "&:last-child": { pb: { xs: 1.35, md: 1.65 } } }}>
+      <CardContent sx={{ p: { xs: 1.15, md: 1.65 }, "&:last-child": { pb: { xs: 1.15, md: 1.65 } } }}>
         <Box
           sx={{
             display: "grid",
-            gap: { xs: 1, lg: 1.4 },
+            gap: { xs: 0.85, lg: 1.4 },
             alignItems: "center",
             gridTemplateColumns: {
-              xs: "52px minmax(0, 1fr)",
+              xs: "1fr",
+              sm: "52px minmax(0, 1fr)",
               lg: "60px minmax(0, 1fr)",
             },
           }}
@@ -78,7 +79,7 @@ function BranchCardBase(props: {
             sx={{
               minWidth: 0,
               alignSelf: "stretch",
-              display: "flex",
+              display: { xs: "none", sm: "flex" },
               alignItems: "center",
               justifyContent: "center",
               pr: { xs: 0.4, md: 0.55 },
@@ -126,7 +127,7 @@ function BranchCardBase(props: {
           <Box
             sx={{
               display: "grid",
-              gap: { xs: 1.1, lg: 1.6 },
+              gap: { xs: 0.9, lg: 1.6 },
               alignItems: "center",
               gridTemplateColumns: {
                 xs: "1fr",
@@ -136,12 +137,41 @@ function BranchCardBase(props: {
             }}
           >
             <Stack spacing={1.1} sx={{ minWidth: 0, pr: { lg: 1 } }}>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ display: { xs: "flex", sm: "none" } }}>
+                <Box
+                  sx={{
+                    minWidth: 34,
+                    height: 34,
+                    px: 1,
+                    borderRadius: 2.2,
+                    display: "grid",
+                    placeItems: "center",
+                    bgcolor: rankStyle.panelBg,
+                    color: rankStyle.textColor,
+                    fontWeight: 900,
+                    fontSize: 14,
+                    boxShadow: "inset 0 0 0 1px rgba(148,163,184,0.12)",
+                  }}
+                >
+                  {fmtInt(rank)}
+                </Box>
+                <Box
+                  sx={{
+                    height: 18,
+                    width: 3,
+                    borderRadius: 999,
+                    bgcolor: rankStyle.railColor,
+                    opacity: 0.8,
+                  }}
+                />
+              </Stack>
               <Box sx={{ minWidth: 0 }}>
                 <Typography
                   variant="subtitle1"
                   sx={{
+                    fontSize: { xs: 15, md: 16 },
                     fontWeight: 900,
-                    lineHeight: 1.18,
+                    lineHeight: { xs: 1.24, md: 1.18 },
                     whiteSpace: "normal",
                     wordBreak: "break-word",
                   }}

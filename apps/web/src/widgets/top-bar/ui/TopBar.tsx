@@ -104,21 +104,39 @@ function TopBarBase(props: {
       elevation={0}
       sx={{ borderBottom: "1px solid rgba(17,24,39,0.06)", bgcolor: "white", color: "text.primary" }}
     >
-      <Toolbar sx={{ gap: 1.25, py: 0.8, flexWrap: "wrap" }}>
+      <Toolbar
+        sx={{
+          gap: { xs: 0.75, md: 1.25 },
+          py: { xs: 0.65, md: 0.8 },
+          px: { xs: 1.25, sm: 2 },
+          flexWrap: "wrap",
+          rowGap: { xs: 0.75, md: 1 },
+        }}
+      >
         <BrandLockup />
 
-        <Box sx={{ flex: 1 }} />
+        <Box sx={{ flex: 1, minWidth: { xs: 0, sm: 24 } }} />
 
-        {props.branchSummary ? <BranchStateTicker branches={props.branchSummary} /> : null}
+        {props.branchSummary ? (
+          <Box sx={{ display: { xs: "none", sm: "block" } }}>
+            <BranchStateTicker branches={props.branchSummary} />
+          </Box>
+        ) : null}
 
         {props.degraded ? (
-          <Chip label={props.degradedLabel ?? "Degraded"} variant="outlined" color={props.degradedColor ?? "warning"} />
+          <Chip
+            label={props.degradedLabel ?? "Degraded"}
+            variant="outlined"
+            color={props.degradedColor ?? "warning"}
+            sx={{ height: { xs: 28, sm: 32 }, fontWeight: 800 }}
+          />
         ) : null}
 
         <Chip
           label={props.running ? "Running" : "Stopped"}
           variant={props.running ? "filled" : "outlined"}
           color={props.running ? "success" : "default"}
+          sx={{ height: { xs: 28, sm: 32 }, fontWeight: 800 }}
         />
 
         {canControlMonitor ? (
@@ -126,13 +144,18 @@ function TopBarBase(props: {
             variant={props.running ? "outlined" : "contained"}
             color={props.running ? "inherit" : "success"}
             onClick={props.running ? props.onStop : props.onStart}
-            sx={{ minWidth: 150 }}
+            sx={{ minWidth: { xs: 96, sm: 150 }, px: { xs: 1.5, sm: 2 }, fontWeight: 800 }}
           >
             {props.running ? "Stop" : "Start"}
           </Button>
         ) : (
-          <Button variant="outlined" disabled sx={{ minWidth: 150 }}>
-            Read Only
+          <Button variant="outlined" disabled sx={{ minWidth: { xs: 96, sm: 150 }, px: { xs: 1.5, sm: 2 }, fontWeight: 800 }}>
+            <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
+              Locked
+            </Box>
+            <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+              Read Only
+            </Box>
           </Button>
         )}
 
@@ -141,9 +164,9 @@ function TopBarBase(props: {
           spacing={1}
           alignItems="center"
           sx={{
-            pl: 1,
+            pl: { xs: 0, sm: 1 },
             ml: { xs: 0, md: 0.5 },
-            borderLeft: "1px solid rgba(148,163,184,0.18)",
+            borderLeft: { xs: "none", sm: "1px solid rgba(148,163,184,0.18)" },
           }}
         >
           <Button
@@ -151,7 +174,8 @@ function TopBarBase(props: {
             color="inherit"
             onClick={(event) => setUserMenuAnchor(event.currentTarget)}
             sx={{
-              px: 1.15,
+              minWidth: 0,
+              px: { xs: 0.85, sm: 1.15 },
               py: 0.65,
               borderRadius: 999,
               border: "1px solid rgba(148,163,184,0.16)",
@@ -159,12 +183,12 @@ function TopBarBase(props: {
               textTransform: "none",
             }}
           >
-            <Stack direction="row" spacing={1} alignItems="center">
+            <Stack direction="row" spacing={{ xs: 0.75, sm: 1 }} alignItems="center">
               <Avatar
                 sx={{
-                  width: 34,
-                  height: 34,
-                  fontSize: 13,
+                  width: { xs: 30, sm: 34 },
+                  height: { xs: 30, sm: 34 },
+                  fontSize: { xs: 12, sm: 13 },
                   fontWeight: 900,
                   color: "#0f172a",
                   bgcolor: "rgba(15,23,42,0.08)",
@@ -173,7 +197,7 @@ function TopBarBase(props: {
                 {userInitials}
               </Avatar>
 
-              <Box sx={{ minWidth: 0, textAlign: "left" }}>
+              <Box sx={{ minWidth: 0, textAlign: "left", display: { xs: "none", sm: "block" } }}>
                 <Typography sx={{ fontSize: 13, fontWeight: 900, lineHeight: 1.1 }} noWrap>
                   {user?.name ?? "Signed in"}
                 </Typography>
@@ -182,7 +206,7 @@ function TopBarBase(props: {
                 </Typography>
               </Box>
 
-              <KeyboardArrowDownRoundedIcon sx={{ color: "#64748b" }} />
+              <KeyboardArrowDownRoundedIcon sx={{ color: "#64748b", fontSize: { xs: 18, sm: 22 } }} />
             </Stack>
           </Button>
 

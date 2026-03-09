@@ -69,7 +69,7 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
         <Typography sx={{ fontWeight: 900, color: panel.tone, lineHeight: 1.15 }}>
           {panel.title}
         </Typography>
-        <Typography variant="caption" sx={{ color: "text.secondary", lineHeight: 1.5 }}>
+        <Typography variant="caption" sx={{ color: "text.secondary", lineHeight: 1.5, display: { xs: "none", sm: "block" } }}>
           {panel.caption}
         </Typography>
       </Stack>
@@ -97,7 +97,7 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
               },
             }}
           />
-          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+          <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
             {timerReached
               ? "The timer reached its end. Waiting for the next availability update to confirm the final state."
               : canTrackProgress
@@ -105,6 +105,9 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
                   ? `Observed progress ${Math.round(progressValue)}% from first detected close until reopen time.`
                   : `Duration progress ${Math.round(progressValue)}% from close start until reopen time.`
                 : "Waiting for the close start timestamp to render duration progress."}
+          </Typography>
+          <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "block", sm: "none" } }}>
+            {timerReached ? "Waiting confirm" : canTrackProgress ? `${Math.round(progressValue)}% progress` : "Tracking..."}
           </Typography>
         </Stack>
       ) : null}

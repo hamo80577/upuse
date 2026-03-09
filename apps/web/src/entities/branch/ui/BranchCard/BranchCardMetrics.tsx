@@ -7,6 +7,7 @@ function MetricTile(props: {
   label: string;
   value: number;
   tone?: "neutral" | "late" | "unassigned";
+  mobileSpan?: number;
 }) {
   const tone = props.tone ?? "neutral";
   const zeroIsHealthy = (tone === "late" || tone === "unassigned") && props.value === 0;
@@ -39,16 +40,34 @@ function MetricTile(props: {
     <Box
       sx={{
         minWidth: 0,
-        minHeight: { xs: 58, md: 68 },
-        p: 0.25,
-        borderLeft: "2px solid",
+        minHeight: { xs: 62, md: 68 },
+        p: { xs: 0.95, md: 0.25 },
+        gridColumn: { xs: `span ${props.mobileSpan ?? 2}`, md: "span 1" },
+        borderLeft: { xs: "none", md: "2px solid" },
+        borderTop: { xs: "2px solid", md: "none" },
         borderColor: toneSx.accent,
-        pl: 1,
+        pl: { xs: 1.05, md: 1 },
         display: "flex",
         flexDirection: "column",
         justifyContent: "center",
-        alignItems: "center",
-        textAlign: "center",
+        alignItems: { xs: "flex-start", md: "center" },
+        textAlign: { xs: "left", md: "center" },
+        borderRadius: { xs: 2.6, md: 0 },
+        bgcolor: {
+          xs:
+            tone === "late"
+              ? zeroIsHealthy
+                ? "rgba(240,253,244,0.95)"
+                : "rgba(255,247,237,0.95)"
+              : tone === "unassigned"
+                ? zeroIsHealthy
+                  ? "rgba(240,253,244,0.95)"
+                  : "rgba(254,242,242,0.95)"
+                : "rgba(248,250,252,0.98)",
+          md: "transparent",
+        },
+        border: { xs: "1px solid rgba(148,163,184,0.12)", md: "none" },
+        boxShadow: { xs: "inset 0 1px 0 rgba(255,255,255,0.65)", md: "none" },
       }}
     >
       <Typography
@@ -59,11 +78,12 @@ function MetricTile(props: {
           display: "block",
           whiteSpace: "normal",
           lineHeight: 1.2,
+          fontSize: { xs: 10.5, md: 12 },
         }}
       >
         {props.label}
       </Typography>
-      <Typography variant="h6" sx={{ mt: 0.2, fontWeight: 900, color: toneSx.valueColor, lineHeight: 1.1 }}>
+      <Typography variant="h6" sx={{ mt: 0.25, fontWeight: 900, color: toneSx.valueColor, lineHeight: 1.05, fontSize: { xs: 22, md: 20 } }}>
         {fmtInt(props.value)}
       </Typography>
     </Box>
@@ -76,20 +96,20 @@ function BranchCardMetricsBase(props: { metrics: BranchSnapshot["metrics"] }) {
     <Box
       sx={{
         display: "grid",
-        columnGap: { xs: 0.85, md: 1.15 },
-        rowGap: 0.8,
+        columnGap: { xs: 0.75, md: 1.15 },
+        rowGap: { xs: 0.75, md: 0.8 },
         alignItems: "stretch",
         gridTemplateColumns: {
-          xs: "repeat(2, minmax(0, 1fr))",
+          xs: "repeat(6, minmax(0, 1fr))",
           md: "repeat(5, minmax(0, 1fr))",
         },
       }}
     >
-      <MetricTile label="Total" value={m.totalToday} />
-      <MetricTile label="Cancelled" value={m.cancelledToday} />
-      <MetricTile label="Active" value={m.activeNow} />
-      <MetricTile label="Late" value={m.lateNow} tone="late" />
-      <MetricTile label="Unassigned" value={m.unassignedNow} tone="unassigned" />
+      <MetricTile label="Total" value={m.totalToday} mobileSpan={2} />
+      <MetricTile label="Cancelled" value={m.cancelledToday} mobileSpan={2} />
+      <MetricTile label="Active" value={m.activeNow} mobileSpan={2} />
+      <MetricTile label="Late" value={m.lateNow} tone="late" mobileSpan={3} />
+      <MetricTile label="Unassigned" value={m.unassignedNow} tone="unassigned" mobileSpan={3} />
     </Box>
   );
 }

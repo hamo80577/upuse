@@ -53,12 +53,12 @@ export function BranchOrdersSection(props: {
     <Box sx={{ borderRadius: 3, border: "1px solid rgba(148,163,184,0.14)", overflow: "hidden" }}>
       <Box sx={{ px: 1.5, py: 1.2, bgcolor: "rgba(248,250,252,0.8)" }}>
         <Typography sx={{ fontWeight: 900 }}>{props.title}</Typography>
-        <Typography variant="caption" sx={{ color: "text.secondary" }}>
+        <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
           {props.subtitle}
         </Typography>
       </Box>
       <Divider />
-      <Stack spacing={0} sx={{ maxHeight: 360, overflowY: "auto" }}>
+      <Stack spacing={0} sx={{ maxHeight: { xs: "none", sm: 360 }, overflowY: { xs: "visible", sm: "auto" } }}>
         {props.items.length ? (
           props.items.map((item) => <OrderRow key={item.id} item={item} nowMs={props.nowMs} />)
         ) : (

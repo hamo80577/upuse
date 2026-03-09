@@ -44,7 +44,7 @@ export function ChainThresholdManager(props: {
           <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
             Chains
           </Typography>
-          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+          <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
             Chain base thresholds.
           </Typography>
         </Box>
@@ -72,20 +72,21 @@ export function ChainThresholdManager(props: {
                 border: editingChainIndex === index ? "1px solid rgba(37,99,235,0.18)" : "1px solid rgba(148,163,184,0.10)",
                 bgcolor: editingChainIndex === index ? "rgba(37,99,235,0.04)" : "rgba(255,255,255,0.92)",
                 display: "flex",
-                alignItems: "center",
+                alignItems: { xs: "stretch", sm: "center" },
                 gap: 1,
+                flexDirection: { xs: "column", sm: "row" },
               }}
             >
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography sx={{ fontWeight: 900, color: "#0f172a" }} noWrap>
                   {chain.name}
                 </Typography>
-                <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
                   Late {chain.lateThreshold} • Unassigned {chain.unassignedThreshold}
                 </Typography>
               </Box>
 
-              <Stack direction="row" spacing={0.7}>
+              <Stack direction="row" spacing={0.7} sx={{ flexWrap: "wrap" }}>
                 <Chip
                   size="small"
                   label={`Late ${chain.lateThreshold}`}
@@ -106,16 +107,18 @@ export function ChainThresholdManager(props: {
                 />
               </Stack>
 
-              <IconButton
-                onClick={() => props.onEditChain(chain, index)}
-                color={editingChainIndex === index ? "primary" : "default"}
-                disabled={readOnly}
-              >
-                <EditOutlinedIcon />
-              </IconButton>
-              <IconButton onClick={() => props.onRemoveChain(index)} color="default" disabled={readOnly}>
-                <DeleteOutlineIcon />
-              </IconButton>
+              <Stack direction="row" spacing={0.4} justifyContent={{ xs: "flex-end", sm: "flex-start" }}>
+                <IconButton
+                  onClick={() => props.onEditChain(chain, index)}
+                  color={editingChainIndex === index ? "primary" : "default"}
+                  disabled={readOnly}
+                >
+                  <EditOutlinedIcon />
+                </IconButton>
+                <IconButton onClick={() => props.onRemoveChain(index)} color="default" disabled={readOnly}>
+                  <DeleteOutlineIcon />
+                </IconButton>
+              </Stack>
             </Box>
           ))
         ) : (
@@ -166,17 +169,18 @@ export function ChainThresholdManager(props: {
           />
         </Stack>
 
-        <Stack direction="row" spacing={1} sx={{ mt: 1.2 }}>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mt: 1.2 }}>
           <Button
             variant="contained"
             onClick={props.onSaveChain}
             disabled={readOnly}
             startIcon={editingChainIndex !== null ? <SaveRoundedIcon /> : <AddRoundedIcon />}
+            sx={{ width: { xs: "100%", sm: "auto" } }}
           >
             {editingChainIndex !== null ? "Save Chain" : "Add Chain"}
           </Button>
           {editingChainIndex !== null ? (
-            <Button variant="text" onClick={props.onCancelEdit} startIcon={<CloseRoundedIcon />}>
+            <Button variant="text" onClick={props.onCancelEdit} startIcon={<CloseRoundedIcon />} sx={{ width: { xs: "100%", sm: "auto" } }}>
               Cancel
             </Button>
           ) : null}
