@@ -64,7 +64,8 @@ app.use("/api", (_req, res) => {
 });
 const runtimeEntryPath = fileURLToPath(import.meta.url);
 const isCompiledRuntime = runtimeEntryPath.includes(`${path.sep}dist${path.sep}`);
-if (isCompiledRuntime) {
+const isProductionRuntime = isCompiledRuntime && process.env.NODE_ENV?.trim().toLowerCase() === "production";
+if (isProductionRuntime) {
     const webDistDir = resolveWebDistDir();
     const webIndexPath = path.join(webDistDir, "index.html");
     if (!fs.existsSync(webIndexPath)) {

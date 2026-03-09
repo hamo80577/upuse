@@ -76,8 +76,9 @@ app.use("/api", (_req, res) => {
 
 const runtimeEntryPath = fileURLToPath(import.meta.url);
 const isCompiledRuntime = runtimeEntryPath.includes(`${path.sep}dist${path.sep}`);
+const isProductionRuntime = isCompiledRuntime && process.env.NODE_ENV?.trim().toLowerCase() === "production";
 
-if (isCompiledRuntime) {
+if (isProductionRuntime) {
   const webDistDir = resolveWebDistDir();
   const webIndexPath = path.join(webDistDir, "index.html");
 
