@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { resolveDataDir, resolveDbFilePath, resolveServerRootDir } from "./paths.js";
+import { resolveDataDir, resolveDbFilePath, resolveServerRootDir, resolveWebDistDir, resolveWorkspaceRootDir } from "./paths.js";
 
 describe("config paths", () => {
   it("resolves the default data directory relative to the server root, not cwd", () => {
@@ -36,5 +36,22 @@ describe("config paths", () => {
       env: { UPUSE_DATA_DIR: "custom-data" },
       serverRootDir,
     })).toBe(path.join(serverRootDir, "custom-data", "upuse.sqlite"));
+  });
+
+  it("resolves the web dist directory relative to the workspace, not cwd", () => {
+    const serverRootDir = resolveServerRootDir();
+    const workspaceRootDir = resolveWorkspaceRootDir(serverRootDir);
+    const expected = path.join(workspaceRootDir, "apps", "web", "dist");
+    const originalCwd = process.cwd();
+
+    try {
+      process.chdir(path.join(serverRootDir, "src"));
+      expect(resolveWebDistDir()).toBe(expected);
+
+      process.chdir(path.dirname(workspaceRootDir));
+      expect(resolveWebDistDir()).toBe(expected);
+    } finally {
+      process.chdir(originalCwd);
+    }
   });
 });

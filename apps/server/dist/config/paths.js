@@ -4,6 +4,12 @@ const DEFAULT_DB_FILE_NAME = "upuse.sqlite";
 export function resolveServerRootDir() {
     return path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 }
+export function resolveWorkspaceRootDir(serverRootDir = resolveServerRootDir()) {
+    return path.resolve(serverRootDir, "..", "..");
+}
+export function resolveWebDistDir(serverRootDir = resolveServerRootDir()) {
+    return path.join(resolveWorkspaceRootDir(serverRootDir), "apps", "web", "dist");
+}
 export function resolveDataDir(options = {}) {
     const serverRootDir = options.serverRootDir ?? resolveServerRootDir();
     const raw = options.env?.UPUSE_DATA_DIR?.trim();

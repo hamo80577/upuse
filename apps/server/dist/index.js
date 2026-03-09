@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -5,6 +8,7 @@ import morgan from "morgan";
 import { ZodError } from "zod";
 import { migrate } from "./config/db.js";
 import { getEnv } from "./config/env.js";
+import { resolveWebDistDir } from "./config/paths.js";
 import { createCorsOptions } from "./http/security.js";
 import { createSessionAuthMiddleware, requireAdminRole, requireAuthenticatedApi, requireCapability } from "./http/auth.js";
 import { MonitorEngine } from "./monitor/index.js";
@@ -58,6 +62,47 @@ app.use("/api", (_req, res) => {
         message: "Not found",
     });
 });
+const runtimeEntryPath = fileURLToPath(import.meta.url);
+const isCompiledRuntime = runtimeEntryPath.includes(`${path.sep}dist${path.sep}`);
+if (isCompiledRuntime) {
+    const webDistDir = resolveWebDistDir();
+    const webIndexPath = path.join(webDistDir, "index.html");
+    if (!fs.existsSync(webIndexPath)) {
+        throw new Error(`Missing frontend build output at ${webIndexPath}. Run "npm run build" before starting production.`);
+    }
+    const assetDirPrefix = `assets${path.sep}`;
+    app.use(express.static(webDistDir, {
+        index: false,
+        fallthrough: true,
+        setHeaders(res, filePath) {
+            const relativePath = path.relative(webDistDir, filePath);
+            if (relativePath === "index.html") {
+                res.setHeader("Cache-Control", "no-cache");
+                return;
+            }
+            if (relativePath.startsWith(assetDirPrefix)) {
+                res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+            }
+        },
+    }));
+    app.get("*", (req, res, next) => {
+        if (req.path.startsWith("/api/")) {
+            next();
+            return;
+        }
+        if (path.extname(req.path)) {
+            next();
+            return;
+        }
+        const acceptsHtml = typeof req.headers.accept === "string" && req.headers.accept.includes("text/html");
+        if (!acceptsHtml) {
+            next();
+            return;
+        }
+        res.setHeader("Cache-Control", "no-cache");
+        res.sendFile(webIndexPath);
+    });
+}
 app.use((error, _req, res, next) => {
     if (res.headersSent) {
         next(error);

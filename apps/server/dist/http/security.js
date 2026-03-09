@@ -9,6 +9,38 @@ export function parseCorsOrigins(raw) {
 function isDefaultLocalOrigin(origin) {
     return /^https?:\/\/localhost(?::\d+)?$/i.test(origin) || /^https?:\/\/127\.0\.0\.1(?::\d+)?$/i.test(origin);
 }
+function firstHeaderValue(value) {
+    if (Array.isArray(value)) {
+        return value[0]?.trim() || undefined;
+    }
+    return value?.split(",")[0]?.trim() || undefined;
+}
+function normalizeOrigin(origin) {
+    if (!origin)
+        return null;
+    try {
+        return new URL(origin).origin;
+    }
+    catch {
+        return null;
+    }
+}
+export function resolveRequestOrigin(req) {
+    const forwardedProto = firstHeaderValue(req.headers["x-forwarded-proto"]);
+    const forwardedHost = firstHeaderValue(req.headers["x-forwarded-host"]);
+    const host = forwardedHost || firstHeaderValue(req.headers.host) || req.get?.("host");
+    if (!host)
+        return null;
+    const protocol = forwardedProto || req.protocol || "http";
+    return normalizeOrigin(`${protocol}://${host}`);
+}
+export function isSameRequestOrigin(origin, req) {
+    const normalizedOrigin = normalizeOrigin(origin);
+    if (!normalizedOrigin) {
+        return !origin;
+    }
+    return normalizedOrigin === resolveRequestOrigin(req);
+}
 export function isAllowedOrigin(origin, configuredOrigins) {
     if (!origin)
         return true;
@@ -19,14 +51,12 @@ export function isAllowedOrigin(origin, configuredOrigins) {
 }
 export function createCorsOptions() {
     const configuredOrigins = parseCorsOrigins(process.env.UPUSE_CORS_ORIGINS);
-    return {
-        origin(origin, callback) {
-            if (isAllowedOrigin(origin, configuredOrigins)) {
-                callback(null, true);
-                return;
-            }
-            callback(new Error("CORS origin not allowed"));
-        },
-        credentials: true,
+    return (req, callback) => {
+        const requestOrigin = firstHeaderValue(req.headers.origin);
+        const allow = isAllowedOrigin(requestOrigin, configuredOrigins) || isSameRequestOrigin(requestOrigin, req);
+        callback(allow ? null : new Error("CORS origin not allowed"), {
+            origin: allow,
+            credentials: true,
+        });
     };
 }
