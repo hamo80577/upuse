@@ -6,9 +6,10 @@ import { resolveOrdersGlobalEntityId } from "../services/monitorOrdersPolling.js
 import { getSettings } from "../services/settingsStore.js";
 import { fetchVendorOrdersDetail, lookupVendorName } from "../services/ordersClient.js";
 import { resolveBranchThresholdProfile } from "../services/thresholds.js";
+import { log } from "../services/logger.js";
 import { buildDeleteBranchResponse, parseBranchIdParam } from "./branchRouteHelpers.js";
 import { ORDERS_VENDOR_NAME_LOOKBACK_DAYS } from "../services/orders/lookup.js";
-import type { BranchDetailSnapshot, BranchMapping, BranchSnapshot, LookupVendorNameResponse, OrdersMetrics } from "../types/models.js";
+import type { BranchDetailFetchFailed, BranchDetailOk, BranchDetailResult, BranchDetailSnapshotUnavailable, BranchMapping, BranchSnapshot, LookupVendorNameResponse, OrdersMetrics } from "../types/models.js";
 
 const BranchBody = z.object({
   name: z.string().min(1),
@@ -29,6 +30,10 @@ const BranchBody = z.object({
     message: "Branch threshold overrides must include both late and unassigned values.",
     path: ["lateThresholdOverride"],
   });
+});
+
+const BranchMonitoringBody = z.object({
+  enabled: z.boolean(),
 });
 
 type BranchConflictField = "availabilityVendorId" | "ordersVendorId";
@@ -68,6 +73,7 @@ function buildUnavailableBranchSnapshot(branch: BranchMapping, settings = getSet
     branchId: branch.id,
     name: branch.name,
     chainName: branch.chainName,
+    monitorEnabled: branch.enabled,
     ordersVendorId: branch.ordersVendorId,
     availabilityVendorId: branch.availabilityVendorId,
     status: "UNKNOWN",
@@ -77,23 +83,97 @@ function buildUnavailableBranchSnapshot(branch: BranchMapping, settings = getSet
   };
 }
 
-function buildUnavailableBranchDetail(
+function buildBranchDetailNotFound(branchId: number): BranchDetailResult {
+  return {
+    kind: "branch_not_found",
+    branchId,
+    message: "Branch not found",
+  };
+}
+
+function snapshotUnavailableMessage(branch: BranchMapping, detailErrorMessage?: string | null) {
+  if (!branch.enabled) {
+    if (detailErrorMessage) {
+      return `This branch is paused in monitor. Orders detail could not be loaded. ${detailErrorMessage}`;
+    }
+    return "This branch is paused in monitor. Live snapshot will resume after it is re-enabled.";
+  }
+
+  if (detailErrorMessage) {
+    return `Live availability snapshot is currently unavailable, and orders detail could not be loaded. ${detailErrorMessage}`;
+  }
+
+  return "This branch exists, but its live snapshot is currently unavailable.";
+}
+
+function applyResolvedThresholds(snapshot: BranchSnapshot, branch: BranchMapping, settings = getSettings()): BranchSnapshot {
+  return {
+    ...snapshot,
+    metrics: snapshot.metrics,
+    thresholds: snapshot.thresholds ?? resolveBranchThresholdProfile(branch, settings),
+  };
+}
+
+function buildSnapshotUnavailableDetail(
   branch: BranchMapping,
   settings = getSettings(),
   options?: {
     branchSnapshot?: BranchSnapshot;
+    totals?: OrdersMetrics;
+    fetchedAt?: string | null;
+    unassignedOrders?: BranchDetailSnapshotUnavailable["unassignedOrders"];
+    preparingOrders?: BranchDetailSnapshotUnavailable["preparingOrders"];
     message?: string;
   },
-): BranchDetailSnapshot {
-  const snapshot = options?.branchSnapshot ?? buildUnavailableBranchSnapshot(branch, settings);
+): BranchDetailSnapshotUnavailable {
+  const snapshot = applyResolvedThresholds(options?.branchSnapshot ?? buildUnavailableBranchSnapshot(branch, settings), branch, settings);
   return {
-    snapshotAvailable: false,
+    kind: "snapshot_unavailable",
     branch: snapshot,
-    totals: snapshot.metrics,
+    totals: options?.totals ?? snapshot.metrics,
+    fetchedAt: options?.fetchedAt ?? null,
+    unassignedOrders: options?.unassignedOrders ?? [],
+    preparingOrders: options?.preparingOrders ?? [],
+    message: options?.message ?? "This branch exists, but its live snapshot is currently unavailable.",
+  };
+}
+
+function buildDetailFetchFailedDetail(
+  snapshot: BranchSnapshot,
+  branch: BranchMapping,
+  settings = getSettings(),
+  message = "Live orders detail is temporarily unavailable.",
+): BranchDetailFetchFailed {
+  const normalizedSnapshot = applyResolvedThresholds(snapshot, branch, settings);
+  return {
+    kind: "detail_fetch_failed",
+    branch: normalizedSnapshot,
+    totals: normalizedSnapshot.metrics,
     fetchedAt: null,
     unassignedOrders: [],
     preparingOrders: [],
-    message: options?.message ?? "This branch exists, but its live snapshot is currently unavailable.",
+    message,
+  };
+}
+
+function buildOkBranchDetail(
+  snapshot: BranchSnapshot,
+  branch: BranchMapping,
+  settings = getSettings(),
+  detail: {
+    fetchedAt: string;
+    unassignedOrders: BranchDetailOk["unassignedOrders"];
+    preparingOrders: BranchDetailOk["preparingOrders"];
+  },
+): BranchDetailOk {
+  const normalizedSnapshot = applyResolvedThresholds(snapshot, branch, settings);
+  return {
+    kind: "ok",
+    branch: normalizedSnapshot,
+    totals: normalizedSnapshot.metrics,
+    fetchedAt: detail.fetchedAt,
+    unassignedOrders: detail.unassignedOrders,
+    preparingOrders: detail.preparingOrders,
   };
 }
 
@@ -163,8 +243,8 @@ export function deleteBranchRoute(req: Request, res: Response) {
   res.status(result.statusCode).json(result.body);
 }
 
-export function branchDetailRoute(engine: MonitorEngine) {
-  return async (req: Request, res: Response) => {
+export function updateBranchMonitoringRoute(engine?: MonitorEngine) {
+  return (req: Request, res: Response) => {
     const id = parseBranchIdParam(req.params.id);
     if (!id) {
       return res.status(400).json({ ok: false, message: "Invalid branch id" });
@@ -175,48 +255,92 @@ export function branchDetailRoute(engine: MonitorEngine) {
       return res.status(404).json({ ok: false, message: "Branch not found" });
     }
 
-    const settings = getSettings();
-    const getSnapshotBranch = () => engine.getSnapshot().branches.find((item) => item.branchId === id);
-    const snapshotBranch = getSnapshotBranch();
-    if (!snapshotBranch) {
-      const fallbackDetail = buildUnavailableBranchDetail(branch, settings);
-      return res.json(fallbackDetail);
+    const parsed = BranchMonitoringBody.parse(req.body);
+    if (branch.enabled === parsed.enabled) {
+      return res.json({ ok: true, item: branch });
     }
 
+    const updated = { id, ...updateBranch(id, { enabled: parsed.enabled }) };
+    engine?.resetBranchTransientState(updated);
+    log(
+      id,
+      "INFO",
+      parsed.enabled
+        ? "Monitor enabled for this branch. Live cycles will include it again."
+        : "Monitor paused for this branch. Live cycles will skip it until re-enabled.",
+    );
+    return res.json({ ok: true, item: updated });
+  };
+}
+
+export function branchDetailRoute(engine: MonitorEngine) {
+  return async (req: Request, res: Response) => {
+    const id = parseBranchIdParam(req.params.id);
+    if (!id) {
+      return res.status(400).json({ ok: false, message: "Invalid branch id" });
+    }
+
+    const branch = getBranchById(id);
+    if (!branch) {
+      return res.json(buildBranchDetailNotFound(id));
+    }
+
+    const settings = getSettings();
+    const getSnapshotBranch = () => engine.getSnapshot().branches.find((item) => item.branchId === id);
+    let fetchedDetail:
+      | {
+          metrics: OrdersMetrics;
+          fetchedAt: string;
+          unassignedOrders: BranchDetailOk["unassignedOrders"];
+          preparingOrders: BranchDetailOk["preparingOrders"];
+        }
+      | null = null;
+    let detailErrorMessage: string | null = null;
+
     try {
-      const detail = await fetchVendorOrdersDetail({
+      fetchedDetail = await fetchVendorOrdersDetail({
         token: settings.ordersToken,
         globalEntityId: resolveOrdersGlobalEntityId(branch, settings.globalEntityId),
         vendorId: branch.ordersVendorId,
       });
-      const latestSnapshotBranch = getSnapshotBranch() ?? snapshotBranch;
-
-      const body: BranchDetailSnapshot = {
-        snapshotAvailable: true,
-        branch: {
-          ...latestSnapshotBranch,
-          metrics: latestSnapshotBranch.metrics,
-          thresholds: latestSnapshotBranch.thresholds ?? resolveBranchThresholdProfile(branch, settings),
-        },
-        totals: latestSnapshotBranch.metrics,
-        fetchedAt: detail.fetchedAt,
-        unassignedOrders: detail.unassignedOrders,
-        preparingOrders: detail.preparingOrders,
-      };
-      res.json(body);
     } catch (e: any) {
-      const detailErrorMessage = e?.response?.data?.message || e?.message || "Failed to load branch detail";
-      const latestSnapshotBranch = getSnapshotBranch() ?? snapshotBranch;
-      const fallbackDetail = buildUnavailableBranchDetail(branch, settings, {
-        branchSnapshot: {
-          ...latestSnapshotBranch,
-          metrics: latestSnapshotBranch.metrics,
-          thresholds: latestSnapshotBranch.thresholds ?? resolveBranchThresholdProfile(branch, settings),
-        },
-        message: `Live orders detail is temporarily unavailable. ${detailErrorMessage}`,
-      });
-      res.json(fallbackDetail);
+      detailErrorMessage = e?.response?.data?.message || e?.message || "Failed to load branch detail";
     }
+
+    const latestSnapshotBranch = getSnapshotBranch();
+    if (latestSnapshotBranch && fetchedDetail) {
+      return res.json(buildOkBranchDetail(latestSnapshotBranch, branch, settings, fetchedDetail));
+    }
+
+    if (latestSnapshotBranch) {
+      return res.json(buildDetailFetchFailedDetail(
+        latestSnapshotBranch,
+        branch,
+        settings,
+        `Live orders detail is temporarily unavailable. ${detailErrorMessage ?? "Failed to load branch detail"}`,
+      ));
+    }
+
+    if (fetchedDetail) {
+      const unavailableSnapshot = buildUnavailableBranchSnapshot(branch, settings);
+      return res.json(buildSnapshotUnavailableDetail(branch, settings, {
+        branchSnapshot: {
+          ...unavailableSnapshot,
+          metrics: fetchedDetail.metrics,
+        },
+        totals: fetchedDetail.metrics,
+        fetchedAt: fetchedDetail.fetchedAt,
+        unassignedOrders: fetchedDetail.unassignedOrders,
+        preparingOrders: fetchedDetail.preparingOrders,
+        message: branch.enabled
+          ? "Live availability snapshot is currently unavailable. Showing orders detail from the latest Orders API response."
+          : "This branch is paused in monitor. Showing the latest Orders API response only.",
+      }));
+    }
+
+    return res.json(buildSnapshotUnavailableDetail(branch, settings, {
+      message: snapshotUnavailableMessage(branch, detailErrorMessage ?? "Failed to load branch detail"),
+    }));
   };
 }
 

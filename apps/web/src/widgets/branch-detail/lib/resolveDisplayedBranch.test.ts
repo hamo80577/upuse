@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BranchDetailSnapshot, BranchSnapshot } from "../../../api/types";
+import type { BranchDetailResult, BranchSnapshot } from "../../../api/types";
 import { resolveDisplayedBranch } from "./resolveDisplayedBranch";
 
 function createSnapshot(overrides: Partial<BranchSnapshot> = {}): BranchSnapshot {
@@ -7,6 +7,7 @@ function createSnapshot(overrides: Partial<BranchSnapshot> = {}): BranchSnapshot
     branchId: 20,
     name: "Carrefour, Silo - 15 May",
     chainName: "Carrefour",
+    monitorEnabled: true,
     ordersVendorId: 54458,
     availabilityVendorId: "747593",
     status: "TEMP_CLOSE",
@@ -36,9 +37,9 @@ function createSnapshot(overrides: Partial<BranchSnapshot> = {}): BranchSnapshot
   };
 }
 
-function createDetail(branch: BranchSnapshot): BranchDetailSnapshot {
+function createDetail(branch: BranchSnapshot): BranchDetailResult {
   return {
-    snapshotAvailable: true,
+    kind: "ok",
     branch,
     totals: branch.metrics,
     fetchedAt: "2026-03-08T12:37:12.000Z",
@@ -48,7 +49,7 @@ function createDetail(branch: BranchSnapshot): BranchDetailSnapshot {
 }
 
 describe("resolveDisplayedBranch", () => {
-  it("prefers the freshly loaded branch detail over an older dashboard snapshot", () => {
+  it("prefers the loaded detail when it is fresher than the dashboard snapshot", () => {
     const staleSnapshot = createSnapshot();
     const freshDetailBranch = createSnapshot({
       closedUntil: "2026-03-08T13:04:00.000Z",
@@ -58,9 +59,40 @@ describe("resolveDisplayedBranch", () => {
 
     const result = resolveDisplayedBranch(createDetail(freshDetailBranch), staleSnapshot);
 
-    expect(result).toBe(freshDetailBranch);
+    expect(result?.name).toBe("Carrefour, Silo - 15 May");
     expect(result?.closedUntil).toBe("2026-03-08T13:04:00.000Z");
     expect(result?.closeStartedAt).toBe("2026-03-08T12:34:00.000Z");
+  });
+
+  it("prefers newer live state from the dashboard snapshot while keeping stable detail identity", () => {
+    const detailBranch = createSnapshot({
+      name: "Loaded Detail Name",
+      closedUntil: "2026-03-08T13:04:00.000Z",
+      lastUpdatedAt: "2026-03-08T12:44:05.000Z",
+    });
+    const freshSnapshot = createSnapshot({
+      name: "Dashboard Name",
+      closedUntil: "2026-03-08T13:19:00.000Z",
+      closeStartedAt: "2026-03-08T12:49:00.000Z",
+      status: "TEMP_CLOSE",
+      lastUpdatedAt: "2026-03-08T12:50:00.000Z",
+    });
+
+    const result = resolveDisplayedBranch(createDetail(detailBranch), freshSnapshot);
+
+    expect(result?.name).toBe("Loaded Detail Name");
+    expect(result?.closedUntil).toBe("2026-03-08T13:19:00.000Z");
+    expect(result?.closeStartedAt).toBe("2026-03-08T12:49:00.000Z");
+  });
+
+  it("returns null when the branch was deleted after the dialog opened", () => {
+    const result = resolveDisplayedBranch({
+      kind: "branch_not_found",
+      branchId: 20,
+      message: "Branch not found",
+    }, createSnapshot());
+
+    expect(result).toBeNull();
   });
 
   it("falls back to the dashboard snapshot before detail finishes loading", () => {

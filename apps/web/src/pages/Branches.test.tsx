@@ -7,6 +7,7 @@ const mockApi = vi.hoisted(() => ({
   getSettings: vi.fn(),
   listBranches: vi.fn(),
   lookupVendorName: vi.fn(),
+  setBranchMonitoring: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({
@@ -19,6 +20,7 @@ vi.mock("../app/providers/AuthProvider", () => ({
     canManageBranches: true,
     canDeleteBranches: true,
     canManageMonitor: true,
+    canManageSettings: false,
   }),
 }));
 
@@ -42,6 +44,7 @@ describe("BranchesPage", () => {
     mockApi.getSettings.mockReset();
     mockApi.listBranches.mockReset();
     mockApi.lookupVendorName.mockReset();
+    mockApi.setBranchMonitoring.mockReset();
     mockApi.getSettings.mockResolvedValue({
       ordersToken: "",
       availabilityToken: "",
@@ -139,5 +142,65 @@ describe("BranchesPage", () => {
     });
 
     expect(screen.getByText("Checked saved branch mappings and recent orders in the last 30 days. No name could be inferred for this vendor right now.")).toBeInTheDocument();
+  });
+
+  it("surfaces paused branches first and lets operators toggle a branch back into monitor", async () => {
+    mockApi.listBranches.mockResolvedValue({
+      items: [
+        {
+          id: 2,
+          name: "Paused Branch",
+          chainName: "Chain A",
+          ordersVendorId: 22,
+          availabilityVendorId: "202",
+          globalEntityId: "HF_EG",
+          enabled: false,
+          lateThresholdOverride: null,
+          unassignedThresholdOverride: null,
+        },
+        {
+          id: 1,
+          name: "Live Branch",
+          chainName: "Chain A",
+          ordersVendorId: 11,
+          availabilityVendorId: "101",
+          globalEntityId: "HF_EG",
+          enabled: true,
+          lateThresholdOverride: null,
+          unassignedThresholdOverride: null,
+        },
+      ],
+    });
+    mockApi.setBranchMonitoring.mockResolvedValue({
+      ok: true,
+      item: {
+        id: 2,
+        name: "Paused Branch",
+        chainName: "Chain A",
+        ordersVendorId: 22,
+        availabilityVendorId: "202",
+        globalEntityId: "HF_EG",
+        enabled: true,
+        lateThresholdOverride: null,
+        unassignedThresholdOverride: null,
+      },
+    });
+
+    render(
+      <MemoryRouter>
+        <BranchesPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Paused Branch")).toBeInTheDocument();
+      expect(screen.getByRole("checkbox", { name: "Toggle monitor for Paused Branch" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Toggle monitor for Paused Branch" }));
+
+    await waitFor(() => {
+      expect(mockApi.setBranchMonitoring).toHaveBeenCalledWith(2, true);
+    });
   });
 });

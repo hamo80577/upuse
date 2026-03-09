@@ -7,6 +7,7 @@ function branch(overrides: Partial<BranchSnapshot>): BranchSnapshot {
     branchId: 1,
     name: "Branch A",
     chainName: "Chain One",
+    monitorEnabled: true,
     ordersVendorId: 1001,
     availabilityVendorId: "2001",
     status: "OPEN" as const,

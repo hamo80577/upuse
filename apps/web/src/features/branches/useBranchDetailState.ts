@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
-import type { BranchDetailSnapshot, BranchSnapshot } from "../../api/types";
+import type { BranchDetailResult, BranchSnapshot } from "../../api/types";
 import { appendOlderLogDayUnique, upsertLatestLogDay, type BranchLogDay } from "./logState";
 
-const DETAIL_CACHE_TTL_MS = 15_000;
-const DETAIL_POLL_INTERVAL_MS = 10_000;
+const DETAIL_CACHE_TTL_MS = 60_000;
+const DETAIL_AUTO_REFRESH_INTERVAL_MS = 60_000;
 
 function getCairoDayKey(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -22,13 +22,38 @@ function isAbortError(error: unknown) {
   return error instanceof Error && error.name === "AbortError";
 }
 
+function branchDetailCacheKey(branchId: number, dayKey: string) {
+  return `${branchId}|${dayKey}`;
+}
+
+function buildBranchStatusSignature(branchSnapshot?: BranchSnapshot | null) {
+  if (!branchSnapshot) return "";
+
+  return [
+    branchSnapshot.branchId,
+    branchSnapshot.monitorEnabled ? "1" : "0",
+    branchSnapshot.status,
+    branchSnapshot.closedUntil ?? "",
+    branchSnapshot.closeReason ?? "",
+    branchSnapshot.closureSource ?? "",
+    branchSnapshot.closedByUpuse ? "1" : "0",
+    branchSnapshot.changeable === false ? "0" : "1",
+    branchSnapshot.autoReopen ? "1" : "0",
+  ].join("|");
+}
+
+function getResultBranchId(detail: BranchDetailResult | null) {
+  if (!detail) return null;
+  if (detail.kind === "branch_not_found") return detail.branchId;
+  return detail.branch.branchId;
+}
+
 export function useBranchDetailState(options: {
   branchId: number | null;
   branchSnapshot?: BranchSnapshot | null;
   open: boolean;
-  refreshToken?: string;
 }) {
-  const [detail, setDetail] = useState<BranchDetailSnapshot | null>(null);
+  const [detail, setDetail] = useState<BranchDetailResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,95 +63,86 @@ export function useBranchDetailState(options: {
   const [hasMoreLogs, setHasMoreLogs] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
   const [clearingLog, setClearingLog] = useState(false);
-  const [pollTick, setPollTick] = useState(0);
+  const [manualDetailRefreshTick, setManualDetailRefreshTick] = useState(0);
+  const [autoDetailRefreshTick, setAutoDetailRefreshTick] = useState(0);
+  const [manualLogRefreshTick, setManualLogRefreshTick] = useState(0);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const loadedBranchIdRef = useRef<number | null>(null);
   const loadedLogBranchIdRef = useRef<number | null>(null);
-  const lastRefreshTokenRef = useRef<string>("");
-  const lastPollTickRef = useRef(0);
-  const detailCacheRef = useRef(new Map<string, { expiresAtMs: number; value: BranchDetailSnapshot }>());
-  const detailRequestRef = useRef<{
-    key: string;
-    promise: Promise<BranchDetailSnapshot>;
-    controller: AbortController;
-  } | null>(null);
+  const lastHandledManualDetailRefreshTickRef = useRef(0);
+  const lastHandledAutoDetailRefreshTickRef = useRef(0);
+  const lastHandledManualLogRefreshTickRef = useRef(0);
+  const lastLogStatusSignatureRef = useRef("");
+  const detailCacheRef = useRef(new Map<string, { expiresAtMs: number; value: BranchDetailResult }>());
+  const detailRequestRef = useRef<{ requestId: number; controller: AbortController } | null>(null);
+  const detailRequestIdRef = useRef(0);
   const latestLogRequestRef = useRef<AbortController | null>(null);
   const latestLogRequestIdRef = useRef(0);
   const olderLogRequestRef = useRef<AbortController | null>(null);
   const olderLogRequestIdRef = useRef(0);
-  const branchVendorId = options.branchSnapshot?.ordersVendorId ?? "";
   const detailDayKey = getCairoDayKey();
+  const statusSignature = buildBranchStatusSignature(options.branchSnapshot);
 
   useEffect(() => {
     if (!options.open || !options.branchId) return;
 
-    let active = true;
-    const initialLoad = loadedBranchIdRef.current !== options.branchId || !detail;
-    const refreshToken = options.refreshToken ?? "";
-    const refreshTokenChanged = lastRefreshTokenRef.current !== refreshToken;
-    const pollTickChanged = lastPollTickRef.current !== pollTick;
-    const forceRefresh = refreshTokenChanged || pollTickChanged;
-    lastRefreshTokenRef.current = refreshToken;
-    lastPollTickRef.current = pollTick;
-    const detailCacheKey = `${options.branchId}|${branchVendorId}|${detailDayKey}`;
+    const cacheKey = branchDetailCacheKey(options.branchId, detailDayKey);
+    const currentBranchMatches = loadedBranchIdRef.current === options.branchId;
+    const manualRefreshRequested = lastHandledManualDetailRefreshTickRef.current !== manualDetailRefreshTick;
+    const autoRefreshRequested = lastHandledAutoDetailRefreshTickRef.current !== autoDetailRefreshTick;
+    const forceRefresh = manualRefreshRequested || autoRefreshRequested;
 
-    if (forceRefresh) {
-      // Invalidate stale cache when parent snapshot or live polling triggers a refresh.
-      detailCacheRef.current.delete(detailCacheKey);
-    }
+    lastHandledManualDetailRefreshTickRef.current = manualDetailRefreshTick;
+    lastHandledAutoDetailRefreshTickRef.current = autoDetailRefreshTick;
 
-    const cached = detailCacheRef.current.get(detailCacheKey);
+    const cached = detailCacheRef.current.get(cacheKey);
     if (!forceRefresh && cached && cached.expiresAtMs > Date.now()) {
       setDetail(cached.value);
-      loadedBranchIdRef.current = cached.value.branch.branchId;
+      loadedBranchIdRef.current = getResultBranchId(cached.value);
       setLoading(false);
       setRefreshing(false);
       setError(null);
       return;
     }
 
-    if (initialLoad) {
+    let active = true;
+    if (!currentBranchMatches) {
       setLoading(true);
+      setRefreshing(false);
       setDetail(null);
     } else {
       setRefreshing(true);
     }
     setError(null);
 
-    let request = detailRequestRef.current;
-    if (!request || request.key !== detailCacheKey) {
-      if (request && request.key !== detailCacheKey) {
-        request.controller.abort();
-      }
-      const controller = new AbortController();
-      request = {
-        key: detailCacheKey,
-        controller,
-        promise: api.branchDetail(options.branchId, { signal: controller.signal }),
-      };
-      detailRequestRef.current = request;
-    }
+    detailRequestRef.current?.controller.abort();
+    const controller = new AbortController();
+    const requestId = detailRequestIdRef.current + 1;
+    detailRequestIdRef.current = requestId;
+    detailRequestRef.current = { requestId, controller };
 
-    request.promise
+    api.branchDetail(options.branchId, { signal: controller.signal })
       .then((data) => {
-        if (!active) return;
-        detailCacheRef.current.set(detailCacheKey, {
-          expiresAtMs: Date.now() + DETAIL_CACHE_TTL_MS,
-          value: data,
-        });
+        if (!active || requestId !== detailRequestIdRef.current) return;
+        if (data.kind !== "branch_not_found") {
+          detailCacheRef.current.set(cacheKey, {
+            expiresAtMs: Date.now() + DETAIL_CACHE_TTL_MS,
+            value: data,
+          });
+        }
         setDetail(data);
-        loadedBranchIdRef.current = data.branch.branchId;
+        loadedBranchIdRef.current = getResultBranchId(data);
         setError(null);
       })
       .catch((e: unknown) => {
-        if (!active || isAbortError(e)) return;
+        if (!active || isAbortError(e) || requestId !== detailRequestIdRef.current) return;
         setError(e instanceof Error ? e.message || "Failed to load branch detail" : "Failed to load branch detail");
       })
       .finally(() => {
-        if (detailRequestRef.current?.key === detailCacheKey && detailRequestRef.current?.promise === request?.promise) {
+        if (detailRequestRef.current?.requestId === requestId) {
           detailRequestRef.current = null;
         }
-        if (!active) return;
+        if (!active || requestId !== detailRequestIdRef.current) return;
         setLoading(false);
         setRefreshing(false);
       });
@@ -134,10 +150,11 @@ export function useBranchDetailState(options: {
     return () => {
       active = false;
     };
-  }, [branchVendorId, detailDayKey, options.branchId, options.open, options.refreshToken, pollTick]);
+  }, [autoDetailRefreshTick, detailDayKey, manualDetailRefreshTick, options.branchId, options.open]);
 
   useEffect(() => {
     if (options.open) return;
+
     detailRequestRef.current?.controller.abort();
     detailRequestRef.current = null;
     latestLogRequestRef.current?.abort();
@@ -149,9 +166,13 @@ export function useBranchDetailState(options: {
     detailCacheRef.current.clear();
     loadedBranchIdRef.current = null;
     loadedLogBranchIdRef.current = null;
-    lastRefreshTokenRef.current = "";
-    lastPollTickRef.current = 0;
-    setPollTick(0);
+    lastHandledManualDetailRefreshTickRef.current = 0;
+    lastHandledAutoDetailRefreshTickRef.current = 0;
+    lastHandledManualLogRefreshTickRef.current = 0;
+    lastLogStatusSignatureRef.current = "";
+    setManualDetailRefreshTick(0);
+    setAutoDetailRefreshTick(0);
+    setManualLogRefreshTick(0);
     setDetail(null);
     setLoading(false);
     setRefreshing(false);
@@ -168,8 +189,8 @@ export function useBranchDetailState(options: {
     if (!options.open || !options.branchId) return;
 
     const timer = window.setInterval(() => {
-      setPollTick((current) => current + 1);
-    }, DETAIL_POLL_INTERVAL_MS);
+      setAutoDetailRefreshTick((current) => current + 1);
+    }, DETAIL_AUTO_REFRESH_INTERVAL_MS);
 
     return () => {
       window.clearInterval(timer);
@@ -179,17 +200,29 @@ export function useBranchDetailState(options: {
   useEffect(() => {
     if (!options.open || !options.branchId) return;
 
+    const initialLoad = loadedLogBranchIdRef.current !== options.branchId;
+    const manualRefreshRequested = lastHandledManualLogRefreshTickRef.current !== manualLogRefreshTick;
+    const statusChanged = !initialLoad && lastLogStatusSignatureRef.current !== statusSignature;
+    if (!initialLoad && !manualRefreshRequested && !statusChanged) {
+      return;
+    }
+
+    lastHandledManualLogRefreshTickRef.current = manualLogRefreshTick;
+    lastLogStatusSignatureRef.current = statusSignature;
+
     let active = true;
     latestLogRequestRef.current?.abort();
     const controller = new AbortController();
     latestLogRequestRef.current = controller;
     const requestId = latestLogRequestIdRef.current + 1;
     latestLogRequestIdRef.current = requestId;
-    const initialLoad = loadedLogBranchIdRef.current !== options.branchId;
+
     if (initialLoad) {
       setLogLoading(true);
       setLogDays([]);
       setHasMoreLogs(false);
+    } else {
+      setLogLoading(true);
     }
     setLogError(null);
 
@@ -208,8 +241,7 @@ export function useBranchDetailState(options: {
         loadedLogBranchIdRef.current = options.branchId;
       })
       .catch((e: Error) => {
-        if (!active) return;
-        if (isAbortError(e)) return;
+        if (!active || isAbortError(e) || requestId !== latestLogRequestIdRef.current) return;
         setLogError(e.message || "Failed to load log");
       })
       .finally(() => {
@@ -224,13 +256,19 @@ export function useBranchDetailState(options: {
         latestLogRequestRef.current = null;
       }
     };
-  }, [options.branchId, options.open, options.refreshToken, pollTick]);
+  }, [manualLogRefreshTick, options.branchId, options.open, statusSignature]);
 
   useEffect(() => {
     if (!options.open) return;
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [options.open]);
+
+  const refreshDetail = () => {
+    if (!options.branchId || !options.open) return;
+    setManualDetailRefreshTick((current) => current + 1);
+    setManualLogRefreshTick((current) => current + 1);
+  };
 
   const loadMoreLogs = async () => {
     if (!options.branchId || !hasMoreLogs || logLoadingMore || !logDays.length) return;
@@ -291,6 +329,7 @@ export function useBranchDetailState(options: {
     logError,
     clearingLog,
     nowMs,
+    refreshDetail,
     loadMoreLogs,
     clearLog,
   };

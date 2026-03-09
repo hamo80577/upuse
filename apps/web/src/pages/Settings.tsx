@@ -165,10 +165,10 @@ export function Settings() {
               <Button
                 variant="outlined"
                 startIcon={<TuneRoundedIcon />}
-                onClick={() => navigate("/settings/thresholds")}
+                onClick={() => navigate("/mapping")}
                 sx={{ borderRadius: 999, fontWeight: 800 }}
               >
-                Threshold Rules
+                Mapping
               </Button>
             </Stack>
 

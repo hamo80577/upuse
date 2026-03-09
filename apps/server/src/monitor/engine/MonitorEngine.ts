@@ -59,6 +59,26 @@ export class MonitorEngine {
     return () => this.subscribers.delete(fn);
   }
 
+  publishSnapshot() {
+    this.publish();
+  }
+
+  resetBranchTransientState(branch: BranchMapping) {
+    this.ordersByVendor.delete(branch.ordersVendorId);
+    this.availabilityByVendor.delete(branch.availabilityVendorId);
+    setRuntime(branch.id, {
+      lastUpuseCloseUntil: null,
+      lastUpuseCloseReason: null,
+      lastUpuseCloseAt: null,
+      lastUpuseCloseEventId: null,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      externalOpenDetectedAt: null,
+      lastActionAt: null,
+    });
+    this.publish();
+  }
+
   private publish() {
     const snap = this.getSnapshot();
     for (const fn of this.subscribers) fn(snap);
@@ -497,8 +517,9 @@ export class MonitorEngine {
   getSnapshot(): DashboardSnapshot {
     const settings = getSettings();
     const branches = listBranches();
+    const monitoredBranches = branches.filter((branch) => branch.enabled);
     const totals = {
-      branchesMonitored: branches.filter((b) => b.enabled).length,
+      branchesMonitored: monitoredBranches.length,
       open: 0,
       tempClose: 0,
       closed: 0,
@@ -511,7 +532,7 @@ export class MonitorEngine {
       unassignedNow: 0,
     };
 
-    const branchSnapshots = branches.map((b) => {
+    const branchSnapshots = monitoredBranches.map((b) => {
       const thresholds = this.resolveThresholds(b, settings);
       const rawMetrics = this.ordersByVendor.get(b.ordersVendorId) ?? {
         totalToday: 0,
@@ -576,6 +597,7 @@ export class MonitorEngine {
         branchId: b.id,
         name: b.name,
         chainName: b.chainName,
+        monitorEnabled: true,
         ordersVendorId: b.ordersVendorId,
         availabilityVendorId: b.availabilityVendorId,
         status,

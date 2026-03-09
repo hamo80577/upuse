@@ -4,8 +4,7 @@ import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import ManageAccountsRoundedIcon from "@mui/icons-material/ManageAccountsRounded";
 import SettingsIcon from "@mui/icons-material/Settings";
 import StorefrontIcon from "@mui/icons-material/Storefront";
-import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
-import { AppBar, Avatar, Box, Button, Chip, Divider, IconButton, Menu, MenuItem, Stack, Toolbar, Typography } from "@mui/material";
+import { AppBar, Avatar, Box, Button, Chip, Divider, ListItemIcon, ListItemText, Menu, MenuItem, Stack, Toolbar, Typography } from "@mui/material";
 import { memo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { BranchSnapshot } from "../../../api/types";
@@ -24,13 +23,15 @@ function getUserInitials(name?: string | null) {
   return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
 }
 
-function navButtonSx(isActive: boolean) {
+function navMenuItemSx(isActive: boolean) {
   return {
-    color: "text.primary",
-    border: isActive ? "1px solid rgba(17,24,39,0.18)" : "1px solid rgba(17,24,39,0.08)",
-    bgcolor: isActive ? "rgba(17,24,39,0.04)" : "transparent",
+    mx: 0.75,
+    my: 0.35,
+    borderRadius: 1.2,
+    border: isActive ? "1px solid rgba(37,99,235,0.18)" : "1px solid transparent",
+    bgcolor: isActive ? "rgba(37,99,235,0.08)" : "transparent",
     "&:hover": {
-      bgcolor: isActive ? "rgba(17,24,39,0.08)" : "rgba(17,24,39,0.03)",
+      bgcolor: isActive ? "rgba(37,99,235,0.12)" : "rgba(15,23,42,0.04)",
     },
   };
 }
@@ -53,7 +54,37 @@ function TopBarBase(props: {
   const canControlMonitor = props.canControlMonitor ?? canManageMonitor;
   const active = (path: string) => loc.pathname === path;
   const activeGroup = (path: string) => loc.pathname === path || loc.pathname.startsWith(`${path}/`);
+  const mappingActive = loc.pathname === "/mapping" || loc.pathname === "/branches" || activeGroup("/settings/thresholds");
   const userInitials = getUserInitials(user?.name);
+  const handleMenuClose = () => setUserMenuAnchor(null);
+  const handleNavigate = (path: string) => {
+    handleMenuClose();
+    nav(path);
+  };
+
+  const navigationItems = [
+    {
+      label: "Dashboard",
+      caption: "Live board",
+      icon: <HubIcon fontSize="small" />,
+      isActive: active("/"),
+      onClick: () => handleNavigate("/"),
+    },
+    {
+      label: "Mapping",
+      caption: "Branches + rules",
+      icon: <StorefrontIcon fontSize="small" />,
+      isActive: mappingActive,
+      onClick: () => handleNavigate("/mapping"),
+    },
+    {
+      label: "Settings",
+      caption: "Tokens and timings",
+      icon: <SettingsIcon fontSize="small" />,
+      isActive: active("/settings"),
+      onClick: () => handleNavigate("/settings"),
+    },
+  ];
 
   const handleLogout = async () => {
     if (loggingOut) return;
@@ -104,22 +135,6 @@ function TopBarBase(props: {
             Read Only
           </Button>
         )}
-
-        <Box sx={{ display: "flex", gap: 0.5 }}>
-          <IconButton onClick={() => nav("/")} color="inherit" sx={navButtonSx(active("/"))}>
-            <HubIcon />
-          </IconButton>
-
-          <IconButton onClick={() => nav("/branches")} color="inherit" sx={navButtonSx(active("/branches"))}>
-            <StorefrontIcon />
-          </IconButton>
-          <IconButton onClick={() => nav("/settings")} color="inherit" sx={navButtonSx(active("/settings"))}>
-            <SettingsIcon />
-          </IconButton>
-          <IconButton onClick={() => nav("/settings/thresholds")} color="inherit" sx={navButtonSx(activeGroup("/settings/thresholds"))}>
-            <TuneRoundedIcon />
-          </IconButton>
-        </Box>
 
         <Stack
           direction="row"
@@ -174,16 +189,18 @@ function TopBarBase(props: {
           <Menu
             anchorEl={userMenuAnchor}
             open={!!userMenuAnchor}
-            onClose={() => setUserMenuAnchor(null)}
+            onClose={handleMenuClose}
             anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
             transformOrigin={{ vertical: "top", horizontal: "right" }}
             PaperProps={{
               sx: {
                 mt: 1,
-                minWidth: 220,
-                borderRadius: 3,
+                minWidth: 290,
+                maxWidth: 320,
+                borderRadius: 2,
                 border: "1px solid rgba(148,163,184,0.14)",
-                boxShadow: "0 18px 40px rgba(15,23,42,0.10)",
+                boxShadow: "0 22px 44px rgba(15,23,42,0.12)",
+                overflow: "hidden",
               },
             }}
           >
@@ -213,27 +230,88 @@ function TopBarBase(props: {
 
             <Divider />
 
+            <Box sx={{ px: 1.5, pt: 1.1, pb: 0.45 }}>
+              <Typography variant="caption" sx={{ color: "#64748b", fontWeight: 900, letterSpacing: 0.3 }}>
+                Navigation
+              </Typography>
+            </Box>
+
+            {navigationItems.map((item) => (
+              <MenuItem
+                key={item.label}
+                selected={item.isActive}
+                onClick={item.onClick}
+                sx={navMenuItemSx(item.isActive)}
+              >
+                <ListItemIcon sx={{ minWidth: 36, color: item.isActive ? "#1d4ed8" : "#475569" }}>
+                  {item.icon}
+                </ListItemIcon>
+                <ListItemText
+                  primary={item.label}
+                  secondary={item.caption}
+                  primaryTypographyProps={{
+                    fontWeight: item.isActive ? 900 : 800,
+                    color: "#0f172a",
+                    fontSize: 14,
+                  }}
+                  secondaryTypographyProps={{
+                    color: "text.secondary",
+                    fontSize: 12,
+                  }}
+                />
+              </MenuItem>
+            ))}
+
+            <Divider sx={{ mt: 0.8 }} />
+
             {isAdmin ? (
               <MenuItem
-                onClick={() => {
-                  setUserMenuAnchor(null);
-                  nav("/users");
-                }}
+                onClick={() => handleNavigate("/users")}
+                sx={navMenuItemSx(active("/users"))}
               >
-                <ManageAccountsRoundedIcon fontSize="small" sx={{ mr: 1 }} />
-                User Management
+                <ListItemIcon sx={{ minWidth: 36, color: active("/users") ? "#1d4ed8" : "#475569" }}>
+                  <ManageAccountsRoundedIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText
+                  primary="User Management"
+                  secondary="Admin only"
+                  primaryTypographyProps={{
+                    fontWeight: active("/users") ? 900 : 800,
+                    color: "#0f172a",
+                    fontSize: 14,
+                  }}
+                  secondaryTypographyProps={{
+                    color: "text.secondary",
+                    fontSize: 12,
+                  }}
+                />
               </MenuItem>
             ) : null}
 
             <MenuItem
               onClick={() => {
-                setUserMenuAnchor(null);
+                handleMenuClose();
                 void handleLogout();
               }}
               disabled={loggingOut}
+              sx={{ mx: 0.75, my: 0.45, borderRadius: 1.2 }}
             >
-              <LogoutRoundedIcon fontSize="small" sx={{ mr: 1 }} />
-              {loggingOut ? "Signing out..." : "Logout"}
+              <ListItemIcon sx={{ minWidth: 36, color: "#b91c1c" }}>
+                <LogoutRoundedIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText
+                primary={loggingOut ? "Signing out..." : "Logout"}
+                secondary="End this session"
+                primaryTypographyProps={{
+                  fontWeight: 800,
+                  color: "#991b1b",
+                  fontSize: 14,
+                }}
+                secondaryTypographyProps={{
+                  color: "text.secondary",
+                  fontSize: 12,
+                }}
+              />
             </MenuItem>
           </Menu>
         </Stack>

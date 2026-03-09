@@ -47,7 +47,6 @@ export function DashboardPage() {
     setToast,
     detailBranchId,
     selectedBranch,
-    detailRefreshToken,
     reportDialogOpen,
     setReportDialogOpen,
     expandedGroups,
@@ -190,7 +189,6 @@ export function DashboardPage() {
           open={!!detailBranchId}
           branchId={detailBranchId}
           branchSnapshot={selectedBranch}
-          refreshToken={detailRefreshToken}
           onClose={closeBranchDetail}
         />
       </Suspense>

@@ -1,19 +1,30 @@
-import type { BranchDetailSnapshot } from "../../../api/types";
+import type { BranchSnapshot } from "../../../api/types";
 
-export function statusChip(branch: BranchDetailSnapshot["branch"]) {
+export function statusChip(branch: BranchSnapshot) {
+  if (!branch.monitorEnabled) return { label: "Paused", sx: { bgcolor: "#eef2ff", color: "#4338ca" } };
   if (branch.status === "OPEN") return { label: "Open", sx: { bgcolor: "#e7f7ed", color: "#166534" } };
   if (branch.status === "TEMP_CLOSE") return { label: "Temporary Close", sx: { bgcolor: "#fff1f2", color: "#be123c" } };
   if (branch.status === "CLOSED") return { label: "Closed", sx: { bgcolor: "#fff7d6", color: "#92400e" } };
   return { label: "Unknown", sx: { bgcolor: "#f1f5f9", color: "#475569" } };
 }
 
-export function closeReasonChip(reason?: BranchDetailSnapshot["branch"]["closeReason"]) {
+export function closeReasonChip(reason?: BranchSnapshot["closeReason"]) {
   if (reason === "LATE") return { label: "Late Trigger", sx: { bgcolor: "rgba(251,146,60,0.14)", color: "#9a3412" } };
   if (reason === "UNASSIGNED") return { label: "Unassigned Trigger", sx: { bgcolor: "rgba(239,68,68,0.12)", color: "#b91c1c" } };
   return null;
 }
 
-export function statusPanelMeta(branch: BranchDetailSnapshot["branch"]) {
+export function statusPanelMeta(branch: BranchSnapshot) {
+  if (!branch.monitorEnabled) {
+    return {
+      title: "Paused from Monitor",
+      caption: "This branch is excluded from live monitor cycles until it is turned back on.",
+      tone: "#4338ca",
+      sourceLabel: "Paused",
+      showTimer: false,
+    };
+  }
+
   if (branch.status === "OPEN") {
     return {
       title: "Live and Open",

@@ -55,6 +55,7 @@ const baseSnapshot: DashboardSnapshot = {
       branchId: 7,
       name: "Branch A",
       chainName: "Chain A",
+      monitorEnabled: true,
       ordersVendorId: 101,
       availabilityVendorId: "201",
       status: "OPEN",

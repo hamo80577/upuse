@@ -9,14 +9,11 @@ const DashboardPage = lazy(() =>
 const LoginPage = lazy(() =>
   import("../pages/Login").then((module) => ({ default: module.LoginPage })),
 );
-const BranchesPage = lazy(() =>
-  import("../pages/Branches").then((module) => ({ default: module.BranchesPage })),
+const MappingPage = lazy(() =>
+  import("../pages/Mapping").then((module) => ({ default: module.MappingPage })),
 );
 const SettingsPage = lazy(() =>
   import("../pages/Settings").then((module) => ({ default: module.SettingsPage })),
-);
-const ThresholdsPage = lazy(() =>
-  import("../pages/Thresholds").then((module) => ({ default: module.ThresholdsPage })),
 );
 const UsersPage = lazy(() =>
   import("../pages/Users").then((module) => ({ default: module.UsersPage })),
@@ -89,9 +86,10 @@ export function AppRouter() {
       <Routes>
         <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
         <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
-        <Route path="/settings/thresholds" element={<ProtectedRoute><ThresholdsPage /></ProtectedRoute>} />
+        <Route path="/mapping" element={<ProtectedRoute><MappingPage /></ProtectedRoute>} />
+        <Route path="/settings/thresholds" element={<ProtectedRoute><MappingPage /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
-        <Route path="/branches" element={<ProtectedRoute><BranchesPage /></ProtectedRoute>} />
+        <Route path="/branches" element={<ProtectedRoute><MappingPage /></ProtectedRoute>} />
         <Route path="/users" element={<AdminRoute><UsersPage /></AdminRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

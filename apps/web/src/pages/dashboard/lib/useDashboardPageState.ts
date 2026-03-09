@@ -161,26 +161,6 @@ export function useDashboardPageState() {
     [detailBranchId, snap.branches],
   );
 
-  const detailRefreshToken = useMemo(() => {
-    if (!detailBranchId) return undefined;
-    return [
-      detailBranchId,
-      snap.monitoring.lastOrdersFetchAt ?? "",
-      snap.monitoring.lastAvailabilityFetchAt ?? "",
-      snap.monitoring.lastHealthyAt ?? "",
-      selectedBranch?.lastUpdatedAt ?? "",
-      selectedBranch?.metrics.activeNow ?? "",
-      selectedBranch?.metrics.lateNow ?? "",
-      selectedBranch?.metrics.unassignedNow ?? "",
-    ].join("|");
-  }, [
-    detailBranchId,
-    selectedBranch,
-    snap.monitoring.lastAvailabilityFetchAt,
-    snap.monitoring.lastHealthyAt,
-    snap.monitoring.lastOrdersFetchAt,
-  ]);
-
   return {
     snap,
     connectionState,
@@ -194,7 +174,6 @@ export function useDashboardPageState() {
     setToast,
     detailBranchId,
     selectedBranch,
-    detailRefreshToken,
     reportDialogOpen,
     setReportDialogOpen,
     expandedGroups,

@@ -111,9 +111,9 @@ function buildThresholdGroups(
 }
 
 function branchSourceLabel(branch: BranchMappingItem, effective: ThresholdProfile) {
-  if (effective.source === "branch") return "Custom branch thresholds";
-  if (effective.source === "chain" && branch.chainName.trim()) return `Inherited from ${branch.chainName.trim()}`;
-  return "Using global defaults";
+  if (effective.source === "branch") return "Custom";
+  if (effective.source === "chain" && branch.chainName.trim()) return `Inherits ${branch.chainName.trim()}`;
+  return "Global default";
 }
 
 function sourceChipLabel(source: ThresholdProfile["source"]) {
@@ -159,7 +159,7 @@ export function BranchThresholdOverrideManager(props: {
             Branch Overrides
           </Typography>
           <Typography variant="caption" sx={{ color: "text.secondary" }}>
-            Open a chain to give a branch its own thresholds. If no custom values are saved, the branch inherits from its chain.
+            Optional branch-specific thresholds.
           </Typography>
         </Box>
 
@@ -345,7 +345,7 @@ export function BranchThresholdOverrideManager(props: {
                     })
                   ) : (
                     <Alert severity="info" variant="outlined" sx={{ borderRadius: 2.5 }}>
-                      No branch mappings are linked to this chain yet.
+                      No branches in this chain.
                     </Alert>
                   )}
                 </Stack>
@@ -354,7 +354,7 @@ export function BranchThresholdOverrideManager(props: {
           ))
         ) : (
           <Alert severity="info" variant="outlined" sx={{ borderRadius: 2.5 }}>
-            Add chains and branch mappings first to start assigning branch-specific thresholds.
+            Add a chain and a branch to start.
           </Alert>
         )}
       </Stack>

@@ -10,6 +10,7 @@ const {
   mockGetSettings,
   mockFetchVendorOrdersDetail,
   mockLookupVendorName,
+  mockLog,
 } = vi.hoisted(() => ({
   mockAddBranch: vi.fn(),
   mockUpdateBranch: vi.fn(),
@@ -20,6 +21,7 @@ const {
   mockGetSettings: vi.fn(),
   mockFetchVendorOrdersDetail: vi.fn(),
   mockLookupVendorName: vi.fn(),
+  mockLog: vi.fn(),
 }));
 
 vi.mock("../services/branchStore.js", () => ({
@@ -41,6 +43,10 @@ vi.mock("../services/settingsStore.js", () => ({
 vi.mock("../services/ordersClient.js", () => ({
   fetchVendorOrdersDetail: mockFetchVendorOrdersDetail,
   lookupVendorName: mockLookupVendorName,
+}));
+
+vi.mock("../services/logger.js", () => ({
+  log: mockLog,
 }));
 
 import { addBranchRoute, updateBranchRoute } from "./branches.js";
@@ -92,6 +98,7 @@ function branchSnapshot(overrides?: Record<string, unknown>) {
     branchId: 7,
     name: "Branch 1",
     chainName: "Chain A",
+    monitorEnabled: true,
     ordersVendorId: 111,
     availabilityVendorId: "222",
     status: "OPEN",
@@ -259,6 +266,7 @@ describe("branchDetailRoute", () => {
     mockFetchVendorOrdersDetail.mockReset();
     mockGetSettings.mockReset();
     mockResolveOrdersGlobalEntityId.mockReset();
+    mockLog.mockReset();
     mockResolveOrdersGlobalEntityId.mockImplementation((_branch: unknown, fallback: string) => fallback);
     mockGetSettings.mockReturnValue({
       ordersToken: "orders-token",
@@ -269,7 +277,7 @@ describe("branchDetailRoute", () => {
     });
   });
 
-  it("returns 404 only when the persisted branch mapping is missing", async () => {
+  it("returns a typed branch_not_found payload when the persisted branch mapping is missing", async () => {
     mockGetBranchById.mockReturnValue(null);
     const { branchDetailRoute } = await import("./branches.js");
     const engine: any = {
@@ -280,12 +288,29 @@ describe("branchDetailRoute", () => {
 
     await branchDetailRoute(engine)(req, res);
 
-    expect(res.statusCode).toBe(404);
-    expect(res.body).toEqual({ ok: false, message: "Branch not found" });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      kind: "branch_not_found",
+      branchId: 7,
+      message: "Branch not found",
+    });
   });
 
-  it("returns a fallback payload when the branch exists but its live snapshot is unavailable", async () => {
+  it("returns snapshot_unavailable with live orders when the branch exists but its live snapshot is unavailable", async () => {
     mockGetBranchById.mockReturnValue(branchMapping());
+    mockFetchVendorOrdersDetail.mockResolvedValue({
+      metrics: {
+        totalToday: 12,
+        cancelledToday: 1,
+        doneToday: 6,
+        activeNow: 5,
+        lateNow: 1,
+        unassignedNow: 2,
+      },
+      fetchedAt: "2026-03-06T10:07:00.000Z",
+      unassignedOrders: [{ id: "1", externalId: "ORD-1", status: "UNASSIGNED", isUnassigned: true, isLate: false }],
+      preparingOrders: [{ id: "2", externalId: "ORD-2", status: "PREPARING", isUnassigned: false, isLate: true }],
+    });
     const { branchDetailRoute } = await import("./branches.js");
     const engine: any = {
       getSnapshot: () => ({ branches: [] }),
@@ -295,44 +320,49 @@ describe("branchDetailRoute", () => {
 
     await branchDetailRoute(engine)(req, res);
 
-    expect(mockFetchVendorOrdersDetail).not.toHaveBeenCalled();
+    expect(mockFetchVendorOrdersDetail).toHaveBeenCalledWith({
+      token: "orders-token",
+      globalEntityId: "HF_EG",
+      vendorId: 111,
+    });
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
-      snapshotAvailable: false,
+      kind: "snapshot_unavailable",
       branch: {
         branchId: 7,
         name: "Branch 1",
         chainName: "Chain A",
+        monitorEnabled: true,
         ordersVendorId: 111,
-      availabilityVendorId: "222",
-      status: "UNKNOWN",
-      statusColor: "grey",
-      thresholds: {
-        lateThreshold: 5,
-        unassignedThreshold: 5,
-        source: "chain",
-      },
-      metrics: {
-        totalToday: 0,
-          cancelledToday: 0,
-          doneToday: 0,
-          activeNow: 0,
-          lateNow: 0,
-          unassignedNow: 0,
+        availabilityVendorId: "222",
+        status: "UNKNOWN",
+        statusColor: "grey",
+        thresholds: {
+          lateThreshold: 5,
+          unassignedThreshold: 5,
+          source: "chain",
+        },
+        metrics: {
+          totalToday: 12,
+          cancelledToday: 1,
+          doneToday: 6,
+          activeNow: 5,
+          lateNow: 1,
+          unassignedNow: 2,
         },
       },
       totals: {
-        totalToday: 0,
-        cancelledToday: 0,
-        doneToday: 0,
-        activeNow: 0,
-        lateNow: 0,
-        unassignedNow: 0,
+        totalToday: 12,
+        cancelledToday: 1,
+        doneToday: 6,
+        activeNow: 5,
+        lateNow: 1,
+        unassignedNow: 2,
       },
-      fetchedAt: null,
-      unassignedOrders: [],
-      preparingOrders: [],
-      message: "This branch exists, but its live snapshot is currently unavailable.",
+      fetchedAt: "2026-03-06T10:07:00.000Z",
+      unassignedOrders: [{ id: "1", externalId: "ORD-1", status: "UNASSIGNED", isUnassigned: true, isLate: false }],
+      preparingOrders: [{ id: "2", externalId: "ORD-2", status: "PREPARING", isUnassigned: false, isLate: true }],
+      message: "Live availability snapshot is currently unavailable. Showing orders detail from the latest Orders API response.",
     });
   });
 
@@ -367,7 +397,7 @@ describe("branchDetailRoute", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
-      snapshotAvailable: true,
+      kind: "ok",
       branch: branchSnapshot(),
       totals: branchSnapshot().metrics,
       fetchedAt: "2026-03-06T10:05:00.000Z",
@@ -378,12 +408,6 @@ describe("branchDetailRoute", () => {
 
   it("uses the latest branch snapshot when the state changes while detail orders are loading", async () => {
     mockGetBranchById.mockReturnValue(branchMapping());
-    mockFetchVendorOrdersDetail.mockResolvedValue({
-      metrics: branchSnapshot().metrics,
-      fetchedAt: "2026-03-06T10:05:00.000Z",
-      unassignedOrders: [],
-      preparingOrders: [],
-    });
     const staleSnapshot = branchSnapshot({
       status: "TEMP_CLOSE",
       statusColor: "red",
@@ -394,9 +418,17 @@ describe("branchDetailRoute", () => {
       statusColor: "red",
       closedUntil: "2026-03-08T14:49:00.000Z",
     });
-    const getSnapshot = vi.fn()
-      .mockReturnValueOnce({ branches: [staleSnapshot] })
-      .mockReturnValueOnce({ branches: [freshSnapshot] });
+    let currentSnapshot = staleSnapshot;
+    mockFetchVendorOrdersDetail.mockImplementation(async () => {
+      currentSnapshot = freshSnapshot;
+      return {
+        metrics: branchSnapshot().metrics,
+        fetchedAt: "2026-03-06T10:05:00.000Z",
+        unassignedOrders: [],
+        preparingOrders: [],
+      };
+    });
+    const getSnapshot = vi.fn(() => ({ branches: [currentSnapshot] }));
     const { branchDetailRoute } = await import("./branches.js");
     const engine: any = { getSnapshot };
     const req: any = { params: { id: "7" } };
@@ -404,10 +436,10 @@ describe("branchDetailRoute", () => {
 
     await branchDetailRoute(engine)(req, res);
 
-    expect(getSnapshot).toHaveBeenCalledTimes(2);
+    expect(getSnapshot).toHaveBeenCalledTimes(1);
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
-      snapshotAvailable: true,
+      kind: "ok",
       branch: freshSnapshot,
       totals: freshSnapshot.metrics,
       fetchedAt: "2026-03-06T10:05:00.000Z",
@@ -416,7 +448,7 @@ describe("branchDetailRoute", () => {
     });
   });
 
-  it("returns snapshot fallback instead of 502 when live order detail cannot be loaded", async () => {
+  it("returns detail_fetch_failed when a live snapshot exists but orders detail cannot be loaded", async () => {
     mockGetBranchById.mockReturnValue(branchMapping());
     mockFetchVendorOrdersDetail.mockRejectedValue(new Error("Orders API request failed"));
     const { branchDetailRoute } = await import("./branches.js");
@@ -430,13 +462,166 @@ describe("branchDetailRoute", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
-      snapshotAvailable: false,
+      kind: "detail_fetch_failed",
       branch: branchSnapshot({ status: "TEMP_CLOSE", statusColor: "red" }),
       totals: branchSnapshot({ status: "TEMP_CLOSE", statusColor: "red" }).metrics,
       fetchedAt: null,
       unassignedOrders: [],
       preparingOrders: [],
       message: "Live orders detail is temporarily unavailable. Orders API request failed",
+    });
+  });
+
+  it("returns snapshot_unavailable when both the live snapshot and orders detail are unavailable", async () => {
+    mockGetBranchById.mockReturnValue(branchMapping());
+    mockFetchVendorOrdersDetail.mockRejectedValue(new Error("Orders API request failed"));
+    const { branchDetailRoute } = await import("./branches.js");
+    const engine: any = {
+      getSnapshot: () => ({ branches: [] }),
+    };
+    const req: any = { params: { id: "7" } };
+    const res = createResponse();
+
+    await branchDetailRoute(engine)(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      kind: "snapshot_unavailable",
+      branch: {
+        branchId: 7,
+        name: "Branch 1",
+        chainName: "Chain A",
+        monitorEnabled: true,
+        ordersVendorId: 111,
+        availabilityVendorId: "222",
+        status: "UNKNOWN",
+        statusColor: "grey",
+        thresholds: {
+          lateThreshold: 5,
+          unassignedThreshold: 5,
+          source: "chain",
+        },
+        metrics: {
+          totalToday: 0,
+          cancelledToday: 0,
+          doneToday: 0,
+          activeNow: 0,
+          lateNow: 0,
+          unassignedNow: 0,
+        },
+      },
+      totals: {
+        totalToday: 0,
+        cancelledToday: 0,
+        doneToday: 0,
+        activeNow: 0,
+        lateNow: 0,
+        unassignedNow: 0,
+      },
+      fetchedAt: null,
+      unassignedOrders: [],
+      preparingOrders: [],
+      message: "Live availability snapshot is currently unavailable, and orders detail could not be loaded. Orders API request failed",
+    });
+  });
+
+  it("returns a paused snapshot message when the branch is excluded from monitor", async () => {
+    mockGetBranchById.mockReturnValue(branchMapping({ enabled: false }));
+    mockFetchVendorOrdersDetail.mockResolvedValue({
+      metrics: {
+        totalToday: 4,
+        cancelledToday: 0,
+        doneToday: 1,
+        activeNow: 3,
+        lateNow: 0,
+        unassignedNow: 1,
+      },
+      fetchedAt: "2026-03-06T10:07:00.000Z",
+      unassignedOrders: [],
+      preparingOrders: [],
+    });
+    const { branchDetailRoute } = await import("./branches.js");
+    const engine: any = {
+      getSnapshot: () => ({ branches: [] }),
+    };
+    const req: any = { params: { id: "7" } };
+    const res = createResponse();
+
+    await branchDetailRoute(engine)(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      kind: "snapshot_unavailable",
+      message: "This branch is paused in monitor. Showing the latest Orders API response only.",
+      branch: {
+        branchId: 7,
+        monitorEnabled: false,
+        status: "UNKNOWN",
+      },
+    });
+  });
+});
+
+describe("updateBranchMonitoringRoute", () => {
+  beforeEach(() => {
+    mockGetBranchById.mockReset();
+    mockUpdateBranch.mockReset();
+    mockLog.mockReset();
+  });
+
+  it("toggles a branch monitor state, resets transient engine state, and logs the action", async () => {
+    mockGetBranchById.mockReturnValue(branchMapping());
+    mockUpdateBranch.mockReturnValue({
+      ...branchMapping(),
+      enabled: false,
+    });
+    const resetBranchTransientState = vi.fn();
+    const { updateBranchMonitoringRoute } = await import("./branches.js");
+    const req: any = {
+      params: { id: "7" },
+      body: { enabled: false },
+    };
+    const res = createResponse();
+
+    updateBranchMonitoringRoute({ resetBranchTransientState } as any)(req, res);
+
+    expect(mockUpdateBranch).toHaveBeenCalledWith(7, { enabled: false });
+    expect(resetBranchTransientState).toHaveBeenCalledWith(expect.objectContaining({
+      id: 7,
+      enabled: false,
+    }));
+    expect(mockLog).toHaveBeenCalledWith(
+      7,
+      "INFO",
+      "Monitor paused for this branch. Live cycles will skip it until re-enabled.",
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      ok: true,
+      item: {
+        ...branchMapping(),
+        enabled: false,
+      },
+    });
+  });
+
+  it("returns the current item without updating when the monitor state is unchanged", async () => {
+    mockGetBranchById.mockReturnValue(branchMapping({ enabled: true }));
+    const { updateBranchMonitoringRoute } = await import("./branches.js");
+    const req: any = {
+      params: { id: "7" },
+      body: { enabled: true },
+    };
+    const res = createResponse();
+
+    updateBranchMonitoringRoute({ resetBranchTransientState: vi.fn() } as any)(req, res);
+
+    expect(mockUpdateBranch).not.toHaveBeenCalled();
+    expect(mockLog).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      ok: true,
+      item: branchMapping({ enabled: true }),
     });
   });
 });

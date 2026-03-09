@@ -3,7 +3,7 @@ import type {
   AuthUsersResponse,
   LoginResponse,
   AppUserRole,
-  BranchDetailSnapshot,
+  BranchDetailResult,
   BranchMappingItem,
   DashboardSnapshot,
   LookupVendorNameResponse,
@@ -69,7 +69,7 @@ export const api = {
     }>(`/api/logs?${query.toString()}`, init);
   },
   clearLogs: (branchId: number) => requestJson<{ ok: boolean }>(`/api/logs?branchId=${branchId}`, { method: "DELETE" }),
-  branchDetail: (branchId: number, init?: RequestInit) => requestJson<BranchDetailSnapshot>(`/api/branches/${branchId}/detail`, init, { timeoutMs: 70_000 }),
+  branchDetail: (branchId: number, init?: RequestInit) => requestJson<BranchDetailResult>(`/api/branches/${branchId}/detail`, init, { timeoutMs: 70_000 }),
   downloadMonitorReport: (params: { preset: "today" | "yesterday" | "last7" | "last30" | "day"; day?: string }) => {
     const query = new URLSearchParams({ preset: params.preset });
     if (params.preset === "day" && params.day) {
@@ -89,6 +89,12 @@ export const api = {
   addBranch: (payload: any) => requestJson<{ ok: boolean; id: number }>("/api/branches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
   updateBranch: (id: number, payload: any) =>
     requestJson<{ ok: boolean; item: BranchMappingItem }>(`/api/branches/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+  setBranchMonitoring: (id: number, enabled: boolean) =>
+    requestJson<{ ok: boolean; item: BranchMappingItem }>(`/api/branches/${id}/monitoring`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    }),
   deleteBranch: (id: number) => requestJson<{ ok: boolean }>(`/api/branches/${id}`, { method: "DELETE" }),
 
   lookupVendorName: (ordersVendorId: number, globalEntityId?: string) => {

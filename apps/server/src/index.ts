@@ -13,7 +13,7 @@ import { MonitorEngine } from "./monitor/index.js";
 import { health } from "./routes/health.js";
 import { createUserRoute, listUsersRoute, loginRoute, logoutRoute, meRoute } from "./routes/auth.js";
 import { getSettingsRoute, putSettingsRoute, testTokensRoute } from "./routes/settings.js";
-import { listBranchesRoute, addBranchRoute, updateBranchRoute, branchDetailRoute, deleteBranchRoute, lookupVendorNameRoute, parseMappingRoute } from "./routes/branches.js";
+import { listBranchesRoute, addBranchRoute, updateBranchRoute, updateBranchMonitoringRoute, branchDetailRoute, deleteBranchRoute, lookupVendorNameRoute, parseMappingRoute } from "./routes/branches.js";
 import { dashboardRoute } from "./routes/dashboard.js";
 import { clearLogsRoute, logsRoute } from "./routes/logs.js";
 import { downloadMonitorReportRoute } from "./routes/reports.js";
@@ -46,6 +46,7 @@ app.post("/api/settings/test", requireCapability("test_settings_tokens"), testTo
 app.get("/api/branches", listBranchesRoute);
 app.post("/api/branches", requireCapability("manage_branch_mappings"), addBranchRoute);
 app.put("/api/branches/:id", requireCapability("manage_branch_mappings"), updateBranchRoute);
+app.patch("/api/branches/:id/monitoring", requireCapability("manage_branch_mappings"), updateBranchMonitoringRoute(engine));
 app.get("/api/branches/:id/detail", branchDetailRoute(engine));
 app.delete("/api/branches/:id", requireCapability("delete_branch_mappings"), deleteBranchRoute);
 app.get("/api/branches/lookup-vendor-name", requireCapability("lookup_branch_vendors"), lookupVendorNameRoute);

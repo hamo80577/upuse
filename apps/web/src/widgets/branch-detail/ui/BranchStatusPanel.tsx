@@ -1,10 +1,10 @@
 import { Box, Chip, Divider, LinearProgress, Stack, Typography } from "@mui/material";
-import type { BranchDetailSnapshot } from "../../../api/types";
+import type { BranchSnapshot } from "../../../api/types";
 import { closureProgress, hasDeadlinePassed } from "../../../shared/lib/progress/closureProgress";
 import { fmtCountdown, fmtTimeCairo } from "../../../utils/format";
 import { closeReasonChip, statusChip, statusPanelMeta } from "../lib/statusMeta";
 
-export function BranchStatusPanel(props: { branch: BranchDetailSnapshot["branch"]; nowMs: number }) {
+export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number }) {
   const chip = statusChip(props.branch);
   const reason = closeReasonChip(props.branch.closeReason);
   const panel = statusPanelMeta(props.branch);

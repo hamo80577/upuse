@@ -46,6 +46,7 @@ export interface BranchSnapshot {
   branchId: number;
   name: string;
   chainName: string;
+  monitorEnabled: boolean;
 
   ordersVendorId: number;
   availabilityVendorId: string;
@@ -107,26 +108,41 @@ export interface DashboardSnapshot {
   branches: BranchSnapshot[];
 }
 
-export interface BranchDetailSnapshotAvailable {
-  snapshotAvailable: true;
+interface BranchDetailBase {
   branch: BranchSnapshot;
   totals: OrdersMetrics;
-  fetchedAt: string;
+  fetchedAt: string | null;
   unassignedOrders: BranchLiveOrder[];
   preparingOrders: BranchLiveOrder[];
 }
 
-export interface BranchDetailSnapshotUnavailable {
-  snapshotAvailable: false;
-  branch: BranchSnapshot;
-  totals: OrdersMetrics;
-  fetchedAt: null;
-  unassignedOrders: BranchLiveOrder[];
-  preparingOrders: BranchLiveOrder[];
+export interface BranchDetailOk extends BranchDetailBase {
+  kind: "ok";
+  fetchedAt: string;
+}
+
+export interface BranchDetailSnapshotUnavailable extends BranchDetailBase {
+  kind: "snapshot_unavailable";
   message: string;
 }
 
-export type BranchDetailSnapshot = BranchDetailSnapshotAvailable | BranchDetailSnapshotUnavailable;
+export interface BranchDetailFetchFailed extends BranchDetailBase {
+  kind: "detail_fetch_failed";
+  fetchedAt: null;
+  message: string;
+}
+
+export interface BranchDetailNotFound {
+  kind: "branch_not_found";
+  branchId: number;
+  message: string;
+}
+
+export type BranchDetailResult =
+  | BranchDetailOk
+  | BranchDetailSnapshotUnavailable
+  | BranchDetailFetchFailed
+  | BranchDetailNotFound;
 
 export type DashboardLiveConnectionState = "connecting" | "live" | "fallback" | "disconnected";
 

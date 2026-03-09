@@ -45,7 +45,7 @@ export function ChainThresholdManager(props: {
             Chains
           </Typography>
           <Typography variant="caption" sx={{ color: "text.secondary" }}>
-            Each chain has its own late and unassigned thresholds. Branch overrides can inherit from these values.
+            Chain base thresholds.
           </Typography>
         </Box>
 
@@ -120,7 +120,7 @@ export function ChainThresholdManager(props: {
           ))
         ) : (
           <Alert severity="info" variant="outlined" sx={{ borderRadius: 2.5 }}>
-            No chains configured yet. Add your first chain below.
+            No chains yet.
           </Alert>
         )}
       </Stack>
@@ -135,7 +135,7 @@ export function ChainThresholdManager(props: {
         }}
       >
         <Typography sx={{ fontWeight: 900, fontSize: 14, color: "#0f172a", mb: 1.1 }}>
-          {editingChainIndex !== null ? "Edit Chain" : "Add Chain"}
+          {editingChainIndex !== null ? "Edit chain" : "New chain"}
         </Typography>
 
         <Stack direction={{ xs: "column", md: "row" }} spacing={1.2}>
