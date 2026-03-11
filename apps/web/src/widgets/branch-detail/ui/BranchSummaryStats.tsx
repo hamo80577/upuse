@@ -1,8 +1,79 @@
 import { Box, Typography } from "@mui/material";
-import type { ThresholdProfile } from "../../../api/types";
 import { fmtInt } from "../../../utils/format";
 
-function SummaryStat(props: { label: string; value: number; emphasize?: "success" | "danger" }) {
+function formatPickerCount(count: number) {
+  return `${fmtInt(count)} picker${count === 1 ? "" : "s"}`;
+}
+
+function PrepAndPickersStat(props: { preparingNow: number; pickerCount: number }) {
+  return (
+    <Box
+      sx={{
+        borderRadius: 2.8,
+        p: 1.15,
+        minHeight: { xs: 110, sm: 116 },
+        bgcolor: "rgba(248,250,252,0.98)",
+        border: "1px solid rgba(148,163,184,0.12)",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "center",
+        textAlign: "center",
+      }}
+    >
+      <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 800 }}>
+        In Prep
+      </Typography>
+      <Typography
+        sx={{
+          mt: 0.32,
+          fontWeight: 900,
+          color: "#0f172a",
+          lineHeight: 1.02,
+          fontSize: { xs: 28, sm: 30 },
+        }}
+      >
+        {fmtInt(props.preparingNow)}
+      </Typography>
+      <Box
+        sx={{
+          mt: 0.75,
+          px: 0.9,
+          py: 0.34,
+          borderRadius: 999,
+          bgcolor: "rgba(14,165,233,0.08)",
+          color: "#0f766e",
+          fontSize: 11,
+          fontWeight: 900,
+          lineHeight: 1,
+          border: "1px solid rgba(14,165,233,0.14)",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 0.55,
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.6)",
+        }}
+      >
+        <Box
+          sx={{
+            width: 6.5,
+            height: 6.5,
+            borderRadius: "50%",
+            bgcolor: "#14b8a6",
+            flexShrink: 0,
+          }}
+        />
+        <Box component="span">{formatPickerCount(props.pickerCount)}</Box>
+      </Box>
+    </Box>
+  );
+}
+
+function SummaryStat(props: {
+  label: string;
+  value: number;
+  prominence?: "primary" | "secondary";
+  emphasize?: "success" | "danger";
+}) {
   const accent =
     props.emphasize === "danger"
       ? { color: "#b91c1c", bg: "rgba(254,242,242,0.9)" }
@@ -11,11 +82,29 @@ function SummaryStat(props: { label: string; value: number; emphasize?: "success
         : { color: "#0f172a", bg: "rgba(248,250,252,0.9)" };
 
   return (
-    <Box sx={{ borderRadius: 2.5, p: 1.1, bgcolor: accent.bg, textAlign: "center" }}>
-      <Typography variant="caption" sx={{ color: "text.secondary" }}>
+    <Box
+      sx={{
+        borderRadius: props.prominence === "primary" ? 2.8 : 2.4,
+        p: props.prominence === "primary" ? 1.15 : 1,
+        bgcolor: accent.bg,
+        border: "1px solid rgba(148,163,184,0.12)",
+        textAlign: "left",
+      }}
+    >
+      <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 800 }}>
         {props.label}
       </Typography>
-      <Typography sx={{ mt: 0.2, fontWeight: 900, color: accent.color }}>{fmtInt(props.value)}</Typography>
+      <Typography
+        sx={{
+          mt: 0.3,
+          fontWeight: 900,
+          color: accent.color,
+          lineHeight: 1.05,
+          fontSize: props.prominence === "primary" ? { xs: 22, sm: 24 } : { xs: 18, sm: 20 },
+        }}
+      >
+        {fmtInt(props.value)}
+      </Typography>
     </Box>
   );
 }
@@ -29,92 +118,45 @@ export function BranchSummaryStats(props: {
     lateNow: number;
     unassignedNow: number;
   };
-  thresholds?: ThresholdProfile;
+  preparingNow?: number;
+  pickerCount: number;
 }) {
-  const stripBorder =
-    props.thresholds?.source === "branch"
-      ? "rgba(14,165,233,0.28)"
-      : props.thresholds?.source === "chain"
-        ? "rgba(15,23,42,0.12)"
-        : "rgba(148,163,184,0.18)";
-
   return (
-    <Box>
-      {props.thresholds ? (
-        <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 0.9 }}>
-          <Box
-            sx={{
-              display: "inline-flex",
-              alignItems: "stretch",
-              borderRadius: 999,
-              overflow: "hidden",
-              border: `1px solid ${stripBorder}`,
-              bgcolor: "rgba(255,255,255,0.92)",
-              boxShadow: "0 8px 20px rgba(15,23,42,0.05)",
-            }}
-          >
-            <Box
-              sx={{
-                px: 1.15,
-                py: 0.6,
-                display: "flex",
-                alignItems: "baseline",
-                gap: 0.55,
-                bgcolor: "rgba(251,146,60,0.10)",
-              }}
-            >
-              <Typography variant="caption" sx={{ fontWeight: 900, color: "#c2410c" }}>
-                L
-              </Typography>
-              <Typography sx={{ fontWeight: 900, color: "#9a3412", lineHeight: 1 }}>
-                {fmtInt(props.thresholds.lateThreshold)}
-              </Typography>
-            </Box>
-
-            <Box sx={{ width: 1, bgcolor: "rgba(148,163,184,0.18)" }} />
-
-            <Box
-              sx={{
-                px: 1.15,
-                py: 0.6,
-                display: "flex",
-                alignItems: "baseline",
-                gap: 0.55,
-                bgcolor: "rgba(239,68,68,0.10)",
-              }}
-            >
-              <Typography variant="caption" sx={{ fontWeight: 900, color: "#b91c1c" }}>
-                U
-              </Typography>
-              <Typography sx={{ fontWeight: 900, color: "#991b1b", lineHeight: 1 }}>
-                {fmtInt(props.thresholds.unassignedThreshold)}
-              </Typography>
-            </Box>
-          </Box>
+    <Box sx={{ display: "grid", gap: 0.95 }}>
+      <Box
+        sx={{
+          display: "grid",
+          gap: 0.95,
+          gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(3, minmax(0, 1fr))" },
+        }}
+      >
+        <Box sx={{ gridColumn: { xs: "1 / -1", md: "auto" } }}>
+          <PrepAndPickersStat preparingNow={props.preparingNow ?? 0} pickerCount={props.pickerCount} />
         </Box>
-      ) : null}
+        <SummaryStat
+          label="Unassigned"
+          value={props.totals.unassignedNow}
+          prominence="primary"
+          emphasize={props.totals.unassignedNow > 0 ? "danger" : "success"}
+        />
+        <SummaryStat
+          label="Late"
+          value={props.totals.lateNow}
+          prominence="primary"
+          emphasize={props.totals.lateNow > 0 ? "danger" : "success"}
+        />
+      </Box>
 
       <Box
         sx={{
           display: "grid",
-          gap: 1,
-          gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(6, minmax(0, 1fr))" },
+          gap: 0.95,
+          gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(3, minmax(0, 1fr))" },
         }}
       >
-        <SummaryStat label="Total" value={props.totals.totalToday} />
-        <SummaryStat label="Cancelled" value={props.totals.cancelledToday} />
-        <SummaryStat label="Done" value={props.totals.doneToday} />
-        <SummaryStat label="Active" value={props.totals.activeNow} />
-        <SummaryStat
-          label="Late"
-          value={props.totals.lateNow}
-          emphasize={props.totals.lateNow > 0 ? "danger" : "success"}
-        />
-        <SummaryStat
-          label="Unassigned"
-          value={props.totals.unassignedNow}
-          emphasize={props.totals.unassignedNow > 0 ? "danger" : "success"}
-        />
+        <SummaryStat label="Total" value={props.totals.totalToday} prominence="secondary" />
+        <SummaryStat label="Active" value={props.totals.activeNow} prominence="secondary" />
+        <SummaryStat label="Cancelled" value={props.totals.cancelledToday} prominence="secondary" />
       </Box>
     </Box>
   );

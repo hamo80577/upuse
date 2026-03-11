@@ -10,6 +10,7 @@ function BranchCardBase(props: {
   b: BranchSnapshot;
   rank?: number;
   onOpenDetail: (branchId: number) => void;
+  ordersSyncState: "fresh" | "syncing" | "stale";
 }) {
   const { b } = props;
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -181,7 +182,12 @@ function BranchCardBase(props: {
               </Box>
             </Stack>
 
-            <BranchCardMetrics metrics={b.metrics} />
+            <BranchCardMetrics
+              metrics={b.metrics}
+              preparingNow={b.preparingNow}
+              preparingPickersNow={b.preparingPickersNow}
+              pickerBadgeState={props.ordersSyncState}
+            />
 
             <BranchCardStatus
               branch={b}

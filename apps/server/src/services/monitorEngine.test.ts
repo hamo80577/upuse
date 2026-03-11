@@ -74,6 +74,40 @@ vi.mock("../utils/time.js", () => ({
 
 import { MonitorEngine } from "./monitorEngine.js";
 
+describe("monitorEngine.getErrorDetail", () => {
+  it("summarizes cloudflare html pages instead of returning raw markup", () => {
+    const engine = new MonitorEngine() as any;
+
+    const detail = engine.getErrorDetail({
+      response: {
+        status: 530,
+        data: "<!doctype html><html><head><title>Cloudflare Tunnel error | upuse.org | Cloudflare</title></head><body>offline</body></html>",
+      },
+    });
+
+    expect(detail).toEqual({
+      statusCode: 530,
+      detail: "Cloudflare tunnel error",
+    });
+  });
+
+  it("extracts a compact title from generic html error pages", () => {
+    const engine = new MonitorEngine() as any;
+
+    const detail = engine.getErrorDetail({
+      response: {
+        status: 502,
+        data: "<!doctype html><html><head><title>502 Bad Gateway</title></head><body>bad gateway</body></html>",
+      },
+    });
+
+    expect(detail).toEqual({
+      statusCode: 502,
+      detail: "HTML error page: 502 Bad Gateway",
+    });
+  });
+});
+
 describe("monitorEngine.getSnapshot", () => {
   beforeEach(() => {
     mockGetSettings.mockReset();
@@ -170,6 +204,163 @@ describe("monitorEngine.getSnapshot", () => {
       unassignedThreshold: 5,
       source: "global",
     });
+  });
+
+  it("includes current in-preparation order and picker counts in the branch snapshot", () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: "HF_EG",
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 30,
+      availabilityRefreshSeconds: 30,
+      maxVendorsPerOrdersRequest: 50,
+    });
+
+    mockListBranches.mockReturnValue([
+      {
+        id: 11,
+        name: "Branch 11",
+        chainName: "",
+        ordersVendorId: 111,
+        availabilityVendorId: "av-11",
+        globalEntityId: "",
+        enabled: true,
+      },
+    ]);
+
+    mockGetRuntime.mockReturnValue(undefined);
+
+    const engine = new MonitorEngine() as any;
+    engine.ordersFresh = true;
+    engine.ordersByVendor = new Map([
+      [
+        111,
+        {
+          totalToday: 15,
+          cancelledToday: 2,
+          doneToday: 6,
+          activeNow: 7,
+          lateNow: 1,
+          unassignedNow: 2,
+        },
+      ],
+    ]);
+    engine.preparationByVendor = new Map([
+      [
+        111,
+        {
+          preparingNow: 5,
+          preparingPickersNow: 3,
+        },
+      ],
+    ]);
+    engine.availabilityByVendor = new Map([
+      [
+        "av-11",
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "OPEN",
+          platformRestaurantId: "av-11",
+          globalEntityId: "HF_EG",
+        },
+      ],
+    ]);
+
+    const branch = engine.getSnapshot().branches[0];
+
+    expect(branch.preparingNow).toBe(5);
+    expect(branch.preparingPickersNow).toBe(3);
+  });
+
+  it("keeps the last queue and picker counts visible when orders data is stale", () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: "HF_EG",
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 20,
+      availabilityRefreshSeconds: 11,
+      maxVendorsPerOrdersRequest: 50,
+    });
+
+    mockListBranches.mockReturnValue([
+      {
+        id: 11,
+        name: "Branch 11",
+        chainName: "",
+        ordersVendorId: 111,
+        availabilityVendorId: "av-11",
+        globalEntityId: "",
+        enabled: true,
+      },
+    ]);
+
+    mockGetRuntime.mockReturnValue(undefined);
+
+    const engine = new MonitorEngine() as any;
+    engine.ordersFresh = false;
+    engine.errors = {
+      orders: {
+        source: "orders",
+        message: "Orders API request failed",
+        at: "2026-03-04T12:45:30.000Z",
+      },
+    };
+    engine.ordersByVendor = new Map([
+      [
+        111,
+        {
+          totalToday: 15,
+          cancelledToday: 2,
+          doneToday: 6,
+          activeNow: 7,
+          lateNow: 1,
+          unassignedNow: 2,
+        },
+      ],
+    ]);
+    engine.preparationByVendor = new Map([
+      [
+        111,
+        {
+          preparingNow: 5,
+          preparingPickersNow: 3,
+        },
+      ],
+    ]);
+    engine.availabilityByVendor = new Map([
+      [
+        "av-11",
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "OPEN",
+          platformRestaurantId: "av-11",
+          globalEntityId: "HF_EG",
+        },
+      ],
+    ]);
+    engine.lastOrdersFetchAt = "2026-03-04T12:40:00.000Z";
+
+    const branch = engine.getSnapshot().branches[0];
+
+    expect(branch.metrics.activeNow).toBe(7);
+    expect(branch.metrics.lateNow).toBe(1);
+    expect(branch.metrics.unassignedNow).toBe(2);
+    expect(branch.preparingNow).toBe(5);
+    expect(branch.preparingPickersNow).toBe(3);
   });
 
   it("treats a temp close as external when the runtime cannot prove UPuse initiated it", () => {
@@ -368,6 +559,10 @@ describe("monitorEngine.stop", () => {
       lateNow: 2,
       unassignedNow: 1,
     }]]);
+    engine.preparationByVendor = new Map([[101, {
+      preparingNow: 4,
+      preparingPickersNow: 2,
+    }]]);
     engine.availabilityByVendor = new Map([["av-1", {
       platformKey: "test",
       changeable: true,
@@ -387,6 +582,7 @@ describe("monitorEngine.stop", () => {
     expect(engine.degraded).toBe(false);
     expect(engine.errors).toEqual({});
     expect(engine.ordersByVendor.size).toBe(0);
+    expect(engine.preparationByVendor.size).toBe(0);
     expect(engine.availabilityByVendor.size).toBe(0);
     expect(engine.lastOrdersFetchAt).toBeUndefined();
     expect(engine.lastAvailabilityFetchAt).toBeUndefined();

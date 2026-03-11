@@ -26,17 +26,18 @@ export function BranchLogPanel(props: {
   return (
     <Box
       sx={{
-        borderRadius: 3,
+        borderRadius: 3.2,
         border: "1px solid rgba(148,163,184,0.14)",
         overflow: "hidden",
-        bgcolor: "rgba(255,255,255,0.88)",
+        bgcolor: "rgba(255,255,255,0.94)",
+        boxShadow: "0 12px 28px rgba(15,23,42,0.04)",
       }}
     >
-      <Box sx={{ px: 1.35, py: 1.1, bgcolor: "rgba(248,250,252,0.78)" }}>
+      <Box sx={{ px: 1.35, py: 1.1, bgcolor: "rgba(248,250,252,0.86)" }}>
         <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
           <Box>
             <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 800 }}>
-              Recent Log
+              Activity Feed
             </Typography>
             <Typography variant="caption" sx={{ display: { xs: "none", sm: "block" }, color: "text.secondary" }}>
               {loadedLogCount ? `${fmtInt(loadedLogCount)} loaded entries` : "No saved entries"}
@@ -95,18 +96,47 @@ export function BranchLogPanel(props: {
                   const isLastGroup = group.dayKey === props.logDays[props.logDays.length - 1]?.dayKey;
 
                   return (
-                    <Stack
+                    <Box
                       key={`${group.dayKey}-${item.ts}-${index}`}
                       sx={{
+                        position: "relative",
                         px: 1.35,
-                        py: 0.9,
+                        py: 0.95,
+                        pl: 2.5,
                         ...(!isLastItem || !isLastGroup
                           ? { borderBottom: "1px solid rgba(148,163,184,0.10)" }
                           : {}),
                       }}
                     >
+                      <Box
+                        sx={{
+                          position: "absolute",
+                          left: 1.2,
+                          top: 1.2,
+                          bottom: !isLastItem || !isLastGroup ? -1 : 1.2,
+                          width: 1,
+                          bgcolor: "rgba(148,163,184,0.18)",
+                        }}
+                      />
+                      <Box
+                        sx={{
+                          position: "absolute",
+                          left: 0.88,
+                          top: 1.1,
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          bgcolor:
+                            item.level === "ERROR"
+                              ? "#dc2626"
+                              : item.level === "WARN"
+                                ? "#f59e0b"
+                                : "#94a3b8",
+                          boxShadow: "0 0 0 4px rgba(148,163,184,0.10)",
+                        }}
+                      />
                       <Stack direction="row" gap={1} alignItems="flex-start">
-                        <Typography variant="caption" sx={{ color: "text.secondary", minWidth: 44, pt: 0.2 }}>
+                        <Typography variant="caption" sx={{ color: "text.secondary", minWidth: 44, pt: 0.15 }}>
                           {fmtPlacedAt(item.ts)}
                         </Typography>
                         <Chip
@@ -140,7 +170,7 @@ export function BranchLogPanel(props: {
                           ) : null}
                         </Box>
                       </Stack>
-                    </Stack>
+                    </Box>
                   );
                 })}
               </Box>

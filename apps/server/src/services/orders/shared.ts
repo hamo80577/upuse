@@ -8,7 +8,7 @@ export function resolveOrdersMode(): OrdersMode {
 }
 
 export function resolveBranchDetailCacheTtlSeconds() {
-  const raw = Number(process.env.UPUSE_BRANCH_DETAIL_CACHE_TTL_SECONDS ?? "0");
+  const raw = Number(process.env.UPUSE_BRANCH_DETAIL_CACHE_TTL_SECONDS ?? "15");
   if (!Number.isFinite(raw) || raw <= 0) return 0;
   return Math.floor(raw);
 }
@@ -77,6 +77,13 @@ export function getDetailCacheKey(globalEntityId: string, vendorId: number) {
 export function toLiveOrder(order: any, nowIso: string): BranchLiveOrder {
   const isUnassigned = order?.status === "UNASSIGNED" || order?.shopper == null;
   const isLate = order?.pickupAt ? isPastPickup(nowIso, order.pickupAt) : false;
+  const shopperId = typeof order?.shopper?.id === "number" && Number.isFinite(order.shopper.id)
+    ? order.shopper.id
+    : undefined;
+  const shopperFirstName =
+    typeof order?.shopper?.firstName === "string" && order.shopper.firstName.trim().length
+      ? order.shopper.firstName.trim()
+      : undefined;
 
   return {
     id: String(order?.id ?? ""),
@@ -85,7 +92,8 @@ export function toLiveOrder(order: any, nowIso: string): BranchLiveOrder {
     placedAt: order?.placedAt,
     pickupAt: order?.pickupAt,
     customerFirstName: order?.customerFirstName,
-    shopperFirstName: order?.shopper?.firstName,
+    shopperId,
+    shopperFirstName,
     isUnassigned,
     isLate,
   };

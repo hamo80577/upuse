@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { addBranch, deleteBranch, getBranchById, listBranches, updateBranch } from "../services/branchStore.js";
+import { getBranchCatalogResponse, getResolvedCatalogBranchForAdd, refreshBranchCatalogNow } from "../services/branchCatalogService.js";
 import { resolveOrdersGlobalEntityId } from "../services/monitorOrdersPolling.js";
 import { getSettings } from "../services/settingsStore.js";
-import { fetchVendorOrdersDetail, lookupVendorName } from "../services/ordersClient.js";
+import { lookupVendorName } from "../services/ordersClient.js";
+import { getMirrorBranchDetail, getMirrorBranchPickers } from "../services/ordersMirrorStore.js";
 import { resolveBranchThresholdProfile } from "../services/thresholds.js";
 import { log } from "../services/logger.js";
 import { buildDeleteBranchResponse, parseBranchIdParam } from "./branchRouteHelpers.js";
@@ -26,6 +28,11 @@ const BranchBody = z.object({
         message: "Branch threshold overrides must include both late and unassigned values.",
         path: ["lateThresholdOverride"],
     });
+});
+const AddBranchFromCatalogBody = z.object({
+    availabilityVendorId: z.string().min(1),
+    chainName: z.string().max(120).default(""),
+    enabled: z.boolean().default(true),
 });
 const BranchMonitoringBody = z.object({
     enabled: z.boolean(),
@@ -59,6 +66,14 @@ function emptyOrdersMetrics() {
         unassignedNow: 0,
     };
 }
+function emptyBranchPickers() {
+    return {
+        todayCount: 0,
+        activePreparingCount: 0,
+        lastHourCount: 0,
+        items: [],
+    };
+}
 function buildUnavailableBranchSnapshot(branch, settings = getSettings()) {
     return {
         branchId: branch.id,
@@ -71,6 +86,8 @@ function buildUnavailableBranchSnapshot(branch, settings = getSettings()) {
         statusColor: "grey",
         thresholds: resolveBranchThresholdProfile(branch, settings),
         metrics: emptyOrdersMetrics(),
+        preparingNow: 0,
+        preparingPickersNow: 0,
     };
 }
 function buildBranchDetailNotFound(branchId) {
@@ -106,20 +123,24 @@ function buildSnapshotUnavailableDetail(branch, settings = getSettings(), option
         branch: snapshot,
         totals: options?.totals ?? snapshot.metrics,
         fetchedAt: options?.fetchedAt ?? null,
+        cacheState: options?.cacheState ?? "fresh",
         unassignedOrders: options?.unassignedOrders ?? [],
         preparingOrders: options?.preparingOrders ?? [],
+        pickers: options?.pickers ?? emptyBranchPickers(),
         message: options?.message ?? "This branch exists, but its live snapshot is currently unavailable.",
     };
 }
-function buildDetailFetchFailedDetail(snapshot, branch, settings = getSettings(), message = "Live orders detail is temporarily unavailable.") {
+function buildDetailFetchFailedDetail(snapshot, branch, settings = getSettings(), cacheState = "fresh", message = "Live orders detail is temporarily unavailable.") {
     const normalizedSnapshot = applyResolvedThresholds(snapshot, branch, settings);
     return {
         kind: "detail_fetch_failed",
         branch: normalizedSnapshot,
         totals: normalizedSnapshot.metrics,
         fetchedAt: null,
+        cacheState,
         unassignedOrders: [],
         preparingOrders: [],
+        pickers: emptyBranchPickers(),
         message,
     };
 }
@@ -130,22 +151,68 @@ function buildOkBranchDetail(snapshot, branch, settings = getSettings(), detail)
         branch: normalizedSnapshot,
         totals: normalizedSnapshot.metrics,
         fetchedAt: detail.fetchedAt,
+        cacheState: detail.cacheState,
         unassignedOrders: detail.unassignedOrders,
         preparingOrders: detail.preparingOrders,
+        pickers: detail.pickers,
     };
 }
 export function listBranchesRoute(_req, res) {
     res.json({ items: listBranches() });
 }
+export function branchCatalogRoute(_req, res) {
+    const settings = getSettings();
+    res.json(getBranchCatalogResponse(settings.globalEntityId));
+}
+export async function refreshBranchCatalogRoute(_req, res) {
+    const settings = getSettings();
+    const response = await refreshBranchCatalogNow(settings.globalEntityId);
+    res.json(response);
+}
 export function addBranchRoute(req, res) {
-    const parsed = BranchBody.parse(req.body);
-    const input = {
-        ...parsed,
-        lateThresholdOverride: parsed.lateThresholdOverride ?? null,
-        unassignedThresholdOverride: parsed.unassignedThresholdOverride ?? null,
-    };
+    const settings = getSettings();
+    const manualShapeRequested = typeof req.body?.name === "string" || typeof req.body?.ordersVendorId === "number" || typeof req.body?.globalEntityId === "string";
+    const input = manualShapeRequested
+        ? (() => {
+            const parsed = BranchBody.parse(req.body);
+            return {
+                value: {
+                    ...parsed,
+                    lateThresholdOverride: parsed.lateThresholdOverride ?? null,
+                    unassignedThresholdOverride: parsed.unassignedThresholdOverride ?? null,
+                },
+            };
+        })()
+        : (() => {
+            const parsed = AddBranchFromCatalogBody.parse(req.body);
+            const catalogItem = getResolvedCatalogBranchForAdd(settings.globalEntityId, parsed.availabilityVendorId.trim());
+            if (!catalogItem || !catalogItem.presentInSource) {
+                return { error: { status: 409, message: "This branch is not available in the current source catalog." } };
+            }
+            if (catalogItem.resolveStatus !== "resolved" || !catalogItem.ordersVendorId || !catalogItem.name?.trim()) {
+                return { error: { status: 409, message: "This branch is not resolved yet. Refresh the catalog and try again." } };
+            }
+            return {
+                value: {
+                    name: catalogItem.name.trim(),
+                    chainName: parsed.chainName.trim(),
+                    ordersVendorId: catalogItem.ordersVendorId,
+                    availabilityVendorId: catalogItem.availabilityVendorId,
+                    globalEntityId: catalogItem.globalEntityId,
+                    enabled: parsed.enabled,
+                    lateThresholdOverride: null,
+                    unassignedThresholdOverride: null,
+                },
+            };
+        })();
+    if ("error" in input) {
+        return res.status(input.error.status).json({
+            ok: false,
+            message: input.error.message,
+        });
+    }
     try {
-        const id = addBranch(input);
+        const id = addBranch(input.value);
         res.json({ ok: true, id });
     }
     catch (error) {
@@ -229,44 +296,76 @@ export function branchDetailRoute(engine) {
         }
         const settings = getSettings();
         const getSnapshotBranch = () => engine.getSnapshot().branches.find((item) => item.branchId === id);
-        let fetchedDetail = null;
-        let detailErrorMessage = null;
-        try {
-            fetchedDetail = await fetchVendorOrdersDetail({
-                token: settings.ordersToken,
-                globalEntityId: resolveOrdersGlobalEntityId(branch, settings.globalEntityId),
-                vendorId: branch.ordersVendorId,
-            });
-        }
-        catch (e) {
-            detailErrorMessage = e?.response?.data?.message || e?.message || "Failed to load branch detail";
-        }
+        const includePickerItems = req.query?.includePickerItems !== "0";
+        const localDetail = getMirrorBranchDetail({
+            globalEntityId: resolveOrdersGlobalEntityId(branch, settings.globalEntityId),
+            vendorId: branch.ordersVendorId,
+            ordersRefreshSeconds: settings.ordersRefreshSeconds,
+            includePickerItems,
+        });
         const latestSnapshotBranch = getSnapshotBranch();
-        if (latestSnapshotBranch && fetchedDetail) {
-            return res.json(buildOkBranchDetail(latestSnapshotBranch, branch, settings, fetchedDetail));
+        if (latestSnapshotBranch && localDetail.fetchedAt) {
+            return res.json(buildOkBranchDetail(latestSnapshotBranch, branch, settings, {
+                fetchedAt: localDetail.fetchedAt,
+                cacheState: localDetail.cacheState,
+                unassignedOrders: localDetail.unassignedOrders,
+                preparingOrders: localDetail.preparingOrders,
+                pickers: localDetail.pickers,
+            }));
         }
         if (latestSnapshotBranch) {
-            return res.json(buildDetailFetchFailedDetail(latestSnapshotBranch, branch, settings, `Live orders detail is temporarily unavailable. ${detailErrorMessage ?? "Failed to load branch detail"}`));
+            return res.json(buildDetailFetchFailedDetail(latestSnapshotBranch, branch, settings, localDetail.cacheState, localDetail.cacheState === "warming"
+                ? "Local orders cache is warming up. Showing the latest monitor snapshot until the branch detail cache is ready."
+                : "Local orders cache is stale. Showing the latest monitor snapshot until the next cache sync completes."));
         }
-        if (fetchedDetail) {
+        if (localDetail.fetchedAt) {
             const unavailableSnapshot = buildUnavailableBranchSnapshot(branch, settings);
             return res.json(buildSnapshotUnavailableDetail(branch, settings, {
                 branchSnapshot: {
                     ...unavailableSnapshot,
-                    metrics: fetchedDetail.metrics,
+                    metrics: localDetail.metrics,
+                    preparingNow: localDetail.preparingOrders.length,
+                    preparingPickersNow: localDetail.pickers.activePreparingCount,
                 },
-                totals: fetchedDetail.metrics,
-                fetchedAt: fetchedDetail.fetchedAt,
-                unassignedOrders: fetchedDetail.unassignedOrders,
-                preparingOrders: fetchedDetail.preparingOrders,
+                totals: localDetail.metrics,
+                fetchedAt: localDetail.fetchedAt,
+                cacheState: localDetail.cacheState,
+                unassignedOrders: localDetail.unassignedOrders,
+                preparingOrders: localDetail.preparingOrders,
+                pickers: localDetail.pickers,
                 message: branch.enabled
-                    ? "Live availability snapshot is currently unavailable. Showing orders detail from the latest Orders API response."
-                    : "This branch is paused in monitor. Showing the latest Orders API response only.",
+                    ? "Live availability snapshot is currently unavailable. Showing branch detail from the local orders cache."
+                    : "This branch is paused in monitor. Showing the latest local orders cache only.",
             }));
         }
         return res.json(buildSnapshotUnavailableDetail(branch, settings, {
-            message: snapshotUnavailableMessage(branch, detailErrorMessage ?? "Failed to load branch detail"),
+            cacheState: localDetail.cacheState,
+            message: branch.enabled
+                ? "Local orders cache is warming up while the live snapshot is unavailable."
+                : "This branch is paused in monitor and no local orders cache is available yet.",
         }));
+    };
+}
+export function branchPickersRoute() {
+    return async (req, res) => {
+        const id = parseBranchIdParam(req.params.id);
+        if (!id) {
+            return res.status(400).json({ ok: false, message: "Invalid branch id" });
+        }
+        const branch = getBranchById(id);
+        if (!branch) {
+            return res.status(404).json({ ok: false, message: "Branch not found" });
+        }
+        const settings = getSettings();
+        const localPickers = getMirrorBranchPickers({
+            globalEntityId: resolveOrdersGlobalEntityId(branch, settings.globalEntityId),
+            vendorId: branch.ordersVendorId,
+            ordersRefreshSeconds: settings.ordersRefreshSeconds,
+        });
+        if (localPickers.cacheState === "warming" && !localPickers.pickers.items.length) {
+            return res.status(503).json({ ok: false, message: "Local picker cache is warming up" });
+        }
+        return res.json(localPickers.pickers);
     };
 }
 export async function lookupVendorNameRoute(req, res) {

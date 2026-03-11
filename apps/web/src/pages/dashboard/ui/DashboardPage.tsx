@@ -1,16 +1,18 @@
-import { Alert, AlertTitle, Backdrop, Box, Button, Chip, CircularProgress, Container, Snackbar, Stack, Typography } from "@mui/material";
-import { lazy, Suspense, useDeferredValue, useMemo, useState } from "react";
+import { Alert, Backdrop, Box, Button, CircularProgress, Container, Snackbar, Stack, Typography } from "@mui/material";
+import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { ChainGroupsSection } from "../../../features/dashboard/ChainGroupsSection";
 import { DashboardToolbarControls } from "../../../features/dashboard/DashboardToolbarControls";
 import { OperationsSummaryCard } from "../../../widgets/operations-summary/ui/OperationsSummaryCard";
 import { TopBar } from "../../../widgets/top-bar/ui/TopBar";
 import { buildGroupedBranches, compareBranches, matchesSearchQuery, matchesStatusFilter, type GroupMode, type SortMode, type StatusFilter } from "../lib/dashboardGrouping";
+import { DashboardIssueBanner } from "./DashboardIssueBanner";
 import { useDashboardPageState } from "../lib/useDashboardPageState";
 
-const BranchDetailDialog = lazy(() =>
-  import("../../../widgets/branch-detail/ui/BranchDetailDialog").then((module) => ({ default: module.BranchDetailDialog })),
-);
+const loadBranchDetailDialog = () =>
+  import("../../../widgets/branch-detail/ui/BranchDetailDialog").then((module) => ({ default: module.BranchDetailDialog }));
+
+const BranchDetailDialog = lazy(loadBranchDetailDialog);
 
 const ReportDownloadDialog = lazy(() =>
   import("../../../components/ReportDownloadDialog").then((module) => ({ default: module.ReportDownloadDialog })),
@@ -30,6 +32,56 @@ function fmtIssueAt(iso?: string) {
   } catch {
     return iso;
   }
+}
+
+function extractIssueDetail(message: string, baseContext: string) {
+  const escapedContext = baseContext.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = message.trim().match(new RegExp(`^${escapedContext}(?: \\(HTTP \\d+\\))?(?::\\s*(.*))?$`, "i"));
+  return match?.[1]?.trim() ?? "";
+}
+
+function isTunnelIssue(message: string) {
+  return /cloudflare tunnel/i.test(message) || /tunnel is temporarily unavailable/i.test(message);
+}
+
+function getSyncIssueCopy(message: string) {
+  if (isTunnelIssue(message)) {
+    return {
+      title: "Dashboard tunnel unavailable",
+      hint: "Live updates are paused until the current tunnel endpoint responds again.",
+    };
+  }
+
+  if (/html error page/i.test(message)) {
+    return {
+      title: "Unexpected dashboard response",
+      hint: "The dashboard expected API data, but the server responded with a web page instead.",
+    };
+  }
+
+  return {
+    title: "Live sync needs attention",
+    hint: "The board may stop updating until the next successful dashboard sync.",
+  };
+}
+
+function getOrdersIssueCopy(message: string) {
+  const detail = extractIssueDetail(message, "Orders API request failed");
+  const tunnelIssue = isTunnelIssue(message);
+
+  if (tunnelIssue) {
+    return {
+      title: "Orders feed unavailable",
+      message: "Cloudflare tunnel is temporarily unavailable.",
+      hint: "Monitoring is still running, but live orders counts may lag until the tunnel recovers.",
+    };
+  }
+
+  return {
+    title: "Orders API error",
+    message: detail || "The orders feed returned an unexpected response.",
+    hint: "Monitoring is still running, but live orders metrics may be stale until the next healthy sync.",
+  };
 }
 
 export function DashboardPage() {
@@ -80,6 +132,19 @@ export function DashboardPage() {
   );
 
   const ordersError = snap.monitoring.errors?.orders;
+  const ordersSyncState =
+    snap.monitoring.running && !snap.monitoring.lastOrdersFetchAt
+      ? "syncing"
+      : ordersError && snap.monitoring.lastOrdersFetchAt
+        ? "stale"
+        : "fresh";
+  const syncIssue = syncError ? getSyncIssueCopy(syncError) : null;
+  const ordersIssue = ordersError ? getOrdersIssueCopy(ordersError.message) : null;
+
+  useEffect(() => {
+    if (!detailBranchId) return;
+    void loadBranchDetailDialog();
+  }, [detailBranchId]);
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
@@ -96,58 +161,28 @@ export function DashboardPage() {
 
       <Container maxWidth="xl" sx={{ py: { xs: 2, md: 3 } }}>
         {syncError ? (
-          <Alert severity="error" variant="outlined" sx={{ mb: 2, borderRadius: 3, borderColor: "rgba(220,38,38,0.22)" }}>
-            {syncError}
-          </Alert>
+          <DashboardIssueBanner
+            kind="sync"
+            title={syncIssue?.title ?? "Live sync needs attention"}
+            message={syncError}
+            hint={syncIssue?.hint}
+          />
         ) : null}
-        {snap.monitoring.running && ordersError ? (
-          <Alert
-            severity="error"
-            variant="outlined"
-            sx={{
-              mb: 2,
-              borderRadius: 3,
-              borderColor: "rgba(185, 28, 28, 0.18)",
-              bgcolor: "#fff7f7",
-              boxShadow: "0 16px 36px rgba(185, 28, 28, 0.08)",
-            }}
-          >
-            <Stack
-              direction={{ xs: "column", md: "row" }}
-              spacing={2}
-              alignItems={{ xs: "stretch", md: "center" }}
-              justifyContent="space-between"
-            >
-              <Box sx={{ minWidth: 0, flex: 1 }}>
-                <AlertTitle sx={{ mb: 0.75, fontWeight: 900 }}>Orders API Error</AlertTitle>
-                <Typography variant="body2" sx={{ color: "text.primary", fontWeight: 700 }}>
-                  {ordersError.message}
-                </Typography>
-
-                <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mt: 1.25 }}>
-                  {ordersError.statusCode ? <Chip size="small" variant="outlined" color="error" label={`HTTP ${ordersError.statusCode}`} /> : null}
-                  <Chip
-                    size="small"
-                    variant="outlined"
-                    label={`Detected ${fmtIssueAt(ordersError.at)}`}
-                    sx={{ borderColor: "rgba(17,24,39,0.12)", bgcolor: "white" }}
-                  />
-                </Stack>
-
-                <Typography variant="caption" sx={{ display: { xs: "none", sm: "block" }, mt: 1.25, color: "text.secondary" }}>
-                  Monitoring is still running, but live orders metrics may be stale. Review the error, then stop monitoring until the Orders API recovers or the token is fixed.
-                </Typography>
-                <Typography variant="caption" sx={{ display: { xs: "block", sm: "none" }, mt: 1.25, color: "text.secondary" }}>
-                  Orders metrics may be stale.
-                </Typography>
-              </Box>
-
+        {snap.monitoring.running && ordersError && ordersIssue ? (
+          <DashboardIssueBanner
+            kind="orders"
+            title={ordersIssue.title}
+            message={ordersIssue.message}
+            hint={ordersIssue.hint}
+            statusCode={ordersError.statusCode}
+            detectedLabel={fmtIssueAt(ordersError.at) ? `Detected ${fmtIssueAt(ordersError.at)}` : undefined}
+            action={(
               <Button
                 variant="contained"
                 color="error"
                 onClick={onStop}
                 disabled={!canManageMonitor}
-                sx={{ minWidth: { xs: "100%", md: 150 }, alignSelf: { xs: "stretch", md: "center" } }}
+                sx={{ minWidth: { xs: "100%", md: 158 }, alignSelf: { xs: "stretch", md: "center" } }}
               >
                 {canManageMonitor ? (
                   <>
@@ -160,8 +195,8 @@ export function DashboardPage() {
                   </>
                 ) : "No Access"}
               </Button>
-            </Stack>
-          </Alert>
+            )}
+          />
         ) : null}
         <OperationsSummaryCard
           totals={snap.totals}
@@ -193,10 +228,46 @@ export function DashboardPage() {
           expandedGroups={expandedGroups}
           onToggleGroup={toggleGroup}
           onOpenBranchDetail={openBranchDetail}
+          ordersSyncState={ordersSyncState}
         />
       </Container>
 
-      <Suspense fallback={null}>
+      <Suspense
+        fallback={detailBranchId ? (
+          <Backdrop
+            open
+            sx={{
+              zIndex: (theme) => theme.zIndex.modal + 5,
+              bgcolor: "rgba(2,6,23,0.42)",
+              backdropFilter: "blur(2px)",
+            }}
+          >
+            <Box
+              sx={{
+                width: { xs: "88%", sm: 360 },
+                borderRadius: 3,
+                border: "1px solid rgba(148,163,184,0.22)",
+                bgcolor: "rgba(255,255,255,0.96)",
+                px: 2,
+                py: 1.8,
+                boxShadow: "0 20px 40px rgba(15,23,42,0.18)",
+              }}
+            >
+              <Stack direction="row" spacing={1.3} alignItems="center">
+                <CircularProgress size={22} />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography sx={{ fontWeight: 900, color: "#0f172a", lineHeight: 1.2 }}>
+                    Loading branch detail
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                    Opening the branch operations sheet...
+                  </Typography>
+                </Box>
+              </Stack>
+            </Box>
+          </Backdrop>
+        ) : null}
+      >
         <BranchDetailDialog
           open={!!detailBranchId}
           branchId={detailBranchId}

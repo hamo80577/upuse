@@ -20,6 +20,8 @@ function branch(overrides: Partial<BranchSnapshot>): BranchSnapshot {
       lateNow: 1,
       unassignedNow: 2,
     },
+    preparingNow: 8,
+    preparingPickersNow: 4,
     ...overrides,
   };
 }

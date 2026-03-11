@@ -60,6 +60,8 @@ export function resolveDisplayedBranch(
     changeable: liveBranch.changeable,
     thresholds: liveBranch.thresholds ?? detailBranch.thresholds ?? branchSnapshot.thresholds,
     metrics: liveBranch.metrics,
+    preparingNow: liveBranch.preparingNow,
+    preparingPickersNow: liveBranch.preparingPickersNow,
     lastUpdatedAt: liveBranch.lastUpdatedAt ?? detailBranch.lastUpdatedAt ?? branchSnapshot.lastUpdatedAt,
   } satisfies BranchSnapshot;
 }

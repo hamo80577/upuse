@@ -2,11 +2,10 @@ import { Box, Chip, Divider, LinearProgress, Stack, Typography } from "@mui/mate
 import type { BranchSnapshot } from "../../../api/types";
 import { closureProgress, hasDeadlinePassed } from "../../../shared/lib/progress/closureProgress";
 import { fmtCountdown, fmtTimeCairo } from "../../../utils/format";
-import { closeReasonChip, statusChip, statusPanelMeta } from "../lib/statusMeta";
+import { statusChip, statusPanelMeta } from "../lib/statusMeta";
 
 export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number }) {
   const chip = statusChip(props.branch);
-  const reason = closeReasonChip(props.branch.closeReason);
   const panel = statusPanelMeta(props.branch);
   const progressValue = closureProgress(props.branch.closeStartedAt, props.branch.closedUntil, props.nowMs);
   const canTrackProgress = Boolean(
@@ -20,73 +19,66 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
     <Box
       sx={{
         borderRadius: 3,
-        border: props.branch.status === "TEMP_CLOSE" ? "1px solid rgba(220,38,38,0.18)" : "1px solid rgba(148,163,184,0.14)",
-        p: 1.5,
-        bgcolor: "rgba(248,250,252,0.7)",
+        border: props.branch.status === "TEMP_CLOSE" ? "1px solid rgba(220,38,38,0.16)" : "1px solid rgba(148,163,184,0.14)",
+        p: { xs: 1.3, sm: 1.45 },
+        background:
+          props.branch.status === "TEMP_CLOSE"
+            ? "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(255,247,247,0.92) 100%)"
+            : "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.92) 100%)",
+        boxShadow: "0 14px 30px rgba(15,23,42,0.05)",
       }}
     >
-      <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}>
-        <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 800 }}>
-          Branch Status
-        </Typography>
-        <Stack direction="row" spacing={0.7} sx={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
-          {panel?.sourceLabel ? (
-            <Chip
-              size="small"
-              label={panel.sourceLabel}
-              sx={{
-                fontWeight: 900,
-                bgcolor: "rgba(241,245,249,0.92)",
-                color: "#334155",
-              }}
-            />
-          ) : null}
-          {reason ? (
-            <Chip
-              size="small"
-              label={reason.label}
-              sx={{
-                fontWeight: 900,
-                ...reason.sx,
-              }}
-            />
-          ) : null}
-          <Chip
-            size="small"
-            label={chip.label}
-            sx={{
-              fontWeight: 900,
-              border: "1px solid rgba(15,23,42,0.08)",
-              ...chip.sx,
-            }}
-          />
-        </Stack>
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1}>
+        <Box>
+          <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 800 }}>
+            Status Window
+          </Typography>
+          <Typography sx={{ mt: 0.35, fontWeight: 900, color: panel.tone, lineHeight: 1.15 }}>
+            {panel.title}
+          </Typography>
+        </Box>
+        <Chip
+          size="small"
+          label={chip.label}
+          sx={{
+            fontWeight: 900,
+            border: "1px solid rgba(15,23,42,0.08)",
+            ...chip.sx,
+          }}
+        />
       </Stack>
 
-      <Divider sx={{ my: 1.2 }} />
+      <Typography variant="body2" sx={{ mt: 0.9, color: "text.secondary", lineHeight: 1.55 }}>
+        {panel.caption}
+      </Typography>
 
-      <Stack spacing={1}>
-        <Typography sx={{ fontWeight: 900, color: panel.tone, lineHeight: 1.15 }}>
-          {panel.title}
-        </Typography>
-        <Typography variant="caption" sx={{ color: "text.secondary", lineHeight: 1.5, display: { xs: "none", sm: "block" } }}>
-          {panel.caption}
-        </Typography>
-      </Stack>
+      <Divider sx={{ my: 1.15 }} />
 
       {panel.showTimer && props.branch.status === "TEMP_CLOSE" && props.branch.closedUntil ? (
         <Stack spacing={0.9} sx={{ mt: 1.2 }}>
-          <Typography variant="h5" sx={{ fontWeight: 900, color: "#166534", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
-            {fmtCountdown(props.branch.closedUntil, props.nowMs)}
-          </Typography>
-          <Typography variant="caption" sx={{ color: "#166534", fontWeight: 700 }}>
-            {timerReached ? "Window reached at" : "Reopens at"} {fmtTimeCairo(props.branch.closedUntil)}
-          </Typography>
+          <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" gap={1.1} alignItems={{ xs: "flex-start", sm: "flex-end" }}>
+            <Box>
+              <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 800 }}>
+                Countdown
+              </Typography>
+              <Typography variant="h4" sx={{ mt: 0.2, fontWeight: 900, color: "#166534", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
+                {fmtCountdown(props.branch.closedUntil, props.nowMs)}
+              </Typography>
+            </Box>
+            <Box sx={{ textAlign: { xs: "left", sm: "right" } }}>
+              <Typography variant="caption" sx={{ color: "#166534", fontWeight: 800, display: "block" }}>
+                {timerReached ? "Window reached at" : "Reopens at"}
+              </Typography>
+              <Typography sx={{ fontWeight: 900, color: "#0f172a", lineHeight: 1.1 }}>
+                {fmtTimeCairo(props.branch.closedUntil)}
+              </Typography>
+            </Box>
+          </Stack>
           <LinearProgress
             variant={canTrackProgress ? "determinate" : "indeterminate"}
             value={canTrackProgress ? progressValue : undefined}
             sx={{
-              height: 10,
+              height: 12,
               borderRadius: 999,
               bgcolor: "rgba(15,23,42,0.08)",
               boxShadow: "inset 0 1px 3px rgba(15,23,42,0.12)",
@@ -97,7 +89,7 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
               },
             }}
           />
-          <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
+          <Typography variant="caption" sx={{ color: "text.secondary", display: "block", lineHeight: 1.45 }}>
             {timerReached
               ? "The timer reached its end. Waiting for the next availability update to confirm the final state."
               : canTrackProgress
@@ -106,11 +98,28 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
                   : `Duration progress ${Math.round(progressValue)}% from close start until reopen time.`
                 : "Waiting for the close start timestamp to render duration progress."}
           </Typography>
-          <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "block", sm: "none" } }}>
-            {timerReached ? "Waiting confirm" : canTrackProgress ? `${Math.round(progressValue)}% progress` : "Tracking..."}
-          </Typography>
         </Stack>
-      ) : null}
+      ) : (
+        <Box
+          sx={{
+            borderRadius: 2.6,
+            px: 1.05,
+            py: 0.95,
+            bgcolor: "rgba(248,250,252,0.92)",
+            border: "1px solid rgba(148,163,184,0.10)",
+          }}
+        >
+          <Typography variant="caption" sx={{ color: "text.secondary", lineHeight: 1.5 }}>
+            {props.branch.status === "OPEN"
+              ? "No closure timer is active right now."
+              : props.branch.status === "CLOSED"
+                ? "The branch is closed from source with no reopen timer."
+                : !props.branch.monitorEnabled
+                  ? "This branch is paused from monitor cycles."
+                  : "Waiting for the next live availability update."}
+          </Typography>
+        </Box>
+      )}
     </Box>
   );
 }

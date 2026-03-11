@@ -16,6 +16,7 @@ import { fetchAvailabilities, setAvailability } from "../../services/availabilit
 import { log } from "../../services/logger.js";
 import { markCloseEventReopened, recordMonitorCloseAction } from "../../services/actionReportStore.js";
 import { createOrdersPollingPlan, createOrdersPollingRequests, resolveOrdersGlobalEntityId } from "../../services/monitorOrdersPolling.js";
+import { ensureOrdersMirrorBootstrap, syncOrdersMirrorActive, syncOrdersMirrorHistory } from "../../services/ordersMirrorStore.js";
 import { decide } from "../../services/policyEngine.js";
 import { resolveBranchThresholdProfile } from "../../services/thresholds.js";
 import { Mutex } from "../../utils/mutex.js";
@@ -27,8 +28,70 @@ type CycleOptions = {
   suppressPublish?: boolean;
 };
 
+function collapseWhitespace(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function stripHtmlTags(value: string) {
+  return collapseWhitespace(
+    value
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " "),
+  );
+}
+
+function extractHtmlTitle(value: string) {
+  const match = value.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return match ? stripHtmlTags(match[1]) : "";
+}
+
+function looksLikeHtmlDocument(value: string) {
+  const sample = value.trim();
+  if (!sample) return false;
+
+  return (
+    sample.startsWith("<!doctype html") ||
+    sample.startsWith("<!DOCTYPE html") ||
+    sample.startsWith("<html") ||
+    /<html[\s>]/i.test(sample) ||
+    /<head[\s>]/i.test(sample) ||
+    /<body[\s>]/i.test(sample)
+  );
+}
+
+function summarizeUpstreamErrorDetail(rawDetail: unknown) {
+  if (typeof rawDetail !== "string") return undefined;
+
+  const detail = rawDetail.trim();
+  if (!detail) return undefined;
+
+  if (looksLikeHtmlDocument(detail)) {
+    const title = extractHtmlTitle(detail);
+    const isCloudflareTunnel =
+      /cloudflare/i.test(detail) ||
+      /cloudflare/i.test(title) ||
+      /tunnel error/i.test(detail) ||
+      /cf-error/i.test(detail);
+
+    if (isCloudflareTunnel) {
+      return "Cloudflare tunnel error";
+    }
+
+    if (title) {
+      return `HTML error page: ${title}`;
+    }
+
+    return "Unexpected HTML error page";
+  }
+
+  const normalized = collapseWhitespace(detail);
+  return normalized.length > 220 ? `${normalized.slice(0, 217)}...` : normalized;
+}
+
 export class MonitorEngine {
   private ordersByVendor = new Map<number, OrdersMetrics>();
+  private preparationByVendor = new Map<number, { preparingNow: number; preparingPickersNow: number }>();
   private availabilityByVendor = new Map<string, AvailabilityRecord>();
 
   private running = false;
@@ -47,6 +110,8 @@ export class MonitorEngine {
   private lifecycleId = 0;
   private closedOrdersSnapshotDayByBranch = new Map<number, string>();
   private manualOrdersRefreshPromise: Promise<void> | null = null;
+  private ordersMirrorRefreshPromise: Promise<void> | null = null;
+  private ordersMirrorRefreshPending = false;
 
   private jobMutex = new Mutex();
   private actionMutex = new Mutex();
@@ -65,6 +130,7 @@ export class MonitorEngine {
 
   resetBranchTransientState(branch: BranchMapping) {
     this.ordersByVendor.delete(branch.ordersVendorId);
+    this.preparationByVendor.delete(branch.ordersVendorId);
     this.availabilityByVendor.delete(branch.availabilityVendorId);
     setRuntime(branch.id, {
       lastUpuseCloseUntil: null,
@@ -82,6 +148,52 @@ export class MonitorEngine {
   private publish() {
     const snap = this.getSnapshot();
     for (const fn of this.subscribers) fn(snap);
+  }
+
+  private enqueueOrdersMirrorRefresh(branches: BranchMapping[], settings: Settings) {
+    const enabledBranches = branches.filter((branch) => branch.enabled);
+    if (!enabledBranches.length) return;
+
+    if (this.ordersMirrorRefreshPromise) {
+      this.ordersMirrorRefreshPending = true;
+      return;
+    }
+
+    const promise = (async () => {
+      do {
+        this.ordersMirrorRefreshPending = false;
+        try {
+          await ensureOrdersMirrorBootstrap({
+            token: settings.ordersToken,
+            branches: enabledBranches,
+            fallbackGlobalEntityId: settings.globalEntityId,
+          });
+          await syncOrdersMirrorActive({
+            token: settings.ordersToken,
+            branches: enabledBranches,
+            fallbackGlobalEntityId: settings.globalEntityId,
+          });
+          await syncOrdersMirrorHistory({
+            token: settings.ordersToken,
+            branches: enabledBranches,
+            fallbackGlobalEntityId: settings.globalEntityId,
+          });
+        } catch (error: any) {
+          const { statusCode, detail } = this.getErrorDetail(error);
+          const baseMessage = statusCode
+            ? `Local orders cache sync failed (HTTP ${statusCode})`
+            : "Local orders cache sync failed";
+          log(null, "WARN", detail && detail !== baseMessage ? `${baseMessage}: ${detail}` : baseMessage);
+        }
+      } while (this.ordersMirrorRefreshPending && this.running);
+    })()
+      .finally(() => {
+        if (this.ordersMirrorRefreshPromise === promise) {
+          this.ordersMirrorRefreshPromise = null;
+        }
+      });
+
+    this.ordersMirrorRefreshPromise = promise;
   }
 
   private nextLifecycleId() {
@@ -186,10 +298,14 @@ export class MonitorEngine {
       responseData?.message,
       responseData?.error,
       responseData?.details?.message,
+      typeof responseData === "string" ? responseData : undefined,
       e?.message,
     ];
 
-    const detail = candidates.find((value) => typeof value === "string" && value.trim().length > 0)?.trim();
+    const detail = candidates
+      .map((value) => summarizeUpstreamErrorDetail(value))
+      .find((value) => typeof value === "string" && value.length > 0);
+
     return { statusCode, detail };
   }
 
@@ -209,12 +325,13 @@ export class MonitorEngine {
   }
 
   private currentMetrics(metrics: OrdersMetrics): OrdersMetrics {
-    if (this.ordersFresh) return metrics;
-    return {
-      ...metrics,
-      activeNow: 0,
-      lateNow: 0,
-      unassignedNow: 0,
+    return metrics;
+  }
+
+  private currentPreparation(preparation?: { preparingNow: number; preparingPickersNow: number }) {
+    return preparation ?? {
+      preparingNow: 0,
+      preparingPickersNow: 0,
     };
   }
 
@@ -542,6 +659,12 @@ export class MonitorEngine {
         lateNow: 0,
         unassignedNow: 0,
       };
+      const preparation = this.currentPreparation(
+        this.preparationByVendor.get(b.ordersVendorId) ?? {
+          preparingNow: Math.max(0, rawMetrics.activeNow - rawMetrics.unassignedNow),
+          preparingPickersNow: 0,
+        },
+      );
       const metrics = this.currentMetrics(rawMetrics);
       totals.ordersToday += metrics.totalToday;
       totals.cancelledToday += metrics.cancelledToday;
@@ -611,6 +734,8 @@ export class MonitorEngine {
         changeable: av?.changeable,
         thresholds,
         metrics,
+        preparingNow: preparation.preparingNow,
+        preparingPickersNow: preparation.preparingPickersNow,
         lastUpdatedAt: this.lastHealthyAt,
       };
     });
@@ -649,11 +774,14 @@ export class MonitorEngine {
     this.manualOrdersRefreshPromise = null;
     this.errors = {};
     this.ordersByVendor.clear();
+    this.preparationByVendor.clear();
     this.availabilityByVendor.clear();
     this.lastOrdersFetchAt = undefined;
     this.lastAvailabilityFetchAt = undefined;
     this.lastHealthyAt = undefined;
     this.closedOrdersSnapshotDayByBranch.clear();
+    this.ordersMirrorRefreshPending = false;
+    this.ordersMirrorRefreshPromise = null;
     this.syncDegraded();
     this.clearScheduleHandles();
     log(null, "INFO", "Monitoring stopped");
@@ -735,6 +863,7 @@ export class MonitorEngine {
 
       try {
         const mergedOrdersByVendor = new Map(this.ordersByVendor);
+        const mergedPreparationByVendor = new Map(this.preparationByVendor);
         let lastFetchedAt = this.lastOrdersFetchAt ?? nowUtcIso();
 
         for (const request of pollingRequests) {
@@ -752,10 +881,14 @@ export class MonitorEngine {
           for (const [vendorId, metrics] of res.byVendor) {
             mergedOrdersByVendor.set(vendorId, metrics);
           }
+          for (const [vendorId, preparation] of res.preparingByVendor) {
+            mergedPreparationByVendor.set(vendorId, preparation);
+          }
         }
 
         if (!this.isLifecycleActive(expectedLifecycleId)) return;
         this.ordersByVendor = mergedOrdersByVendor;
+        this.preparationByVendor = mergedPreparationByVendor;
         pollingPlan.captureBranchIds.forEach((branchId) => {
           this.closedOrdersSnapshotDayByBranch.set(branchId, cairoDayKey);
         });
@@ -763,6 +896,7 @@ export class MonitorEngine {
         this.clearSourceError("orders");
         this.lastOrdersFetchAt = lastFetchedAt;
         this.markHealthy();
+        this.enqueueOrdersMirrorRefresh(branches, settings);
         await this.reconcile("orders", expectedLifecycleId);
       } catch (e: any) {
         if (!this.isLifecycleCurrent(expectedLifecycleId)) return;

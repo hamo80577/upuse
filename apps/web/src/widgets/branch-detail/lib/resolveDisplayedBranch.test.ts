@@ -32,6 +32,8 @@ function createSnapshot(overrides: Partial<BranchSnapshot> = {}): BranchSnapshot
       lateNow: 0,
       unassignedNow: 1,
     },
+    preparingNow: 0,
+    preparingPickersNow: 0,
     lastUpdatedAt: "2026-03-08T12:37:11.000Z",
     ...overrides,
   };
@@ -43,8 +45,15 @@ function createDetail(branch: BranchSnapshot): BranchDetailResult {
     branch,
     totals: branch.metrics,
     fetchedAt: "2026-03-08T12:37:12.000Z",
+    cacheState: "fresh",
     unassignedOrders: [],
     preparingOrders: [],
+    pickers: {
+      todayCount: 0,
+      activePreparingCount: 0,
+      lastHourCount: 0,
+      items: [],
+    },
   };
 }
 

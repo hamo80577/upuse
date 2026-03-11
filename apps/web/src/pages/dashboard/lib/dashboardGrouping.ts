@@ -165,5 +165,5 @@ export function buildGroupedBranches(input: {
 }
 
 export function isGroupExpanded(expandedGroups: Record<string, boolean>, groupKey: string) {
-  return expandedGroups[groupKey] ?? true;
+  return expandedGroups[groupKey] ?? false;
 }

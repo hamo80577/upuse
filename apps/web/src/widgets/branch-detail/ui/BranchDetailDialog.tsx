@@ -1,24 +1,106 @@
-import CloseIcon from "@mui/icons-material/Close";
-import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
-import { Alert, Box, CircularProgress, Dialog, DialogContent, DialogTitle, Grid, IconButton, LinearProgress, Skeleton, Stack, Switch, Tab, Tabs, Tooltip, Typography, useMediaQuery, useTheme } from "@mui/material";
+import { Alert, Box, Dialog, DialogContent, DialogTitle, LinearProgress, Skeleton, Stack, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { useEffect, useState } from "react";
-import type { BranchDetailResult, BranchSnapshot } from "../../../api/types";
-import { api, describeApiError } from "../../../api/client";
+import type { BranchDetailResult, BranchPickersSummary, BranchSnapshot } from "../../../api/types";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useBranchDetailState } from "../../../features/branches/useBranchDetailState";
+import { BranchDetailHeader } from "./BranchDetailHeader";
+import { BranchDetailOverview } from "./BranchDetailOverview";
+import { BranchDetailSegmentedNav } from "./BranchDetailSegmentedNav";
 import { BranchLogPanel } from "./BranchLogPanel";
 import { BranchOrdersSection } from "./BranchOrdersSection";
-import { BranchStatusPanel } from "./BranchStatusPanel";
-import { BranchSummaryStats } from "./BranchSummaryStats";
-import { fmtPlacedAt } from "../lib/time";
+import { BranchPickersPanel } from "./BranchPickersPanel";
 import { resolveDisplayedBranch } from "../lib/resolveDisplayedBranch";
 
+type DetailSection = "queue" | "pickers" | "log";
+
 function nonFatalDetailNotice(detail: BranchDetailResult | null) {
-  if (!detail || detail.kind === "ok" || detail.kind === "branch_not_found") return null;
+  if (!detail || detail.kind === "branch_not_found") return null;
+  if (detail.kind === "ok") {
+    if (detail.cacheState === "stale") {
+      return {
+        severity: "warning",
+        message: "Local orders cache is stale. Queue detail may be behind the latest monitor snapshot.",
+      } as const;
+    }
+    if (detail.cacheState === "warming") {
+      return {
+        severity: "info",
+        message: "Local orders cache is still warming up. Queue detail may lag behind the latest snapshot for a short time.",
+      } as const;
+    }
+    return null;
+  }
   return {
     severity: detail.kind === "detail_fetch_failed" ? "warning" : "info",
     message: detail.message,
   } as const;
+}
+
+function emptyPickers(): BranchPickersSummary {
+  return {
+    todayCount: 0,
+    activePreparingCount: 0,
+    lastHourCount: 0,
+    items: [],
+  };
+}
+
+function formatPickerCount(count: number) {
+  return `${count} picker${count === 1 ? "" : "s"}`;
+}
+
+function LoadingLayout() {
+  return (
+    <Stack spacing={1.3} sx={{ minHeight: 0 }}>
+      <Box
+        sx={{
+          display: "grid",
+          gap: 1.2,
+          gridTemplateColumns: { xs: "1fr", lg: "minmax(300px, 0.95fr) minmax(0, 1.25fr)" },
+        }}
+      >
+        <Skeleton variant="rounded" animation="wave" height={242} />
+        <Skeleton variant="rounded" animation="wave" height={242} />
+      </Box>
+      <Skeleton variant="rounded" animation="wave" height={56} />
+      <Skeleton variant="rounded" animation="wave" height={280} />
+    </Stack>
+  );
+}
+
+function QueueLoadingLayout() {
+  return (
+    <Box
+      sx={{
+        display: "grid",
+        gap: 1.2,
+        gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" },
+      }}
+    >
+      <Skeleton variant="rounded" animation="wave" height={260} />
+      <Skeleton variant="rounded" animation="wave" height={260} />
+    </Box>
+  );
+}
+
+function renderPickerBadge(pickerCount: number) {
+  return (
+    <Box
+      sx={{
+        px: 1,
+        py: 0.55,
+        borderRadius: 999,
+        bgcolor: "rgba(15,23,42,0.06)",
+        color: "#0f172a",
+        fontSize: 12,
+        fontWeight: 900,
+        lineHeight: 1,
+        border: "1px solid rgba(148,163,184,0.12)",
+      }}
+    >
+      {formatPickerCount(pickerCount)}
+    </Box>
+  );
 }
 
 export function BranchDetailDialog(props: {
@@ -29,12 +111,17 @@ export function BranchDetailDialog(props: {
 }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-  const { canManage, canManageBranches } = useAuth();
+  const { canManage } = useAuth();
+  const [pickersRequested, setPickersRequested] = useState(false);
+  const [logsRequested, setLogsRequested] = useState(false);
   const {
     detail,
     loading,
     refreshing,
     error,
+    pickers,
+    pickersLoading,
+    pickersError,
     logDays,
     logLoading,
     logLoadingMore,
@@ -49,16 +136,20 @@ export function BranchDetailDialog(props: {
     branchId: props.branchId,
     branchSnapshot: props.branchSnapshot,
     open: props.open,
+    loadPickers: pickersRequested,
+    loadLogs: logsRequested,
   });
-  const [togglingMonitoring, setTogglingMonitoring] = useState(false);
-  const [monitorToggleError, setMonitorToggleError] = useState<string | null>(null);
-  const [mobileSection, setMobileSection] = useState<"overview" | "orders" | "log">("overview");
+  const [section, setSection] = useState<DetailSection>("queue");
 
   const branch = resolveDisplayedBranch(detail, props.branchSnapshot);
-  const monitorEnabled = branch?.monitorEnabled ?? false;
   const detailNotFound = detail?.kind === "branch_not_found";
   const detailWithBranch = detail && detail.kind !== "branch_not_found" ? detail : null;
-  const queueTotals = detailWithBranch
+  const showSnapshotShell = Boolean(branch) && !detailNotFound;
+  const showFullScreenLoading = loading && !showSnapshotShell && !detailNotFound;
+  const hasLiveQueueDetail = detailWithBranch
+    ? detailWithBranch.kind === "ok" || (detailWithBranch.kind === "snapshot_unavailable" && Boolean(detailWithBranch.fetchedAt))
+    : false;
+  const queueTotals = hasLiveQueueDetail && detailWithBranch
     ? {
         activeNow: detailWithBranch.unassignedOrders.length + detailWithBranch.preparingOrders.length,
         lateNow: [...detailWithBranch.unassignedOrders, ...detailWithBranch.preparingOrders].reduce(
@@ -76,43 +167,44 @@ export function BranchDetailDialog(props: {
     lateNow: queueTotals?.lateNow ?? branch?.metrics.lateNow ?? detailWithBranch?.totals.lateNow ?? 0,
     unassignedNow: queueTotals?.unassignedNow ?? branch?.metrics.unassignedNow ?? detailWithBranch?.totals.unassignedNow ?? 0,
   };
+  const pickerSummary = pickers ?? detailWithBranch?.pickers ?? emptyPickers();
+  const activePreparingPickerCount = hasLiveQueueDetail && detailWithBranch
+    ? detailWithBranch.pickers.activePreparingCount
+    : branch?.preparingPickersNow ?? 0;
+  const preparingNow = hasLiveQueueDetail && detailWithBranch
+    ? detailWithBranch.preparingOrders.length
+    : branch?.preparingNow ?? 0;
   const detailNotice = nonFatalDetailNotice(detail);
+  const queuePanelLoading = loading && !detailWithBranch && !error;
   const unavailableOrdersText = detail?.kind === "snapshot_unavailable"
     ? detail.fetchedAt
-      ? "No orders in this queue from the latest Orders API response."
+      ? "No orders in this queue from the latest local orders cache."
       : "Orders detail is unavailable while the live snapshot is missing."
     : detail?.kind === "detail_fetch_failed"
-      ? "Orders detail is temporarily unavailable. Showing the latest monitor snapshot."
+      ? "Queue detail is temporarily unavailable. Showing the latest monitor snapshot."
       : "No active orders right now.";
 
   useEffect(() => {
     if (!props.open) {
-      setMonitorToggleError(null);
-      setTogglingMonitoring(false);
-      setMobileSection("overview");
+      setSection("queue");
+      setPickersRequested(false);
+      setLogsRequested(false);
     }
   }, [props.open]);
 
   useEffect(() => {
-    setMonitorToggleError(null);
-  }, [branch?.branchId, branch?.monitorEnabled]);
-
-  useEffect(() => {
-    setMobileSection("overview");
+    setSection("queue");
+    setPickersRequested(false);
+    setLogsRequested(false);
   }, [props.branchId]);
 
-  const toggleMonitoring = async (nextEnabled: boolean) => {
-    if (!branch || !canManageBranches || togglingMonitoring) return;
-
-    try {
-      setTogglingMonitoring(true);
-      setMonitorToggleError(null);
-      await api.setBranchMonitoring(branch.branchId, nextEnabled);
-      refreshDetail();
-    } catch (toggleError) {
-      setMonitorToggleError(describeApiError(toggleError, "Failed to update monitor state"));
-    } finally {
-      setTogglingMonitoring(false);
+  const handleSectionChange = (nextSection: DetailSection) => {
+    setSection(nextSection);
+    if (nextSection === "pickers") {
+      setPickersRequested(true);
+    }
+    if (nextSection === "log") {
+      setLogsRequested(true);
     }
   };
 
@@ -125,72 +217,77 @@ export function BranchDetailDialog(props: {
       maxWidth="lg"
       PaperProps={{
         sx: {
-          width: { xs: "100%", sm: "auto" },
-          maxHeight: { xs: "100%", sm: "calc(100% - 64px)" },
+          width: { xs: "100%", sm: "min(1120px, calc(100vw - 64px))" },
+          height: { xs: "100%", sm: "min(820px, calc(100vh - 64px))" },
+          maxHeight: { xs: "100%", sm: "calc(100vh - 64px)" },
           m: { xs: 0, sm: 3 },
           borderRadius: { xs: 0, sm: 4 },
+          display: "flex",
+          flexDirection: "column",
         },
       }}
     >
-      <DialogTitle sx={{ pb: { xs: 1, sm: 1.5 }, px: { xs: 1.25, sm: 3 }, pt: { xs: 1, sm: 2 } }}>
-        <Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={2}>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography sx={{ fontWeight: 900, lineHeight: 1.2 }}>
-              {detailNotFound ? "Branch detail unavailable" : branch?.name ?? "Branch detail"}
-            </Typography>
-            <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
-              {detailNotFound ? "This branch mapping no longer exists." : `Orders since start of day and live active queues${refreshing ? " • refreshing..." : ""}`}
-            </Typography>
-            <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "block", sm: "none" } }}>
-              {detailNotFound ? "Mapping no longer exists." : `Live queue + status${refreshing ? " • refreshing..." : ""}`}
-            </Typography>
-          </Box>
-          <Stack direction="row" spacing={0.5}>
-            <Tooltip title="Refresh detail">
-              <span>
-                <IconButton
-                  onClick={refreshDetail}
-                  disabled={!props.branchId || loading || refreshing}
-                  aria-label="Refresh detail"
-                >
-                  <RefreshRoundedIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <IconButton onClick={props.onClose} aria-label="Close detail">
-              <CloseIcon />
-            </IconButton>
-          </Stack>
-        </Stack>
+      <DialogTitle sx={{ pb: { xs: 1, sm: 1.2 }, px: { xs: 1.1, sm: 2 }, pt: { xs: 1, sm: 1.6 } }}>
+        {showFullScreenLoading ? (
+          <Skeleton variant="rounded" animation="wave" height={136} />
+        ) : (
+          <BranchDetailHeader
+            branch={branch}
+            detailNotFound={detailNotFound}
+            refreshing={refreshing}
+            onRefresh={refreshDetail}
+            onClose={props.onClose}
+          />
+        )}
       </DialogTitle>
 
-      <DialogContent dividers sx={{ p: { xs: 1.1, md: 2 } }}>
-        {loading ? (
-          <Stack spacing={1.5} sx={{ minHeight: 280 }}>
+      <DialogContent
+        dividers
+        sx={{
+          p: { xs: 1.1, md: 1.7 },
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          overflowX: "hidden",
+          overflowY: "auto",
+        }}
+      >
+        {showFullScreenLoading ? (
+          <LoadingLayout />
+        ) : detailNotFound ? (
+          <Box
+            sx={{
+              minHeight: 320,
+              display: "grid",
+              placeItems: "center",
+              px: 1,
+            }}
+          >
             <Box
               sx={{
-                display: "grid",
-                gap: 1,
-                gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(6, minmax(0, 1fr))" },
+                width: "100%",
+                maxWidth: 460,
+                borderRadius: 3.5,
+                border: "1px solid rgba(220,38,38,0.16)",
+                bgcolor: "rgba(255,255,255,0.96)",
+                boxShadow: "0 18px 38px rgba(15,23,42,0.05)",
+                px: 2,
+                py: 2.2,
+                textAlign: "center",
               }}
             >
-              {Array.from({ length: 6 }).map((_, index) => (
-                <Skeleton key={index} variant="rounded" animation="wave" height={70} />
-              ))}
+              <Typography sx={{ fontWeight: 900, color: "#7f1d1d", lineHeight: 1.15 }}>
+                Branch detail unavailable
+              </Typography>
+              <Typography variant="body2" sx={{ mt: 0.7, color: "text.secondary", lineHeight: 1.6 }}>
+                {detail?.message ?? "Branch not found"}
+              </Typography>
             </Box>
-            <Skeleton variant="rounded" animation="wave" height={180} />
-            <Skeleton variant="rounded" animation="wave" height={180} />
-            <Stack alignItems="center" justifyContent="center" sx={{ py: 1 }}>
-              <CircularProgress size={24} />
-            </Stack>
-          </Stack>
-        ) : detailNotFound ? (
-          <Alert severity="error" variant="outlined">
-            {detail?.message ?? "Branch not found"}
-          </Alert>
-        ) : detailWithBranch && branch ? (
-          <Stack spacing={1.5}>
-            <Box sx={{ minHeight: 6, borderRadius: 999, overflow: "hidden" }}>
+          </Box>
+        ) : showSnapshotShell && branch ? (
+          <Stack spacing={1.2} sx={{ minHeight: 0 }}>
+            <Box sx={{ minHeight: 6, borderRadius: 999, overflow: "hidden", flexShrink: 0 }}>
               {refreshing ? (
                 <LinearProgress
                   sx={{
@@ -207,106 +304,95 @@ export function BranchDetailDialog(props: {
                 <Box sx={{ height: 5, borderRadius: 999, bgcolor: "rgba(148,163,184,0.08)" }} />
               )}
             </Box>
-            {detailNotice ? (
-              <Alert severity={detailNotice.severity} variant="outlined">
-                {detailNotice.message}
-              </Alert>
+            {(detailNotice || error) ? (
+              <Stack spacing={0.85} sx={{ flexShrink: 0 }}>
+                {detailNotice ? (
+                  <Alert severity={detailNotice.severity} variant="outlined">
+                    {detailNotice.message}
+                  </Alert>
+                ) : null}
+                {error ? <Alert severity="warning" variant="outlined">{error}</Alert> : null}
+              </Stack>
             ) : null}
-            {error ? <Alert severity="warning" variant="outlined">{error}</Alert> : null}
-            {monitorToggleError ? <Alert severity="error" variant="outlined">{monitorToggleError}</Alert> : null}
-            {isMobile ? (
-              <Stack spacing={1.25}>
-                <Box
-                  sx={{
-                    position: "sticky",
-                    top: -8,
-                    zIndex: 1,
-                    mx: -0.2,
-                    borderRadius: 999,
-                    border: "1px solid rgba(148,163,184,0.14)",
-                    bgcolor: "rgba(255,255,255,0.96)",
-                    boxShadow: "0 10px 24px rgba(15,23,42,0.06)",
-                    overflow: "hidden",
-                  }}
-                >
-                  <Tabs
-                    value={mobileSection}
-                    onChange={(_event, value) => setMobileSection(value)}
-                    variant="fullWidth"
-                    sx={{
-                      minHeight: 42,
-                      "& .MuiTab-root": {
-                        minHeight: 42,
-                        fontWeight: 900,
-                        fontSize: 12,
-                        textTransform: "none",
-                      },
-                    }}
-                  >
-                    <Tab value="overview" label="Overview" />
-                    <Tab value="orders" label={`Orders ${liveTotals.activeNow}`} />
-                    <Tab value="log" label={`Log ${logDays.reduce((sum, group) => sum + group.items.length, 0)}`} />
-                  </Tabs>
-                </Box>
 
-                {mobileSection === "overview" ? (
-                  <Stack spacing={1.2}>
-                    <BranchSummaryStats totals={liveTotals} thresholds={branch.thresholds} />
+            <Stack spacing={1.2} sx={{ minHeight: 0 }}>
+              <BranchDetailOverview
+                branch={branch}
+                nowMs={nowMs}
+                totals={liveTotals}
+                preparingNow={preparingNow}
+                pickerCount={activePreparingPickerCount}
+                fetchedAt={detailWithBranch?.fetchedAt ?? null}
+              />
 
+              <Box
+                sx={{
+                  position: { xs: "sticky", sm: "static" },
+                  top: 0,
+                  zIndex: 3,
+                  pt: { xs: 0.2, sm: 0 },
+                  pb: { xs: 0.5, sm: 0 },
+                  px: { xs: 0.25, sm: 0 },
+                  mx: { xs: -0.25, sm: 0 },
+                  borderRadius: { xs: 3, sm: 0 },
+                  border: { xs: "1px solid rgba(148,163,184,0.10)", sm: "none" },
+                  bgcolor: { xs: "rgba(255,255,255,0.94)", sm: "transparent" },
+                  backdropFilter: { xs: "blur(14px)", sm: "none" },
+                  boxShadow: { xs: "0 14px 28px rgba(15,23,42,0.08)", sm: "none" },
+                }}
+              >
+                <BranchDetailSegmentedNav value={section} onChange={handleSectionChange} />
+              </Box>
+
+              <Box sx={{ minHeight: 0, overflow: "visible", pb: { xs: 0.4, sm: 0.1 } }}>
+                {section === "queue" ? (
+                  queuePanelLoading ? (
+                    <QueueLoadingLayout />
+                  ) : (
                     <Box
                       sx={{
-                        p: 1.2,
-                        borderRadius: 3,
-                        border: "1px solid rgba(99,102,241,0.14)",
-                        bgcolor: monitorEnabled ? "rgba(248,250,252,0.78)" : "rgba(238,242,255,0.82)",
+                        display: "grid",
+                        gap: 1.2,
+                        gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" },
+                        alignItems: "start",
                       }}
                     >
-                      <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1.5}>
-                        <Box>
-                          <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 800 }}>
-                            In Monitor
-                          </Typography>
-                          <Typography sx={{ fontWeight: 900, color: "#0f172a", lineHeight: 1.15 }}>
-                            {monitorEnabled ? "Running" : "Paused"}
-                          </Typography>
-                        </Box>
-                        <Switch
-                          checked={monitorEnabled}
-                          onChange={(_event, checked) => void toggleMonitoring(checked)}
-                          disabled={!branch || !canManageBranches || togglingMonitoring}
-                          inputProps={{ "aria-label": "Toggle branch monitoring" }}
-                        />
-                      </Stack>
+                      <BranchOrdersSection
+                        title="Unassigned Orders"
+                        subtitle="Current unassigned queue"
+                        items={detailWithBranch?.unassignedOrders ?? []}
+                        emptyText={detailWithBranch?.unassignedOrders.length ? "No unassigned orders right now." : unavailableOrdersText}
+                        nowMs={nowMs}
+                      />
+                      <BranchOrdersSection
+                        title="In Preparation"
+                        subtitle="Assigned preparation queue"
+                        items={detailWithBranch?.preparingOrders ?? []}
+                        emptyText={detailWithBranch?.preparingOrders.length ? "No active preparation orders right now." : unavailableOrdersText}
+                        nowMs={nowMs}
+                        headerBadge={renderPickerBadge(activePreparingPickerCount)}
+                      />
                     </Box>
-
-                    <BranchStatusPanel branch={branch} nowMs={nowMs} />
-
-                    <Typography variant="caption" sx={{ color: "text.secondary", px: 0.2 }}>
-                      Last refresh: {detailWithBranch.fetchedAt ? fmtPlacedAt(detailWithBranch.fetchedAt) : "unavailable"}
-                    </Typography>
-                  </Stack>
+                  )
                 ) : null}
 
-                {mobileSection === "orders" ? (
-                  <Stack spacing={1.2}>
-                    <BranchOrdersSection
-                      title="Unassigned Orders"
-                      subtitle="Current unassigned orders in this branch"
-                      items={detailWithBranch.unassignedOrders}
-                      emptyText={detailWithBranch.unassignedOrders.length ? "No unassigned orders right now." : unavailableOrdersText}
-                      nowMs={nowMs}
-                    />
-                    <BranchOrdersSection
-                      title="In Preparation"
-                      subtitle="Assigned and in-progress orders, including late ones"
-                      items={detailWithBranch.preparingOrders}
-                      emptyText={detailWithBranch.preparingOrders.length ? "No active preparation orders right now." : unavailableOrdersText}
-                      nowMs={nowMs}
-                    />
-                  </Stack>
+                {section === "pickers" ? (
+                  <BranchPickersPanel
+                    pickers={pickerSummary}
+                    loading={pickersLoading}
+                    emptyText={
+                      pickersError
+                        ? pickersError
+                        : detail?.kind === "detail_fetch_failed"
+                        ? "Picker detail is temporarily unavailable. Showing the latest monitor snapshot."
+                        : detail?.kind === "snapshot_unavailable" && !detail.fetchedAt
+                          ? "Picker detail is unavailable while the live snapshot is missing."
+                          : "No pickers found for this branch today."
+                    }
+                  />
                 ) : null}
 
-                {mobileSection === "log" ? (
+                {section === "log" ? (
                   <BranchLogPanel
                     logDays={logDays}
                     logLoading={logLoading}
@@ -319,84 +405,8 @@ export function BranchDetailDialog(props: {
                     onClear={clearLog}
                   />
                 ) : null}
-              </Stack>
-            ) : (
-              <Grid container spacing={2}>
-                <Grid item xs={12} md={8}>
-                  <Stack spacing={2}>
-                    <BranchSummaryStats totals={liveTotals} thresholds={branch.thresholds} />
-
-                    <Stack spacing={1.5}>
-                      <BranchOrdersSection
-                        title="Unassigned Orders"
-                        subtitle="Current unassigned orders in this branch"
-                        items={detailWithBranch.unassignedOrders}
-                        emptyText={detailWithBranch.unassignedOrders.length ? "No unassigned orders right now." : unavailableOrdersText}
-                        nowMs={nowMs}
-                      />
-                      <BranchOrdersSection
-                        title="In Preparation"
-                        subtitle="Assigned and in-progress orders, including late ones"
-                        items={detailWithBranch.preparingOrders}
-                        emptyText={detailWithBranch.preparingOrders.length ? "No active preparation orders right now." : unavailableOrdersText}
-                        nowMs={nowMs}
-                      />
-                    </Stack>
-                  </Stack>
-                </Grid>
-
-                <Grid item xs={12} md={4}>
-                  <Stack spacing={2}>
-                    <Box
-                      sx={{
-                        p: 1.35,
-                        borderRadius: 3,
-                        border: "1px solid rgba(99,102,241,0.14)",
-                        bgcolor: monitorEnabled ? "rgba(248,250,252,0.78)" : "rgba(238,242,255,0.82)",
-                      }}
-                    >
-                      <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1.5}>
-                        <Box>
-                          <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 800 }}>
-                            In Monitor
-                          </Typography>
-                          <Typography sx={{ fontWeight: 900, color: "#0f172a", lineHeight: 1.15 }}>
-                            {monitorEnabled ? "Running" : "Paused"}
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: "#64748b", display: { xs: "none", sm: "block" } }}>
-                            {monitorEnabled ? "Included in live cycles" : "Skipped from live cycles"}
-                          </Typography>
-                        </Box>
-                        <Switch
-                          checked={monitorEnabled}
-                          onChange={(_event, checked) => void toggleMonitoring(checked)}
-                          disabled={!branch || !canManageBranches || togglingMonitoring}
-                          inputProps={{ "aria-label": "Toggle branch monitoring" }}
-                        />
-                      </Stack>
-                    </Box>
-
-                    <BranchStatusPanel branch={branch} nowMs={nowMs} />
-
-                    <BranchLogPanel
-                      logDays={logDays}
-                      logLoading={logLoading}
-                      logLoadingMore={logLoadingMore}
-                      hasMoreLogs={hasMoreLogs}
-                      logError={logError}
-                      clearingLog={clearingLog}
-                      canClear={canManage}
-                      onLoadMore={loadMoreLogs}
-                      onClear={clearLog}
-                    />
-
-                    <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                      Last refresh: {detailWithBranch.fetchedAt ? fmtPlacedAt(detailWithBranch.fetchedAt) : "unavailable"}
-                    </Typography>
-                  </Stack>
-                </Grid>
-              </Grid>
-            )}
+              </Box>
+            </Stack>
           </Stack>
         ) : error ? (
           <Alert severity="error">{error}</Alert>

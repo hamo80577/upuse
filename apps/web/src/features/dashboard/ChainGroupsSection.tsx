@@ -2,6 +2,7 @@ import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import { Box, Chip, Collapse, Grid, Stack, Typography } from "@mui/material";
 import type { KeyboardEvent } from "react";
 import { BranchCard } from "../../components/BranchCard";
+import { isGroupExpanded } from "../../pages/dashboard/lib/dashboardGrouping";
 import type { BranchGroup } from "../../pages/dashboard/lib/dashboardGrouping";
 
 export function ChainGroupsSection(props: {
@@ -9,6 +10,7 @@ export function ChainGroupsSection(props: {
   expandedGroups: Record<string, boolean>;
   onToggleGroup: (groupKey: string) => void;
   onOpenBranchDetail: (branchId: number) => void;
+  ordersSyncState: "fresh" | "syncing" | "stale";
 }) {
   if (!props.groups.length) {
     return (
@@ -36,8 +38,11 @@ export function ChainGroupsSection(props: {
   return (
     <Box>
       <Stack spacing={2}>
-        {props.groups.map((group) => (
-          <Box key={group.key}>
+        {props.groups.map((group) => {
+          const expanded = isGroupExpanded(props.expandedGroups, group.key);
+
+          return (
+            <Box key={group.key}>
             <Box
               role="button"
               tabIndex={0}
@@ -91,7 +96,7 @@ export function ChainGroupsSection(props: {
                     <ExpandMoreRoundedIcon
                       sx={{
                         fontSize: 22,
-                        transform: (props.expandedGroups[group.key] ?? true) ? "rotate(180deg)" : "rotate(90deg)",
+                        transform: expanded ? "rotate(180deg)" : "rotate(90deg)",
                         transition: "transform 180ms ease",
                       }}
                     />
@@ -173,21 +178,27 @@ export function ChainGroupsSection(props: {
               </Stack>
             </Box>
 
-            <Collapse in={props.expandedGroups[group.key] ?? true} timeout={220} unmountOnExit>
+            <Collapse in={expanded} timeout={220} unmountOnExit>
               <Box sx={{ pt: 0.2 }}>
                 <Grid container spacing={1.75}>
                   {group.items.map(({ branch, rank }) => (
                     <Grid key={branch.branchId} item xs={12} sx={{ display: "flex" }}>
                       <Box sx={{ width: "100%" }}>
-                        <BranchCard b={branch} rank={rank} onOpenDetail={props.onOpenBranchDetail} />
+                        <BranchCard
+                          b={branch}
+                          rank={rank}
+                          onOpenDetail={props.onOpenBranchDetail}
+                          ordersSyncState={props.ordersSyncState}
+                        />
                       </Box>
                     </Grid>
                   ))}
                 </Grid>
               </Box>
             </Collapse>
-          </Box>
-        ))}
+            </Box>
+          );
+        })}
       </Stack>
     </Box>
   );

@@ -12,7 +12,14 @@ import {
   nowUtcIso,
   type UtcWindow,
 } from "./shared.js";
-import { BASE, chunk, initMetrics, ORDERS_AGG_MAX_PAGES, ORDERS_API_SAFE_VENDOR_BATCH_LIMIT, type OrdersAggregateResult } from "./types.js";
+import {
+  BASE,
+  chunk,
+  initMetrics,
+  ORDERS_AGG_MAX_PAGES,
+  ORDERS_API_SAFE_VENDOR_BATCH_LIMIT,
+  type OrdersAggregateResult,
+} from "./types.js";
 
 async function runWithConcurrency<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>) {
   if (!items.length) return;
@@ -62,10 +69,16 @@ export async function fetchOrdersAggregates(params: {
   const chunkConcurrency = resolveOrdersChunkConcurrency();
 
   const byVendor = new Map<OrdersVendorId, ReturnType<typeof initMetrics>>();
+  const preparingByVendor = new Map<OrdersVendorId, { preparingNow: number; preparingPickersNow: number }>();
+  const pickerIdsByVendor = new Map<OrdersVendorId, Set<number>>();
   for (const vendorId of params.vendorIds) byVendor.set(vendorId, initMetrics());
+  for (const vendorId of params.vendorIds) {
+    preparingByVendor.set(vendorId, { preparingNow: 0, preparingPickersNow: 0 });
+    pickerIdsByVendor.set(vendorId, new Set<number>());
+  }
 
   if (!params.vendorIds.length) {
-    return { byVendor, fetchedAt: nowIso };
+    return { byVendor, preparingByVendor, fetchedAt: nowIso };
   }
 
   const collectChunkWindow = async (
@@ -109,7 +122,20 @@ export async function fetchOrdersAggregates(params: {
           } else {
             metrics.activeNow += 1;
             if (order?.pickupAt && isPastPickup(nowIso, order.pickupAt)) metrics.lateNow += 1;
-            if (order?.status === "UNASSIGNED" || order?.shopper == null) metrics.unassignedNow += 1;
+            if (order?.status === "UNASSIGNED" || order?.shopper == null) {
+              metrics.unassignedNow += 1;
+            } else {
+              const preparation = preparingByVendor.get(vendorId);
+              if (preparation) {
+                preparation.preparingNow += 1;
+                const shopperId = typeof order?.shopper?.id === "number" ? order.shopper.id : null;
+                if (shopperId != null) {
+                  const pickerIds = pickerIdsByVendor.get(vendorId);
+                  pickerIds?.add(shopperId);
+                  preparation.preparingPickersNow = pickerIds?.size ?? preparation.preparingPickersNow;
+                }
+              }
+            }
           }
         }
 
@@ -154,5 +180,5 @@ export async function fetchOrdersAggregates(params: {
     await collectChunkWindow(vendorChunk, baseWindow, 0, seenOrderIds);
   });
 
-  return { byVendor, fetchedAt: nowIso };
+  return { byVendor, preparingByVendor, fetchedAt: nowIso };
 }

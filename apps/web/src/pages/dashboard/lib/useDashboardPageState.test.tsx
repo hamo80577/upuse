@@ -68,6 +68,8 @@ const baseSnapshot: DashboardSnapshot = {
         lateNow: 0,
         unassignedNow: 1,
       },
+      preparingNow: 3,
+      preparingPickersNow: 2,
       lastUpdatedAt: "2026-03-06T10:00:00.000Z",
     },
   ],

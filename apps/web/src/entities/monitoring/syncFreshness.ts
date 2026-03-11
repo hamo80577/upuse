@@ -35,6 +35,17 @@ export function getStaleThresholdMs(input: {
   return Math.max(input.ordersRefreshSeconds, input.availabilityRefreshSeconds) * 1000;
 }
 
+export function getSyncDelayWarningThresholdMs(staleThresholdMs: number) {
+  const safeThresholdMs = Math.max(1_000, staleThresholdMs);
+  const graceMs = Math.max(5_000, Math.min(30_000, Math.round(safeThresholdMs * 0.5)));
+  return safeThresholdMs + graceMs;
+}
+
+export function getSyncAutoRecoveryCooldownMs(staleThresholdMs: number) {
+  const safeThresholdMs = Math.max(1_000, staleThresholdMs);
+  return Math.max(60_000, safeThresholdMs * 2);
+}
+
 export function getSyncAgeMs(input: {
   latestMonitoringUpdateAt?: string;
   syncClockMs: number;

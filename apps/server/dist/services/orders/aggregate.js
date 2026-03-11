@@ -2,7 +2,7 @@ import { isPastPickup } from "../../utils/time.js";
 import { getWithRetry } from "./httpClient.js";
 import { createPageLimitError, isVendorIdValidationError } from "./paginationGuards.js";
 import { resolveOrdersChunkConcurrency, resolveOrdersMode, resolveOrdersWindowSplitMaxDepth, resolveOrdersWindowSplitMinSpanMs, resolveOrdersWindowUtc, splitUtcWindow, nowUtcIso, } from "./shared.js";
-import { BASE, chunk, initMetrics, ORDERS_AGG_MAX_PAGES, ORDERS_API_SAFE_VENDOR_BATCH_LIMIT } from "./types.js";
+import { BASE, chunk, initMetrics, ORDERS_AGG_MAX_PAGES, ORDERS_API_SAFE_VENDOR_BATCH_LIMIT, } from "./types.js";
 async function runWithConcurrency(items, concurrency, worker) {
     if (!items.length)
         return;
@@ -42,10 +42,16 @@ export async function fetchOrdersAggregates(params) {
     const minSplitSpanMs = resolveOrdersWindowSplitMinSpanMs();
     const chunkConcurrency = resolveOrdersChunkConcurrency();
     const byVendor = new Map();
+    const preparingByVendor = new Map();
+    const pickerIdsByVendor = new Map();
     for (const vendorId of params.vendorIds)
         byVendor.set(vendorId, initMetrics());
+    for (const vendorId of params.vendorIds) {
+        preparingByVendor.set(vendorId, { preparingNow: 0, preparingPickersNow: 0 });
+        pickerIdsByVendor.set(vendorId, new Set());
+    }
     if (!params.vendorIds.length) {
-        return { byVendor, fetchedAt: nowIso };
+        return { byVendor, preparingByVendor, fetchedAt: nowIso };
     }
     const collectChunkWindow = async (vendorChunk, window, depth, seenOrderIds) => {
         let page = 0;
@@ -83,8 +89,21 @@ export async function fetchOrdersAggregates(params) {
                         metrics.activeNow += 1;
                         if (order?.pickupAt && isPastPickup(nowIso, order.pickupAt))
                             metrics.lateNow += 1;
-                        if (order?.status === "UNASSIGNED" || order?.shopper == null)
+                        if (order?.status === "UNASSIGNED" || order?.shopper == null) {
                             metrics.unassignedNow += 1;
+                        }
+                        else {
+                            const preparation = preparingByVendor.get(vendorId);
+                            if (preparation) {
+                                preparation.preparingNow += 1;
+                                const shopperId = typeof order?.shopper?.id === "number" ? order.shopper.id : null;
+                                if (shopperId != null) {
+                                    const pickerIds = pickerIdsByVendor.get(vendorId);
+                                    pickerIds?.add(shopperId);
+                                    preparation.preparingPickersNow = pickerIds?.size ?? preparation.preparingPickersNow;
+                                }
+                            }
+                        }
                     }
                 }
                 if (items.length < pageSize)
@@ -126,5 +145,5 @@ export async function fetchOrdersAggregates(params) {
         const seenOrderIds = new Set();
         await collectChunkWindow(vendorChunk, baseWindow, 0, seenOrderIds);
     });
-    return { byVendor, fetchedAt: nowIso };
+    return { byVendor, preparingByVendor, fetchedAt: nowIso };
 }

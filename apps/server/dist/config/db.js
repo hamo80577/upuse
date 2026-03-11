@@ -228,6 +228,76 @@ export function migrate() {
     CREATE INDEX IF NOT EXISTS idx_action_events_ts ON action_events(ts);
     CREATE INDEX IF NOT EXISTS idx_action_events_branch_ts ON action_events(branchId, ts);
 
+    CREATE TABLE IF NOT EXISTS orders_mirror (
+      dayKey TEXT NOT NULL,
+      globalEntityId TEXT NOT NULL,
+      vendorId INTEGER NOT NULL,
+      orderId TEXT NOT NULL,
+      externalId TEXT NOT NULL,
+      status TEXT NOT NULL,
+      isCompleted INTEGER NOT NULL DEFAULT 0,
+      isCancelled INTEGER NOT NULL DEFAULT 0,
+      isUnassigned INTEGER NOT NULL DEFAULT 0,
+      placedAt TEXT,
+      pickupAt TEXT,
+      customerFirstName TEXT,
+      shopperId INTEGER,
+      shopperFirstName TEXT,
+      isActiveNow INTEGER NOT NULL DEFAULT 0,
+      lastSeenAt TEXT NOT NULL,
+      lastActiveSeenAt TEXT,
+      PRIMARY KEY (dayKey, globalEntityId, vendorId, orderId)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_orders_mirror_branch
+      ON orders_mirror(dayKey, globalEntityId, vendorId);
+    CREATE INDEX IF NOT EXISTS idx_orders_mirror_active
+      ON orders_mirror(dayKey, globalEntityId, vendorId, isActiveNow);
+    CREATE INDEX IF NOT EXISTS idx_orders_mirror_picker
+      ON orders_mirror(dayKey, globalEntityId, vendorId, shopperId);
+    CREATE INDEX IF NOT EXISTS idx_orders_mirror_pickup
+      ON orders_mirror(dayKey, pickupAt);
+
+    CREATE TABLE IF NOT EXISTS orders_sync_state (
+      dayKey TEXT NOT NULL,
+      globalEntityId TEXT NOT NULL,
+      vendorId INTEGER NOT NULL,
+      lastBootstrapSyncAt TEXT,
+      lastActiveSyncAt TEXT,
+      lastHistorySyncAt TEXT,
+      lastFullHistorySweepAt TEXT,
+      PRIMARY KEY (dayKey, globalEntityId, vendorId)
+    );
+
+    CREATE TABLE IF NOT EXISTS branch_catalog (
+      availabilityVendorId TEXT PRIMARY KEY,
+      ordersVendorId INTEGER,
+      name TEXT,
+      globalEntityId TEXT NOT NULL,
+      availabilityState TEXT NOT NULL DEFAULT 'CLOSED',
+      changeable INTEGER NOT NULL DEFAULT 0,
+      presentInSource INTEGER NOT NULL DEFAULT 1,
+      resolveStatus TEXT NOT NULL DEFAULT 'unresolved',
+      lastSeenAt TEXT,
+      resolvedAt TEXT,
+      lastError TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_branch_catalog_name
+      ON branch_catalog(name);
+    CREATE INDEX IF NOT EXISTS idx_branch_catalog_entity_present
+      ON branch_catalog(globalEntityId, presentInSource);
+    CREATE INDEX IF NOT EXISTS idx_branch_catalog_orders_vendor
+      ON branch_catalog(ordersVendorId);
+
+    CREATE TABLE IF NOT EXISTS branch_catalog_sync_state (
+      globalEntityId TEXT PRIMARY KEY,
+      syncState TEXT NOT NULL DEFAULT 'stale',
+      lastAttemptedAt TEXT,
+      lastSyncedAt TEXT,
+      lastError TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT NOT NULL UNIQUE,

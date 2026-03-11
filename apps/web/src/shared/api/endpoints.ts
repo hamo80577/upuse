@@ -3,8 +3,10 @@ import type {
   AuthUsersResponse,
   LoginResponse,
   AppUserRole,
+  BranchCatalogResponse,
   BranchDetailResult,
   BranchMappingItem,
+  BranchPickersSummary,
   DashboardSnapshot,
   LookupVendorNameResponse,
   SettingsMasked,
@@ -69,7 +71,16 @@ export const api = {
     }>(`/api/logs?${query.toString()}`, init);
   },
   clearLogs: (branchId: number) => requestJson<{ ok: boolean }>(`/api/logs?branchId=${branchId}`, { method: "DELETE" }),
-  branchDetail: (branchId: number, init?: RequestInit) => requestJson<BranchDetailResult>(`/api/branches/${branchId}/detail`, init, { timeoutMs: 70_000 }),
+  branchDetail: (branchId: number, options?: { signal?: AbortSignal; includePickerItems?: boolean }) => {
+    const query = new URLSearchParams();
+    if (options?.includePickerItems === false) {
+      query.set("includePickerItems", "0");
+    }
+    const suffix = query.size ? `?${query.toString()}` : "";
+    return requestJson<BranchDetailResult>(`/api/branches/${branchId}/detail${suffix}`, { signal: options?.signal }, { timeoutMs: 70_000 });
+  },
+  branchPickers: (branchId: number, init?: RequestInit) =>
+    requestJson<BranchPickersSummary>(`/api/branches/${branchId}/pickers`, init, { timeoutMs: 70_000 }),
   downloadMonitorReport: (params: { preset: "today" | "yesterday" | "last7" | "last30" | "day"; day?: string }) => {
     const query = new URLSearchParams({ preset: params.preset });
     if (params.preset === "day" && params.day) {
@@ -86,7 +97,13 @@ export const api = {
   testTokens: () => requestJson<SettingsTokenTestResponse>("/api/settings/test", { method: "POST" }),
 
   listBranches: () => requestJson<{ items: BranchMappingItem[] }>("/api/branches"),
-  addBranch: (payload: any) => requestJson<{ ok: boolean; id: number }>("/api/branches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+  branchCatalog: () => requestJson<BranchCatalogResponse>("/api/branches/catalog"),
+  refreshBranchCatalog: () =>
+    requestJson<BranchCatalogResponse>("/api/branches/catalog/refresh", {
+      method: "POST",
+    }),
+  addBranch: (payload: { availabilityVendorId: string; chainName: string; enabled?: boolean }) =>
+    requestJson<{ ok: boolean; id: number }>("/api/branches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
   updateBranch: (id: number, payload: any) =>
     requestJson<{ ok: boolean; item: BranchMappingItem }>(`/api/branches/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
   setBranchMonitoring: (id: number, enabled: boolean) =>

@@ -131,6 +131,46 @@ describe("useDashboardLiveSync", () => {
     expect(mockApplyMonitoring).toHaveBeenCalledWith({ running: false });
   });
 
+  it("keeps the last valid snapshot when a later stream payload is malformed", async () => {
+    const baseSnapshot = createSnapshot({
+      branches: [
+        {
+          branchId: 7,
+          name: "Branch A",
+          chainName: "Chain A",
+          monitorEnabled: true,
+          ordersVendorId: 101,
+          availabilityVendorId: "201",
+          status: "OPEN",
+          statusColor: "green",
+          metrics: {
+            totalToday: 8,
+            cancelledToday: 1,
+            doneToday: 3,
+            activeNow: 4,
+            lateNow: 0,
+            unassignedNow: 1,
+          },
+          preparingNow: 3,
+          preparingPickersNow: 2,
+        },
+      ],
+    });
+
+    mockApi.streamDashboard.mockImplementation(({ onOpen, onSnapshot }: any) => {
+      onOpen?.();
+      onSnapshot(baseSnapshot);
+      onSnapshot({ ...baseSnapshot, branches: [{ branchId: 7 }] });
+      return new Promise<void>(() => {});
+    });
+
+    const { result } = renderHook(() => useDashboardLiveSync());
+
+    await flushEffects();
+
+    expect(result.current.snap.branches).toEqual(baseSnapshot.branches);
+  });
+
   it("switches to fallback polling when the stream closes", async () => {
     const baseSnapshot = createSnapshot();
     let closeStream!: () => void;
@@ -229,5 +269,103 @@ describe("useDashboardLiveSync", () => {
     });
 
     expect(mockApi.dashboard).not.toHaveBeenCalled();
+  });
+
+  it("waits through a grace window before showing stale sync and auto-recovering", async () => {
+    const baseSnapshot = createSnapshot({
+      monitoring: {
+        running: true,
+        lastOrdersFetchAt: "2026-03-06T10:00:00.000Z",
+        lastAvailabilityFetchAt: "2026-03-06T10:00:00.000Z",
+        lastHealthyAt: "2026-03-06T10:00:00.000Z",
+      },
+    });
+    mockApi.streamDashboard.mockImplementation(({ onOpen, onSnapshot }: any) => {
+      onOpen?.();
+      onSnapshot(baseSnapshot);
+      return new Promise<void>(() => {});
+    });
+    mockApi.monitorStatus.mockResolvedValue({ running: true });
+    mockApi.dashboard.mockResolvedValue(baseSnapshot);
+
+    const { result } = renderHook(() => useDashboardLiveSync());
+
+    await flushEffects();
+
+    await act(async () => {
+      vi.advanceTimersByTime(44_000);
+      await Promise.resolve();
+    });
+
+    expect(result.current.isSyncStale).toBe(false);
+    expect(mockApi.monitorStatus).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(2_000);
+      await Promise.resolve();
+    });
+
+    expect(result.current.isSyncStale).toBe(true);
+    expect(mockApi.monitorStatus).toHaveBeenCalledTimes(1);
+    expect(mockApi.dashboard).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not auto-recover again immediately after a fresh delayed snapshot", async () => {
+    const baseSnapshot = createSnapshot({
+      monitoring: {
+        running: true,
+        lastOrdersFetchAt: "2026-03-06T10:00:00.000Z",
+        lastAvailabilityFetchAt: "2026-03-06T10:00:00.000Z",
+        lastHealthyAt: "2026-03-06T10:00:00.000Z",
+      },
+    });
+    mockApi.streamDashboard.mockImplementation(({ onOpen, onSnapshot }: any) => {
+      onOpen?.();
+      onSnapshot(baseSnapshot);
+      return new Promise<void>(() => {});
+    });
+    mockApi.monitorStatus.mockResolvedValue({ running: true });
+    mockApi.dashboard
+      .mockResolvedValueOnce(createSnapshot({
+        monitoring: {
+          running: true,
+          lastOrdersFetchAt: "2026-03-06T10:00:46.000Z",
+          lastAvailabilityFetchAt: "2026-03-06T10:00:46.000Z",
+          lastHealthyAt: "2026-03-06T10:00:46.000Z",
+        },
+      }))
+      .mockResolvedValue(createSnapshot({
+        monitoring: {
+          running: true,
+          lastOrdersFetchAt: "2026-03-06T10:01:46.000Z",
+          lastAvailabilityFetchAt: "2026-03-06T10:01:46.000Z",
+          lastHealthyAt: "2026-03-06T10:01:46.000Z",
+        },
+      }));
+
+    renderHook(() => useDashboardLiveSync());
+
+    await flushEffects();
+
+    await act(async () => {
+      vi.advanceTimersByTime(46_000);
+      await Promise.resolve();
+    });
+
+    expect(mockApi.monitorStatus).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(46_000);
+      await Promise.resolve();
+    });
+
+    expect(mockApi.monitorStatus).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(16_000);
+      await Promise.resolve();
+    });
+
+    expect(mockApi.monitorStatus).toHaveBeenCalledTimes(2);
   });
 });

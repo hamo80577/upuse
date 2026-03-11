@@ -1,21 +1,7 @@
 import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
-import { Alert, AlertTitle, Box, Button, Chip, Stack, Typography } from "@mui/material";
+import { Alert, AlertTitle, Box, Button, IconButton, Stack, Tooltip, Typography } from "@mui/material";
 import type { DashboardLiveConnectionState, DashboardSnapshot } from "../../../api/types";
 import { SummaryStat } from "./SummaryStat";
-
-function fmtLiveAt(iso?: string) {
-  if (!iso) return "";
-  try {
-    return new Date(iso).toLocaleTimeString("en-GB", {
-      timeZone: "Africa/Cairo",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
-}
 
 function fmtSyncAge(ms: number) {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -117,66 +103,32 @@ export function OperationsSummaryCard(props: {
         </Box>
 
         <Stack
-          direction={{ xs: "column", sm: "row" }}
+          direction="row"
           spacing={1}
-          alignItems={{ xs: "stretch", sm: "center" }}
-          sx={{ width: { xs: "100%", md: "auto" }, display: { xs: "none", sm: "flex" } }}
+          alignItems="center"
+          sx={{ width: "auto", alignSelf: { xs: "flex-end", md: "auto" } }}
         >
-          <Chip
-            size="small"
-            color={
-              props.connectionState === "live"
-                ? "success"
-                : props.connectionState === "disconnected"
-                  ? "error"
-                  : props.connectionState === "fallback"
-                    ? "warning"
-                    : "info"
-            }
-            variant={props.connectionState === "live" ? "filled" : "outlined"}
-            label={
-              props.connectionState === "live"
-                ? "Live stream"
-                : props.connectionState === "fallback"
-                  ? "Fallback polling"
-                  : props.connectionState === "disconnected"
-                    ? "Disconnected"
-                    : "Connecting"
-            }
-          />
-          {props.updatedAt ? (
-            <Chip
-              size="small"
-              label={`Updated ${fmtLiveAt(props.updatedAt)}`}
+          <Tooltip title="Download report">
+            <IconButton
+              onClick={props.onOpenReport}
+              aria-label="Download report"
               sx={{
-                height: 28,
-                fontWeight: 800,
-                border: props.syncGuard.stale ? "1px solid rgba(217,119,6,0.22)" : "1px solid rgba(148,163,184,0.16)",
-                bgcolor: props.syncGuard.stale ? "rgba(254,243,199,0.72)" : "rgba(255,255,255,0.92)",
-                color: props.syncGuard.stale ? "#9a3412" : "inherit",
+                width: 40,
+                height: 40,
+                border: "1px solid rgba(37,99,235,0.22)",
+                color: "#1d4ed8",
+                bgcolor: "rgba(37,99,235,0.04)",
+                boxShadow: "0 8px 18px rgba(15,23,42,0.05)",
+                "&:hover": {
+                  borderColor: "rgba(37,99,235,0.32)",
+                  bgcolor: "rgba(37,99,235,0.08)",
+                  boxShadow: "0 10px 20px rgba(15,23,42,0.08)",
+                },
               }}
-            />
-          ) : null}
-
-          <Button
-            variant="outlined"
-            color="inherit"
-            onClick={props.onOpenReport}
-            startIcon={<AssessmentRoundedIcon />}
-            sx={{
-              minWidth: 164,
-              borderColor: "rgba(37,99,235,0.22)",
-              color: "#1d4ed8",
-              bgcolor: "rgba(37,99,235,0.04)",
-              fontWeight: 800,
-              "&:hover": {
-                borderColor: "rgba(37,99,235,0.32)",
-                bgcolor: "rgba(37,99,235,0.08)",
-              },
-            }}
-          >
-            Download Report
-          </Button>
+            >
+              <AssessmentRoundedIcon />
+            </IconButton>
+          </Tooltip>
         </Stack>
       </Stack>
 
@@ -232,7 +184,7 @@ export function OperationsSummaryCard(props: {
         </Alert>
       ) : null}
 
-      {props.syncGuard.stale ? (
+      {props.syncGuard.stale && props.connectionState === "live" ? (
         <Alert
           severity="warning"
           variant="outlined"

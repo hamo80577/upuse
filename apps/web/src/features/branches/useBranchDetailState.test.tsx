@@ -4,6 +4,7 @@ import type { BranchDetailResult, BranchSnapshot } from "../../api/types";
 
 const mockApi = vi.hoisted(() => ({
   branchDetail: vi.fn(),
+  branchPickers: vi.fn(),
   logs: vi.fn(),
   clearLogs: vi.fn(),
 }));
@@ -37,6 +38,8 @@ function createBranchSnapshot(overrides: Partial<BranchSnapshot> = {}): BranchSn
       lateNow: 0,
       unassignedNow: 1,
     },
+    preparingNow: 3,
+    preparingPickersNow: 2,
     lastUpdatedAt: "2026-03-08T12:00:00.000Z",
     ...overrides,
   };
@@ -49,8 +52,15 @@ function createDetailResult(overrides: Partial<Extract<BranchDetailResult, { kin
     branch,
     totals: branch.metrics,
     fetchedAt: "2026-03-08T12:01:00.000Z",
+    cacheState: "fresh",
     unassignedOrders: [],
     preparingOrders: [],
+    pickers: {
+      todayCount: 0,
+      activePreparingCount: 0,
+      lastHourCount: 0,
+      items: [],
+    },
     ...overrides,
   };
 }
@@ -63,9 +73,16 @@ describe("useBranchDetailState", () => {
 
   beforeEach(() => {
     mockApi.branchDetail.mockReset();
+    mockApi.branchPickers.mockReset();
     mockApi.logs.mockReset();
     mockApi.clearLogs.mockReset();
     mockApi.branchDetail.mockResolvedValue(createDetailResult());
+    mockApi.branchPickers.mockResolvedValue({
+      todayCount: 2,
+      activePreparingCount: 1,
+      lastHourCount: 1,
+      items: [],
+    });
     mockApi.logs.mockResolvedValue({
       dayKey: "2026-03-08",
       dayLabel: "Sun, 08 Mar 2026",
@@ -78,14 +95,25 @@ describe("useBranchDetailState", () => {
     vi.useRealTimers();
   });
 
-  it("fetches once on open and only auto-refreshes detail every 60 seconds", async () => {
+  it("fetches detail once on open, lazy-loads tabs on demand, and refreshes from snapshot changes instead of a timer", async () => {
     vi.useFakeTimers();
 
-    const { result } = renderHook(() => useBranchDetailState({
-      branchId: 7,
-      branchSnapshot: createBranchSnapshot(),
-      open: true,
-    }));
+    const { result, rerender } = renderHook(
+      (props: { loadPickers?: boolean; loadLogs?: boolean; branchSnapshot: BranchSnapshot }) => useBranchDetailState({
+        branchId: 7,
+        branchSnapshot: props.branchSnapshot,
+        open: true,
+        loadPickers: props.loadPickers,
+        loadLogs: props.loadLogs,
+      }),
+      {
+        initialProps: {
+          loadPickers: false,
+          loadLogs: false,
+          branchSnapshot: createBranchSnapshot(),
+        },
+      },
+    );
 
     await act(async () => {
       await flushEffects();
@@ -93,6 +121,24 @@ describe("useBranchDetailState", () => {
 
     expect(result.current.detail?.kind).toBe("ok");
     expect(mockApi.branchDetail).toHaveBeenCalledTimes(1);
+    expect(mockApi.branchPickers).not.toHaveBeenCalled();
+    expect(mockApi.logs).not.toHaveBeenCalled();
+
+    rerender({ loadPickers: true, loadLogs: false, branchSnapshot: createBranchSnapshot() });
+
+    await act(async () => {
+      await flushEffects();
+    });
+
+    expect(mockApi.branchPickers).toHaveBeenCalledTimes(1);
+    expect(mockApi.logs).not.toHaveBeenCalled();
+
+    rerender({ loadPickers: true, loadLogs: true, branchSnapshot: createBranchSnapshot() });
+
+    await act(async () => {
+      await flushEffects();
+    });
+
     expect(mockApi.logs).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -101,6 +147,7 @@ describe("useBranchDetailState", () => {
     });
 
     expect(mockApi.branchDetail).toHaveBeenCalledTimes(1);
+    expect(mockApi.branchPickers).toHaveBeenCalledTimes(1);
     expect(mockApi.logs).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -108,15 +155,44 @@ describe("useBranchDetailState", () => {
       await flushEffects();
     });
 
+    expect(mockApi.branchDetail).toHaveBeenCalledTimes(1);
+    expect(mockApi.logs).toHaveBeenCalledTimes(1);
+
+    rerender({
+      loadPickers: true,
+      loadLogs: true,
+      branchSnapshot: createBranchSnapshot({
+        lastUpdatedAt: "2026-03-08T12:05:00.000Z",
+      }),
+    });
+
+    await act(async () => {
+      await flushEffects();
+    });
+
     expect(mockApi.branchDetail).toHaveBeenCalledTimes(2);
+    expect(mockApi.branchPickers).toHaveBeenCalledTimes(2);
     expect(mockApi.logs).toHaveBeenCalledTimes(1);
   });
 
-  it("manual refresh bypasses cache and refreshes detail and the latest logs", async () => {
+  it("manual refresh bypasses cache and refreshes detail plus the lazy-loaded tabs that were opened", async () => {
     vi.useFakeTimers();
     mockApi.branchDetail
       .mockResolvedValueOnce(createDetailResult({ fetchedAt: "2026-03-08T12:01:00.000Z" }))
       .mockResolvedValueOnce(createDetailResult({ fetchedAt: "2026-03-08T12:02:00.000Z" }));
+    mockApi.branchPickers
+      .mockResolvedValueOnce({
+        todayCount: 2,
+        activePreparingCount: 1,
+        lastHourCount: 1,
+        items: [],
+      })
+      .mockResolvedValueOnce({
+        todayCount: 3,
+        activePreparingCount: 2,
+        lastHourCount: 1,
+        items: [],
+      });
     mockApi.logs
       .mockResolvedValueOnce({
         dayKey: "2026-03-08",
@@ -138,6 +214,8 @@ describe("useBranchDetailState", () => {
       branchId: 7,
       branchSnapshot: createBranchSnapshot(),
       open: true,
+      loadPickers: true,
+      loadLogs: true,
     }));
 
     await act(async () => {
@@ -150,6 +228,7 @@ describe("useBranchDetailState", () => {
     });
 
     expect(mockApi.branchDetail).toHaveBeenCalledTimes(2);
+    expect(mockApi.branchPickers).toHaveBeenCalledTimes(2);
     expect(mockApi.logs).toHaveBeenCalledTimes(2);
     expect(result.current.detail?.kind).toBe("ok");
     if (result.current.detail?.kind !== "ok") {
@@ -158,7 +237,7 @@ describe("useBranchDetailState", () => {
     expect(result.current.detail.fetchedAt).toBe("2026-03-08T12:02:00.000Z");
   });
 
-  it("refreshes latest logs only when the branch status signature changes", async () => {
+  it("refreshes latest logs only when the branch status signature changes after the log tab has been opened", async () => {
     vi.useFakeTimers();
     const initialSnapshot = createBranchSnapshot();
     const { rerender } = renderHook(
@@ -166,6 +245,7 @@ describe("useBranchDetailState", () => {
         branchId: 7,
         branchSnapshot: props.branchSnapshot,
         open: true,
+        loadLogs: true,
       }),
       {
         initialProps: {
@@ -243,8 +323,15 @@ describe("useBranchDetailState", () => {
         unassignedNow: 0,
       },
       fetchedAt: null,
+      cacheState: "warming",
       unassignedOrders: [],
       preparingOrders: [],
+      pickers: {
+        todayCount: 0,
+        activePreparingCount: 0,
+        lastHourCount: 0,
+        items: [],
+      },
       message: "Live availability snapshot is currently unavailable, and orders detail could not be loaded.",
     } satisfies BranchDetailResult);
 
@@ -252,6 +339,8 @@ describe("useBranchDetailState", () => {
       branchId: 7,
       branchSnapshot: null,
       open: true,
+      loadLogs: false,
+      loadPickers: false,
     }));
 
     await act(async () => {

@@ -8,8 +8,12 @@ const {
   mockListBranches,
   mockResolveOrdersGlobalEntityId,
   mockGetSettings,
-  mockFetchVendorOrdersDetail,
+  mockGetMirrorBranchDetail,
+  mockGetMirrorBranchPickers,
   mockLookupVendorName,
+  mockGetBranchCatalogResponse,
+  mockRefreshBranchCatalogNow,
+  mockGetResolvedCatalogBranchForAdd,
   mockLog,
 } = vi.hoisted(() => ({
   mockAddBranch: vi.fn(),
@@ -19,8 +23,12 @@ const {
   mockListBranches: vi.fn(),
   mockResolveOrdersGlobalEntityId: vi.fn((_branch: unknown, fallback: string) => fallback),
   mockGetSettings: vi.fn(),
-  mockFetchVendorOrdersDetail: vi.fn(),
+  mockGetMirrorBranchDetail: vi.fn(),
+  mockGetMirrorBranchPickers: vi.fn(),
   mockLookupVendorName: vi.fn(),
+  mockGetBranchCatalogResponse: vi.fn(),
+  mockRefreshBranchCatalogNow: vi.fn(),
+  mockGetResolvedCatalogBranchForAdd: vi.fn(),
   mockLog: vi.fn(),
 }));
 
@@ -41,15 +49,25 @@ vi.mock("../services/settingsStore.js", () => ({
 }));
 
 vi.mock("../services/ordersClient.js", () => ({
-  fetchVendorOrdersDetail: mockFetchVendorOrdersDetail,
   lookupVendorName: mockLookupVendorName,
+}));
+
+vi.mock("../services/ordersMirrorStore.js", () => ({
+  getMirrorBranchDetail: mockGetMirrorBranchDetail,
+  getMirrorBranchPickers: mockGetMirrorBranchPickers,
+}));
+
+vi.mock("../services/branchCatalogService.js", () => ({
+  getBranchCatalogResponse: mockGetBranchCatalogResponse,
+  refreshBranchCatalogNow: mockRefreshBranchCatalogNow,
+  getResolvedCatalogBranchForAdd: mockGetResolvedCatalogBranchForAdd,
 }));
 
 vi.mock("../services/logger.js", () => ({
   log: mockLog,
 }));
 
-import { addBranchRoute, updateBranchRoute } from "./branches.js";
+import { addBranchRoute, branchCatalogRoute, refreshBranchCatalogRoute, updateBranchRoute } from "./branches.js";
 
 function createResponse() {
   const res: any = {
@@ -116,7 +134,19 @@ function branchSnapshot(overrides?: Record<string, unknown>) {
       lateNow: 0,
       unassignedNow: 1,
     },
+    preparingNow: 2,
+    preparingPickersNow: 1,
     lastUpdatedAt: "2026-03-06T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function emptyPickers(overrides?: Record<string, unknown>) {
+  return {
+    todayCount: 0,
+    activePreparingCount: 0,
+    lastHourCount: 0,
+    items: [],
     ...overrides,
   };
 }
@@ -127,6 +157,16 @@ describe("branches routes unique-constraint handling", () => {
     mockUpdateBranch.mockReset();
     mockLookupVendorName.mockReset();
     mockGetSettings.mockReset();
+    mockGetResolvedCatalogBranchForAdd.mockReset();
+    mockGetBranchCatalogResponse.mockReset();
+    mockRefreshBranchCatalogNow.mockReset();
+    mockGetSettings.mockReturnValue({
+      globalEntityId: "HF_EG",
+      ordersRefreshSeconds: 30,
+      chains: [{ name: "Chain A", lateThreshold: 5, unassignedThreshold: 5 }],
+      lateThreshold: 5,
+      unassignedThreshold: 5,
+    });
   });
 
   it("returns 409 + field for duplicate availabilityVendorId on add", () => {
@@ -169,6 +209,78 @@ describe("branches routes unique-constraint handling", () => {
       ok: false,
       message: "Orders Vendor ID already exists",
       field: "ordersVendorId",
+    });
+  });
+
+  it("adds a branch from the resolved source catalog without requiring manual IDs", () => {
+    mockGetResolvedCatalogBranchForAdd.mockReturnValue({
+      availabilityVendorId: "740921",
+      ordersVendorId: 48664,
+      name: "Carrefour, Zahraa El Maadi - El Me'arag El Ouloy",
+      globalEntityId: "HF_EG",
+      availabilityState: "OPEN",
+      changeable: true,
+      presentInSource: true,
+      resolveStatus: "resolved",
+      lastSeenAt: "2026-03-11T09:00:00.000Z",
+      resolvedAt: "2026-03-11T09:00:00.000Z",
+      lastError: null,
+    });
+    mockAddBranch.mockReturnValue(33);
+
+    const req: any = {
+      body: {
+        availabilityVendorId: "740921",
+        chainName: "Carrefour",
+      },
+    };
+    const res = createResponse();
+
+    addBranchRoute(req, res);
+
+    expect(mockGetResolvedCatalogBranchForAdd).toHaveBeenCalledWith("HF_EG", "740921");
+    expect(mockAddBranch).toHaveBeenCalledWith({
+      name: "Carrefour, Zahraa El Maadi - El Me'arag El Ouloy",
+      chainName: "Carrefour",
+      ordersVendorId: 48664,
+      availabilityVendorId: "740921",
+      globalEntityId: "HF_EG",
+      enabled: true,
+      lateThresholdOverride: null,
+      unassignedThresholdOverride: null,
+    });
+    expect(res.body).toEqual({ ok: true, id: 33 });
+  });
+
+  it("rejects adding a branch that is outside the current source catalog", () => {
+    mockGetResolvedCatalogBranchForAdd.mockReturnValue({
+      availabilityVendorId: "740921",
+      ordersVendorId: 48664,
+      name: "Carrefour, Zahraa El Maadi - El Me'arag El Ouloy",
+      globalEntityId: "HF_EG",
+      availabilityState: "OPEN",
+      changeable: true,
+      presentInSource: false,
+      resolveStatus: "resolved",
+      lastSeenAt: "2026-03-11T09:00:00.000Z",
+      resolvedAt: "2026-03-11T09:00:00.000Z",
+      lastError: null,
+    });
+
+    const req: any = {
+      body: {
+        availabilityVendorId: "740921",
+        chainName: "Carrefour",
+      },
+    };
+    const res = createResponse();
+
+    addBranchRoute(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.body).toEqual({
+      ok: false,
+      message: "This branch is not available in the current source catalog.",
     });
   });
 });
@@ -260,20 +372,92 @@ describe("lookupVendorNameRoute", () => {
   });
 });
 
+describe("branch catalog routes", () => {
+  beforeEach(() => {
+    mockGetBranchCatalogResponse.mockReset();
+    mockRefreshBranchCatalogNow.mockReset();
+    mockGetSettings.mockReset();
+    mockGetSettings.mockReturnValue({
+      globalEntityId: "HF_EG",
+      ordersRefreshSeconds: 30,
+      chains: [],
+      lateThreshold: 5,
+      unassignedThreshold: 5,
+    });
+  });
+
+  it("returns the joined branch catalog snapshot", () => {
+    mockGetBranchCatalogResponse.mockReturnValue({
+      items: [
+        {
+          availabilityVendorId: "740921",
+          ordersVendorId: 48664,
+          name: "Carrefour, Zahraa El Maadi - El Me'arag El Ouloy",
+          globalEntityId: "HF_EG",
+          availabilityState: "OPEN",
+          changeable: true,
+          presentInSource: true,
+          resolveStatus: "resolved",
+          lastSeenAt: "2026-03-11T09:00:00.000Z",
+          resolvedAt: "2026-03-11T09:00:00.000Z",
+          lastError: null,
+          alreadyAdded: true,
+          branchId: 7,
+          chainName: "Carrefour",
+          enabled: true,
+        },
+      ],
+      syncState: "fresh",
+      lastSyncedAt: "2026-03-11T09:00:00.000Z",
+      lastError: null,
+    });
+
+    const res = createResponse();
+    branchCatalogRoute({} as any, res);
+
+    expect(mockGetBranchCatalogResponse).toHaveBeenCalledWith("HF_EG");
+    expect(res.body.items[0]).toMatchObject({
+      availabilityVendorId: "740921",
+      ordersVendorId: 48664,
+      alreadyAdded: true,
+    });
+  });
+
+  it("force-refreshes the branch catalog", async () => {
+    mockRefreshBranchCatalogNow.mockResolvedValue({
+      items: [],
+      syncState: "fresh",
+      lastSyncedAt: "2026-03-11T09:10:00.000Z",
+      lastError: null,
+    });
+
+    const res = createResponse();
+    await refreshBranchCatalogRoute({} as any, res);
+
+    expect(mockRefreshBranchCatalogNow).toHaveBeenCalledWith("HF_EG");
+    expect(res.body).toEqual({
+      items: [],
+      syncState: "fresh",
+      lastSyncedAt: "2026-03-11T09:10:00.000Z",
+      lastError: null,
+    });
+  });
+});
+
 describe("branchDetailRoute", () => {
   beforeEach(() => {
     mockGetBranchById.mockReset();
-    mockFetchVendorOrdersDetail.mockReset();
+    mockGetMirrorBranchDetail.mockReset();
     mockGetSettings.mockReset();
     mockResolveOrdersGlobalEntityId.mockReset();
     mockLog.mockReset();
     mockResolveOrdersGlobalEntityId.mockImplementation((_branch: unknown, fallback: string) => fallback);
     mockGetSettings.mockReturnValue({
-      ordersToken: "orders-token",
       globalEntityId: "HF_EG",
       chains: [{ name: "Chain A", lateThreshold: 5, unassignedThreshold: 5 }],
       lateThreshold: 5,
       unassignedThreshold: 5,
+      ordersRefreshSeconds: 30,
     });
   });
 
@@ -298,7 +482,7 @@ describe("branchDetailRoute", () => {
 
   it("returns snapshot_unavailable with live orders when the branch exists but its live snapshot is unavailable", async () => {
     mockGetBranchById.mockReturnValue(branchMapping());
-    mockFetchVendorOrdersDetail.mockResolvedValue({
+    mockGetMirrorBranchDetail.mockReturnValue({
       metrics: {
         totalToday: 12,
         cancelledToday: 1,
@@ -310,6 +494,22 @@ describe("branchDetailRoute", () => {
       fetchedAt: "2026-03-06T10:07:00.000Z",
       unassignedOrders: [{ id: "1", externalId: "ORD-1", status: "UNASSIGNED", isUnassigned: true, isLate: false }],
       preparingOrders: [{ id: "2", externalId: "ORD-2", status: "PREPARING", isUnassigned: false, isLate: true }],
+      pickers: emptyPickers({
+        todayCount: 2,
+        activePreparingCount: 1,
+        lastHourCount: 1,
+        items: [
+          {
+            shopperId: 90202,
+            shopperFirstName: "Mohamed",
+            ordersToday: 3,
+            firstPickupAt: "2026-03-06T08:05:00.000Z",
+            lastPickupAt: "2026-03-06T10:05:00.000Z",
+            activeLastHour: true,
+          },
+        ],
+      }),
+      cacheState: "fresh",
     });
     const { branchDetailRoute } = await import("./branches.js");
     const engine: any = {
@@ -320,10 +520,11 @@ describe("branchDetailRoute", () => {
 
     await branchDetailRoute(engine)(req, res);
 
-    expect(mockFetchVendorOrdersDetail).toHaveBeenCalledWith({
-      token: "orders-token",
+    expect(mockGetMirrorBranchDetail).toHaveBeenCalledWith({
       globalEntityId: "HF_EG",
       vendorId: 111,
+      ordersRefreshSeconds: 30,
+      includePickerItems: true,
     });
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
@@ -350,6 +551,8 @@ describe("branchDetailRoute", () => {
           lateNow: 1,
           unassignedNow: 2,
         },
+        preparingNow: 1,
+        preparingPickersNow: 1,
       },
       totals: {
         totalToday: 12,
@@ -360,15 +563,31 @@ describe("branchDetailRoute", () => {
         unassignedNow: 2,
       },
       fetchedAt: "2026-03-06T10:07:00.000Z",
+      cacheState: "fresh",
       unassignedOrders: [{ id: "1", externalId: "ORD-1", status: "UNASSIGNED", isUnassigned: true, isLate: false }],
       preparingOrders: [{ id: "2", externalId: "ORD-2", status: "PREPARING", isUnassigned: false, isLate: true }],
-      message: "Live availability snapshot is currently unavailable. Showing orders detail from the latest Orders API response.",
+      pickers: emptyPickers({
+        todayCount: 2,
+        activePreparingCount: 1,
+        lastHourCount: 1,
+        items: [
+          {
+            shopperId: 90202,
+            shopperFirstName: "Mohamed",
+            ordersToday: 3,
+            firstPickupAt: "2026-03-06T08:05:00.000Z",
+            lastPickupAt: "2026-03-06T10:05:00.000Z",
+            activeLastHour: true,
+          },
+        ],
+      }),
+      message: "Live availability snapshot is currently unavailable. Showing branch detail from the local orders cache.",
     });
   });
 
   it("returns live branch detail when snapshot data is present", async () => {
     mockGetBranchById.mockReturnValue(branchMapping());
-    mockFetchVendorOrdersDetail.mockResolvedValue({
+    mockGetMirrorBranchDetail.mockReturnValue({
       metrics: {
         totalToday: 6,
         cancelledToday: 1,
@@ -380,20 +599,28 @@ describe("branchDetailRoute", () => {
       fetchedAt: "2026-03-06T10:05:00.000Z",
       unassignedOrders: [{ id: "1", externalId: "ORD-1", status: "UNASSIGNED", isUnassigned: true, isLate: false }],
       preparingOrders: [{ id: "2", externalId: "ORD-2", status: "PREPARING", isUnassigned: false, isLate: false }],
+      pickers: emptyPickers({
+        todayCount: 2,
+        activePreparingCount: 1,
+        lastHourCount: 1,
+        items: [],
+      }),
+      cacheState: "fresh",
     });
     const { branchDetailRoute } = await import("./branches.js");
     const engine: any = {
       getSnapshot: () => ({ branches: [branchSnapshot()] }),
     };
-    const req: any = { params: { id: "7" } };
+    const req: any = { params: { id: "7" }, query: { includePickerItems: "0" } };
     const res = createResponse();
 
     await branchDetailRoute(engine)(req, res);
 
-    expect(mockFetchVendorOrdersDetail).toHaveBeenCalledWith({
-      token: "orders-token",
+    expect(mockGetMirrorBranchDetail).toHaveBeenCalledWith({
       globalEntityId: "HF_EG",
       vendorId: 111,
+      ordersRefreshSeconds: 30,
+      includePickerItems: false,
     });
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
@@ -401,56 +628,34 @@ describe("branchDetailRoute", () => {
       branch: branchSnapshot(),
       totals: branchSnapshot().metrics,
       fetchedAt: "2026-03-06T10:05:00.000Z",
+      cacheState: "fresh",
       unassignedOrders: [{ id: "1", externalId: "ORD-1", status: "UNASSIGNED", isUnassigned: true, isLate: false }],
       preparingOrders: [{ id: "2", externalId: "ORD-2", status: "PREPARING", isUnassigned: false, isLate: false }],
+      pickers: emptyPickers({
+        todayCount: 2,
+        activePreparingCount: 1,
+        lastHourCount: 1,
+      }),
     });
   });
 
-  it("uses the latest branch snapshot when the state changes while detail orders are loading", async () => {
+  it("returns detail_fetch_failed when a live snapshot exists but the local cache is still warming", async () => {
     mockGetBranchById.mockReturnValue(branchMapping());
-    const staleSnapshot = branchSnapshot({
-      status: "TEMP_CLOSE",
-      statusColor: "red",
-      closedUntil: "2026-03-08T14:30:00.000Z",
-    });
-    const freshSnapshot = branchSnapshot({
-      status: "TEMP_CLOSE",
-      statusColor: "red",
-      closedUntil: "2026-03-08T14:49:00.000Z",
-    });
-    let currentSnapshot = staleSnapshot;
-    mockFetchVendorOrdersDetail.mockImplementation(async () => {
-      currentSnapshot = freshSnapshot;
-      return {
-        metrics: branchSnapshot().metrics,
-        fetchedAt: "2026-03-06T10:05:00.000Z",
-        unassignedOrders: [],
-        preparingOrders: [],
-      };
-    });
-    const getSnapshot = vi.fn(() => ({ branches: [currentSnapshot] }));
-    const { branchDetailRoute } = await import("./branches.js");
-    const engine: any = { getSnapshot };
-    const req: any = { params: { id: "7" } };
-    const res = createResponse();
-
-    await branchDetailRoute(engine)(req, res);
-
-    expect(getSnapshot).toHaveBeenCalledTimes(1);
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
-      kind: "ok",
-      branch: freshSnapshot,
-      totals: freshSnapshot.metrics,
-      fetchedAt: "2026-03-06T10:05:00.000Z",
+    mockGetMirrorBranchDetail.mockReturnValue({
+      metrics: {
+        totalToday: 0,
+        cancelledToday: 0,
+        doneToday: 0,
+        activeNow: 0,
+        lateNow: 0,
+        unassignedNow: 0,
+      },
+      fetchedAt: null,
       unassignedOrders: [],
       preparingOrders: [],
+      pickers: emptyPickers(),
+      cacheState: "warming",
     });
-  });
-
-  it("returns detail_fetch_failed when a live snapshot exists but orders detail cannot be loaded", async () => {
-    mockGetBranchById.mockReturnValue(branchMapping());
-    mockFetchVendorOrdersDetail.mockRejectedValue(new Error("Orders API request failed"));
     const { branchDetailRoute } = await import("./branches.js");
     const engine: any = {
       getSnapshot: () => ({ branches: [branchSnapshot({ status: "TEMP_CLOSE", statusColor: "red" })] }),
@@ -466,15 +671,31 @@ describe("branchDetailRoute", () => {
       branch: branchSnapshot({ status: "TEMP_CLOSE", statusColor: "red" }),
       totals: branchSnapshot({ status: "TEMP_CLOSE", statusColor: "red" }).metrics,
       fetchedAt: null,
+      cacheState: "warming",
       unassignedOrders: [],
       preparingOrders: [],
-      message: "Live orders detail is temporarily unavailable. Orders API request failed",
+      pickers: emptyPickers(),
+      message: "Local orders cache is warming up. Showing the latest monitor snapshot until the branch detail cache is ready.",
     });
   });
 
-  it("returns snapshot_unavailable when both the live snapshot and orders detail are unavailable", async () => {
+  it("returns snapshot_unavailable when both the live snapshot and local cache are unavailable", async () => {
     mockGetBranchById.mockReturnValue(branchMapping());
-    mockFetchVendorOrdersDetail.mockRejectedValue(new Error("Orders API request failed"));
+    mockGetMirrorBranchDetail.mockReturnValue({
+      metrics: {
+        totalToday: 0,
+        cancelledToday: 0,
+        doneToday: 0,
+        activeNow: 0,
+        lateNow: 0,
+        unassignedNow: 0,
+      },
+      fetchedAt: null,
+      unassignedOrders: [],
+      preparingOrders: [],
+      pickers: emptyPickers(),
+      cacheState: "warming",
+    });
     const { branchDetailRoute } = await import("./branches.js");
     const engine: any = {
       getSnapshot: () => ({ branches: [] }),
@@ -509,6 +730,8 @@ describe("branchDetailRoute", () => {
           lateNow: 0,
           unassignedNow: 0,
         },
+        preparingNow: 0,
+        preparingPickersNow: 0,
       },
       totals: {
         totalToday: 0,
@@ -519,15 +742,17 @@ describe("branchDetailRoute", () => {
         unassignedNow: 0,
       },
       fetchedAt: null,
+      cacheState: "warming",
       unassignedOrders: [],
       preparingOrders: [],
-      message: "Live availability snapshot is currently unavailable, and orders detail could not be loaded. Orders API request failed",
+      pickers: emptyPickers(),
+      message: "Local orders cache is warming up while the live snapshot is unavailable.",
     });
   });
 
   it("returns a paused snapshot message when the branch is excluded from monitor", async () => {
     mockGetBranchById.mockReturnValue(branchMapping({ enabled: false }));
-    mockFetchVendorOrdersDetail.mockResolvedValue({
+    mockGetMirrorBranchDetail.mockReturnValue({
       metrics: {
         totalToday: 4,
         cancelledToday: 0,
@@ -539,6 +764,8 @@ describe("branchDetailRoute", () => {
       fetchedAt: "2026-03-06T10:07:00.000Z",
       unassignedOrders: [],
       preparingOrders: [],
+      pickers: emptyPickers(),
+      cacheState: "fresh",
     });
     const { branchDetailRoute } = await import("./branches.js");
     const engine: any = {
@@ -552,12 +779,98 @@ describe("branchDetailRoute", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatchObject({
       kind: "snapshot_unavailable",
-      message: "This branch is paused in monitor. Showing the latest Orders API response only.",
+      message: "This branch is paused in monitor. Showing the latest local orders cache only.",
+      cacheState: "fresh",
       branch: {
         branchId: 7,
         monitorEnabled: false,
         status: "UNKNOWN",
       },
+    });
+  });
+});
+
+describe("branchPickersRoute", () => {
+  beforeEach(() => {
+    mockGetBranchById.mockReset();
+    mockGetMirrorBranchPickers.mockReset();
+    mockGetSettings.mockReset();
+    mockResolveOrdersGlobalEntityId.mockReset();
+    mockResolveOrdersGlobalEntityId.mockImplementation((_branch: unknown, fallback: string) => fallback);
+    mockGetSettings.mockReturnValue({
+      globalEntityId: "HF_EG",
+      chains: [{ name: "Chain A", lateThreshold: 5, unassignedThreshold: 5 }],
+      lateThreshold: 5,
+      unassignedThreshold: 5,
+      ordersRefreshSeconds: 30,
+    });
+  });
+
+  it("returns picker summary only when the pickers tab is requested", async () => {
+    mockGetBranchById.mockReturnValue(branchMapping());
+    mockGetMirrorBranchPickers.mockReturnValue({
+      cacheState: "fresh",
+      pickers: emptyPickers({
+        todayCount: 4,
+        activePreparingCount: 2,
+        lastHourCount: 1,
+        items: [
+          {
+            shopperId: 90202,
+            shopperFirstName: "Mohamed",
+            ordersToday: 5,
+            firstPickupAt: "2026-03-06T08:05:00.000Z",
+            lastPickupAt: "2026-03-06T10:05:00.000Z",
+            activeLastHour: true,
+          },
+        ],
+      }),
+    });
+    const { branchPickersRoute } = await import("./branches.js");
+    const req: any = { params: { id: "7" } };
+    const res = createResponse();
+
+    await branchPickersRoute()(req, res);
+
+    expect(mockGetMirrorBranchPickers).toHaveBeenCalledWith({
+      globalEntityId: "HF_EG",
+      vendorId: 111,
+      ordersRefreshSeconds: 30,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual(emptyPickers({
+      todayCount: 4,
+      activePreparingCount: 2,
+      lastHourCount: 1,
+      items: [
+        {
+          shopperId: 90202,
+          shopperFirstName: "Mohamed",
+          ordersToday: 5,
+          firstPickupAt: "2026-03-06T08:05:00.000Z",
+          lastPickupAt: "2026-03-06T10:05:00.000Z",
+          activeLastHour: true,
+        },
+      ],
+    }));
+  });
+
+  it("returns 503 while the local picker cache is still warming", async () => {
+    mockGetBranchById.mockReturnValue(branchMapping());
+    mockGetMirrorBranchPickers.mockReturnValue({
+      cacheState: "warming",
+      pickers: emptyPickers(),
+    });
+    const { branchPickersRoute } = await import("./branches.js");
+    const req: any = { params: { id: "7" } };
+    const res = createResponse();
+
+    await branchPickersRoute()(req, res);
+
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toEqual({
+      ok: false,
+      message: "Local picker cache is warming up",
     });
   });
 });

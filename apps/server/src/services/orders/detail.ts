@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import type { OrdersVendorId } from "../../types/models.js";
+import type { BranchPickersSummary, OrdersVendorId } from "../../types/models.js";
 import { cairoDayWindowUtc, isPastPickup } from "../../utils/time.js";
 import { getWithRetry } from "./httpClient.js";
 import { createPageLimitError } from "./paginationGuards.js";
@@ -16,6 +16,103 @@ import {
 import { BASE, BRANCH_DETAIL_MAX_PAGES, initMetrics, type DetailCacheEntry, type VendorOrdersDetailResult } from "./types.js";
 
 const detailCache = new Map<string, DetailCacheEntry>();
+const PICKER_LAST_HOUR_WINDOW_MS = 60 * 60 * 1000;
+
+interface PickerAccumulator {
+  shopperId: number;
+  shopperFirstName: string;
+  ordersToday: number;
+  firstPickupAt: string | null;
+  lastPickupAt: string | null;
+}
+
+function resolveShopperId(order: any) {
+  return typeof order?.shopper?.id === "number" && Number.isFinite(order.shopper.id)
+    ? order.shopper.id
+    : null;
+}
+
+function resolveShopperFirstName(order: any, shopperId: number) {
+  return typeof order?.shopper?.firstName === "string" && order.shopper.firstName.trim().length
+    ? order.shopper.firstName.trim()
+    : `Picker ${shopperId}`;
+}
+
+function toValidTimeMs(iso: string | null | undefined) {
+  if (!iso) return Number.NaN;
+  const value = new Date(iso).getTime();
+  return Number.isFinite(value) ? value : Number.NaN;
+}
+
+function updatePickerPickupBounds(picker: PickerAccumulator, pickupAt: string | undefined) {
+  if (!pickupAt) return;
+
+  const pickupAtMs = toValidTimeMs(pickupAt);
+  if (!Number.isFinite(pickupAtMs)) return;
+
+  const firstPickupAtMs = toValidTimeMs(picker.firstPickupAt);
+  if (!Number.isFinite(firstPickupAtMs) || pickupAtMs < firstPickupAtMs) {
+    picker.firstPickupAt = pickupAt;
+  }
+
+  const lastPickupAtMs = toValidTimeMs(picker.lastPickupAt);
+  if (!Number.isFinite(lastPickupAtMs) || pickupAtMs > lastPickupAtMs) {
+    picker.lastPickupAt = pickupAt;
+  }
+}
+
+function createEmptyPickersSummary(): BranchPickersSummary {
+  return {
+    todayCount: 0,
+    activePreparingCount: 0,
+    lastHourCount: 0,
+    items: [],
+  };
+}
+
+function buildPickersSummary(params: {
+  pickersById: Map<number, PickerAccumulator>;
+  todayPickerIds: Set<number>;
+  activePreparingPickerIds: Set<number>;
+  lastHourPickerIds: Set<number>;
+  includeItems: boolean;
+}): BranchPickersSummary {
+  const items = params.includeItems
+    ? Array.from(params.pickersById.values())
+      .sort((left, right) => {
+        if (right.ordersToday !== left.ordersToday) {
+          return right.ordersToday - left.ordersToday;
+        }
+
+        const leftLastPickupAtMs = toValidTimeMs(left.lastPickupAt);
+        const rightLastPickupAtMs = toValidTimeMs(right.lastPickupAt);
+        if (Number.isFinite(leftLastPickupAtMs) || Number.isFinite(rightLastPickupAtMs)) {
+          if (!Number.isFinite(leftLastPickupAtMs)) return 1;
+          if (!Number.isFinite(rightLastPickupAtMs)) return -1;
+          if (rightLastPickupAtMs !== leftLastPickupAtMs) {
+            return rightLastPickupAtMs - leftLastPickupAtMs;
+          }
+        }
+
+        return left.shopperFirstName.localeCompare(right.shopperFirstName, "en", { sensitivity: "base" });
+      })
+      .map((picker) => ({
+        shopperId: picker.shopperId,
+        shopperFirstName: picker.shopperFirstName,
+        ordersToday: picker.ordersToday,
+        firstPickupAt: picker.firstPickupAt,
+        lastPickupAt: picker.lastPickupAt,
+        activeLastHour: params.lastHourPickerIds.has(picker.shopperId),
+      }))
+    : [];
+
+  return {
+    todayCount: params.todayPickerIds.size,
+    activePreparingCount: params.activePreparingPickerIds.size,
+    lastHourCount: params.lastHourPickerIds.size,
+    items,
+  };
+}
 
 function stableOrderKey(order: any) {
   if (order?.id != null) return String(order.id);
@@ -28,9 +125,17 @@ export async function fetchVendorOrdersDetail(params: {
   globalEntityId: string;
   vendorId: OrdersVendorId;
   pageSize?: number;
+  includeMetrics?: boolean;
+  includeOrders?: boolean;
+  includePickers?: boolean;
+  includePickerItems?: boolean;
 }): Promise<VendorOrdersDetailResult> {
   const cacheTtlSeconds = resolveBranchDetailCacheTtlSeconds();
-  const cacheKey = getDetailCacheKey(params.globalEntityId, params.vendorId);
+  const includeMetrics = params.includeMetrics ?? true;
+  const includeOrders = params.includeOrders ?? true;
+  const includePickers = params.includePickers ?? true;
+  const includePickerItems = includePickers && (params.includePickerItems ?? true);
+  const cacheKey = `${getDetailCacheKey(params.globalEntityId, params.vendorId)}::metrics=${includeMetrics ? 1 : 0}|orders=${includeOrders ? 1 : 0}|pickers=${includePickers ? 1 : 0}|pickerItems=${includePickerItems ? 1 : 0}`;
   const cached = detailCache.get(cacheKey);
   if (cacheTtlSeconds > 0 && cached && cached.expiresAtMs > Date.now()) {
     return cached.value;
@@ -51,6 +156,11 @@ export async function fetchVendorOrdersDetail(params: {
   const metrics = initMetrics();
   const unassignedOrders: ReturnType<typeof toLiveOrder>[] = [];
   const preparingOrders: ReturnType<typeof toLiveOrder>[] = [];
+  const pickersById = new Map<number, PickerAccumulator>();
+  const todayPickerIds = new Set<number>();
+  const activePreparingPickerIds = new Set<number>();
+  const lastHourPickerIds = new Set<number>();
+  const nowMs = new Date(nowIso).getTime();
 
   const collectWindow = async (window: UtcWindow, depth: number): Promise<void> => {
     let page = 0;
@@ -62,7 +172,6 @@ export async function fetchVendorOrdersDetail(params: {
         startDate: window.startUtcIso,
         endDate: window.endUtcIso,
         order: "pickupAt,asc",
-        isCompleted: "false",
       });
       qs.append("vendor_id[0]", String(params.vendorId));
 
@@ -77,20 +186,69 @@ export async function fetchVendorOrdersDetail(params: {
           seenOrderIds.add(orderKey);
         }
 
-        if (order?.isCompleted) {
+        const liveOrder = includeOrders || includePickers ? toLiveOrder(order, nowIso) : null;
+        const isCompleted = Boolean(order?.isCompleted);
+        const isUnassigned = liveOrder
+          ? liveOrder.isUnassigned
+          : order?.status === "UNASSIGNED" || order?.shopper == null;
+
+        if (includeMetrics) {
+          metrics.totalToday += 1;
+          if (order?.status === "CANCELLED") metrics.cancelledToday += 1;
+
+          if (isCompleted) {
+            metrics.doneToday += 1;
+          } else {
+            metrics.activeNow += 1;
+            if (order?.pickupAt && isPastPickup(nowIso, order.pickupAt)) metrics.lateNow += 1;
+            if (isUnassigned) metrics.unassignedNow += 1;
+          }
+        }
+
+        if (includeOrders && liveOrder && !isCompleted) {
+          if (liveOrder.isUnassigned) {
+            unassignedOrders.push(liveOrder);
+          } else {
+            preparingOrders.push(liveOrder);
+          }
+        }
+
+        if (!includePickers) {
           continue;
         }
 
-        metrics.totalToday += 1;
-        metrics.activeNow += 1;
-        if (order?.pickupAt && isPastPickup(nowIso, order.pickupAt)) metrics.lateNow += 1;
-        if (order?.status === "UNASSIGNED" || order?.shopper == null) metrics.unassignedNow += 1;
+        const shopperId = resolveShopperId(order);
+        if (shopperId == null) {
+          continue;
+        }
 
-        const liveOrder = toLiveOrder(order, nowIso);
-        if (liveOrder.isUnassigned) {
-          unassignedOrders.push(liveOrder);
-        } else {
-          preparingOrders.push(liveOrder);
+        todayPickerIds.add(shopperId);
+
+        if (includePickerItems) {
+          const currentPicker = pickersById.get(shopperId) ?? {
+            shopperId,
+            shopperFirstName: resolveShopperFirstName(order, shopperId),
+            ordersToday: 0,
+            firstPickupAt: null,
+            lastPickupAt: null,
+          };
+          currentPicker.ordersToday += 1;
+          updatePickerPickupBounds(currentPicker, order?.pickupAt);
+          pickersById.set(shopperId, currentPicker);
+        }
+
+        if (!isCompleted && !isUnassigned) {
+          activePreparingPickerIds.add(shopperId);
+        }
+
+        const pickupAtMs = toValidTimeMs(order?.pickupAt);
+        if (
+          Number.isFinite(nowMs) &&
+          Number.isFinite(pickupAtMs) &&
+          pickupAtMs <= nowMs &&
+          pickupAtMs >= nowMs - PICKER_LAST_HOUR_WINDOW_MS
+        ) {
+          lastHourPickerIds.add(shopperId);
         }
       }
 
@@ -138,6 +296,15 @@ export async function fetchVendorOrdersDetail(params: {
     fetchedAt: nowIso,
     unassignedOrders,
     preparingOrders,
+    pickers: includePickers && (todayPickerIds.size || activePreparingPickerIds.size || lastHourPickerIds.size || pickersById.size)
+      ? buildPickersSummary({
+          pickersById,
+          todayPickerIds,
+          activePreparingPickerIds,
+          lastHourPickerIds,
+          includeItems: includePickerItems,
+        })
+      : createEmptyPickersSummary(),
   };
 
   if (cacheTtlSeconds > 0) {
@@ -148,4 +315,21 @@ export async function fetchVendorOrdersDetail(params: {
   }
 
   return result;
+}
+
+export async function fetchVendorPickersSummary(params: {
+  token: string;
+  globalEntityId: string;
+  vendorId: OrdersVendorId;
+  pageSize?: number;
+}): Promise<BranchPickersSummary> {
+  const result = await fetchVendorOrdersDetail({
+    ...params,
+    includeMetrics: false,
+    includeOrders: false,
+    includePickers: true,
+    includePickerItems: true,
+  });
+
+  return result.pickers;
 }

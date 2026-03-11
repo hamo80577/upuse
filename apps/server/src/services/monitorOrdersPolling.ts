@@ -17,6 +17,9 @@ export function createOrdersPollingPlan(params: {
   closedSnapshotDayByBranch: ReadonlyMap<number, string>;
   cairoDayKey: string;
 }): OrdersPollingPlan {
+  void params.availabilityByVendor;
+  void params.closedSnapshotDayByBranch;
+  void params.cairoDayKey;
   const vendorIds = new Set<OrdersVendorId>();
   const resetBranchIds: number[] = [];
   const captureBranchIds: number[] = [];
@@ -26,17 +29,6 @@ export function createOrdersPollingPlan(params: {
       resetBranchIds.push(branch.id);
       continue;
     }
-
-    const availability = params.availabilityByVendor.get(branch.availabilityVendorId);
-    if (availability?.availabilityState === "CLOSED") {
-      if (params.closedSnapshotDayByBranch.get(branch.id) !== params.cairoDayKey) {
-        vendorIds.add(branch.ordersVendorId);
-        captureBranchIds.push(branch.id);
-      }
-      continue;
-    }
-
-    resetBranchIds.push(branch.id);
     vendorIds.add(branch.ordersVendorId);
   }
 

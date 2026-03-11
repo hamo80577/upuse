@@ -2,16 +2,13 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BranchDetailResult, BranchSnapshot } from "../../../api/types";
 
-const mockSetBranchMonitoring = vi.hoisted(() => vi.fn());
 const mockRefreshDetail = vi.hoisted(() => vi.fn());
 const mockLoadMoreLogs = vi.hoisted(() => vi.fn());
 const mockClearLog = vi.hoisted(() => vi.fn());
 const mockUseBranchDetailState = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../api/client", () => ({
-  api: {
-    setBranchMonitoring: mockSetBranchMonitoring,
-  },
+  api: {},
   describeApiError: (error: unknown, fallback = "Request failed") => (error instanceof Error ? error.message : fallback),
 }));
 
@@ -27,6 +24,15 @@ vi.mock("../../../features/branches/useBranchDetailState", () => ({
 }));
 
 import { BranchDetailDialog } from "./BranchDetailDialog";
+
+function emptyPickers() {
+  return {
+    todayCount: 0,
+    activePreparingCount: 0,
+    lastHourCount: 0,
+    items: [],
+  };
+}
 
 function createBranchSnapshot(overrides: Partial<BranchSnapshot> = {}): BranchSnapshot {
   return {
@@ -58,6 +64,8 @@ function createBranchSnapshot(overrides: Partial<BranchSnapshot> = {}): BranchSn
       lateNow: 0,
       unassignedNow: 1,
     },
+    preparingNow: 3,
+    preparingPickersNow: 2,
     lastUpdatedAt: "2026-03-08T14:05:00.000Z",
     ...overrides,
   };
@@ -69,6 +77,9 @@ function buildHookState(detail: BranchDetailResult | null) {
     loading: false,
     refreshing: false,
     error: null,
+    pickers: detail && detail.kind !== "branch_not_found" ? detail.pickers : emptyPickers(),
+    pickersLoading: false,
+    pickersError: null,
     logDays: [],
     logLoading: false,
     logLoadingMore: false,
@@ -84,7 +95,6 @@ function buildHookState(detail: BranchDetailResult | null) {
 
 describe("BranchDetailDialog", () => {
   beforeEach(() => {
-    mockSetBranchMonitoring.mockReset();
     mockRefreshDetail.mockReset();
     mockLoadMoreLogs.mockReset();
     mockClearLog.mockReset();
@@ -116,33 +126,42 @@ describe("BranchDetailDialog", () => {
         unassignedNow: 2,
       },
       fetchedAt: "2026-03-08T14:18:00.000Z",
+      cacheState: "fresh",
       unassignedOrders: [],
       preparingOrders: [],
+      pickers: emptyPickers(),
       message: "Live availability snapshot is currently unavailable. Showing orders detail from the latest Orders API response.",
     }));
 
     render(<BranchDetailDialog open branchId={7} branchSnapshot={createBranchSnapshot()} onClose={() => {}} />);
 
     expect(screen.getByText("Live availability snapshot is currently unavailable. Showing orders detail from the latest Orders API response.")).toBeInTheDocument();
-    expect(screen.getByText("Unassigned Orders")).toBeInTheDocument();
-    expect(screen.getByText("Recent Log")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Queue" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Pickers" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Log" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Overview" })).not.toBeInTheDocument();
+    expect(screen.getByText("Live Operations")).toBeInTheDocument();
   });
 
   it("shows a warning but keeps summary and logs visible for detail_fetch_failed", () => {
     mockUseBranchDetailState.mockReturnValue(buildHookState({
       kind: "detail_fetch_failed",
-      branch: createBranchSnapshot(),
+      branch: createBranchSnapshot({ preparingNow: 3, preparingPickersNow: 2 }),
       totals: createBranchSnapshot().metrics,
       fetchedAt: null,
+      cacheState: "warming",
       unassignedOrders: [],
       preparingOrders: [],
+      pickers: emptyPickers(),
       message: "Live orders detail is temporarily unavailable. Orders API request failed",
     }));
 
     render(<BranchDetailDialog open branchId={7} branchSnapshot={createBranchSnapshot()} onClose={() => {}} />);
 
     expect(screen.getByText("Live orders detail is temporarily unavailable. Orders API request failed")).toBeInTheDocument();
-    expect(screen.getByText("Recent Log")).toBeInTheDocument();
+    expect(screen.getAllByText("2 pickers").length).toBeGreaterThan(0);
+    expect(screen.getByRole("tab", { name: "Log" })).toBeInTheDocument();
+    expect(screen.getByText("Live Operations")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Refresh detail" }));
     expect(mockRefreshDetail).toHaveBeenCalledTimes(1);
   });
@@ -156,9 +175,9 @@ describe("BranchDetailDialog", () => {
 
     render(<BranchDetailDialog open branchId={7} branchSnapshot={createBranchSnapshot()} onClose={() => {}} />);
 
-    expect(screen.getByText("Branch detail unavailable")).toBeInTheDocument();
+    expect(screen.getAllByText("Branch detail unavailable").length).toBeGreaterThan(0);
     expect(screen.getByText("Branch not found")).toBeInTheDocument();
-    expect(screen.queryByText("Recent Log")).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /Log/i })).not.toBeInTheDocument();
   });
 
   it("renders fresher live branch state from the dashboard snapshot when it is newer than detail", () => {
@@ -172,8 +191,10 @@ describe("BranchDetailDialog", () => {
       branch: detailBranch,
       totals: detailBranch.metrics,
       fetchedAt: "2026-03-08T14:10:00.000Z",
+      cacheState: "fresh",
       unassignedOrders: [],
       preparingOrders: [],
+      pickers: emptyPickers(),
     }));
 
     render(
@@ -189,38 +210,76 @@ describe("BranchDetailDialog", () => {
       />,
     );
 
-    expect(screen.getByText("Reopens at 16:49")).toBeInTheDocument();
+    expect(screen.getByText("Reopens at")).toBeInTheDocument();
+    expect(screen.getByText("16:49")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Pickers" })).toBeInTheDocument();
+    expect(screen.getByText("Live Operations")).toBeInTheDocument();
   });
 
-  it("lets operators toggle whether the branch is included in monitor", async () => {
-    mockSetBranchMonitoring.mockResolvedValue({
-      ok: true,
-      item: {
-        id: 7,
-        name: "Branch A",
-        chainName: "Chain A",
-        ordersVendorId: 101,
-        availabilityVendorId: "201",
-        globalEntityId: "HF_EG",
-        enabled: false,
-      },
-    });
+  it("shows picker analytics in the overview and picker tabs", () => {
     mockUseBranchDetailState.mockReturnValue(buildHookState({
       kind: "ok",
       branch: createBranchSnapshot({ monitorEnabled: true, status: "OPEN", statusColor: "green" }),
       totals: createBranchSnapshot({ monitorEnabled: true, status: "OPEN", statusColor: "green" }).metrics,
       fetchedAt: "2026-03-08T14:10:00.000Z",
+      cacheState: "fresh",
       unassignedOrders: [],
-      preparingOrders: [],
+      preparingOrders: [
+        {
+          id: "2",
+          externalId: "ORD-2",
+          status: "PREPARING",
+          pickupAt: "2026-03-08T13:35:00.000Z",
+          shopperId: 90202,
+          shopperFirstName: "Mohamed",
+          isUnassigned: false,
+          isLate: false,
+        },
+      ],
+      pickers: {
+        todayCount: 4,
+        activePreparingCount: 2,
+        lastHourCount: 3,
+        items: [
+          {
+            shopperId: 90202,
+            shopperFirstName: "Mohamed",
+            ordersToday: 5,
+            firstPickupAt: "2026-03-08T09:00:00.000Z",
+            lastPickupAt: "2026-03-08T13:35:00.000Z",
+            activeLastHour: true,
+          },
+        ],
+      },
     }));
 
     render(<BranchDetailDialog open branchId={7} branchSnapshot={createBranchSnapshot()} onClose={() => {}} />);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Toggle branch monitoring" }));
+    expect(screen.getAllByText("2 pickers").length).toBeGreaterThan(0);
+    expect(screen.getByText("Live Operations")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Queue" }));
+    expect(screen.getByText("In Preparation")).toBeInTheDocument();
+    expect(screen.getAllByText("2 pickers").length).toBeGreaterThan(0);
+    expect(screen.queryByText("1 order • 2 pickers")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Pickers" }));
+    expect(screen.getByText("Mohamed")).toBeInTheDocument();
+    expect(screen.getByText("5 orders")).toBeInTheDocument();
+    expect(screen.getByText("Last Hour")).toBeInTheDocument();
+    expect(screen.getByText("Active in last hour")).toBeInTheDocument();
+    expect(screen.getByText("Live Operations")).toBeInTheDocument();
+  });
 
-    await waitFor(() => {
-      expect(mockSetBranchMonitoring).toHaveBeenCalledWith(7, false);
-      expect(mockRefreshDetail).toHaveBeenCalledTimes(1);
+  it("keeps the branch snapshot shell visible while queue detail is still loading", () => {
+    mockUseBranchDetailState.mockReturnValue({
+      ...buildHookState(null),
+      loading: true,
+      detail: null,
     });
+
+    render(<BranchDetailDialog open branchId={7} branchSnapshot={createBranchSnapshot({ status: "OPEN", statusColor: "green" })} onClose={() => {}} />);
+
+    expect(screen.getByText("Branch A")).toBeInTheDocument();
+    expect(screen.getByText("Live Operations")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Queue" })).toBeInTheDocument();
   });
 });

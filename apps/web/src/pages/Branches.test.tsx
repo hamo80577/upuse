@@ -6,8 +6,13 @@ const mockApi = vi.hoisted(() => ({
   dashboard: vi.fn(),
   getSettings: vi.fn(),
   listBranches: vi.fn(),
-  lookupVendorName: vi.fn(),
+  branchCatalog: vi.fn(),
+  refreshBranchCatalog: vi.fn(),
+  addBranch: vi.fn(),
+  updateBranch: vi.fn(),
+  putSettings: vi.fn(),
   setBranchMonitoring: vi.fn(),
+  deleteBranch: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({
@@ -40,11 +45,8 @@ import { BranchesPage } from "./Branches";
 
 describe("BranchesPage", () => {
   beforeEach(() => {
-    mockApi.dashboard.mockReset();
-    mockApi.getSettings.mockReset();
-    mockApi.listBranches.mockReset();
-    mockApi.lookupVendorName.mockReset();
-    mockApi.setBranchMonitoring.mockReset();
+    Object.values(mockApi).forEach((mockFn) => mockFn.mockReset());
+
     mockApi.getSettings.mockResolvedValue({
       ordersToken: "",
       availabilityToken: "",
@@ -60,9 +62,33 @@ describe("BranchesPage", () => {
       maxVendorsPerOrdersRequest: 50,
     });
     mockApi.listBranches.mockResolvedValue({ items: [] });
+    mockApi.branchCatalog.mockResolvedValue({
+      items: [
+        {
+          availabilityVendorId: "740921",
+          ordersVendorId: 48664,
+          name: "Carrefour, Zahraa El Maadi - El Me'arag El Ouloy",
+          globalEntityId: "HF_EG",
+          availabilityState: "OPEN",
+          changeable: true,
+          presentInSource: true,
+          resolveStatus: "resolved",
+          lastSeenAt: "2026-03-11T09:00:00.000Z",
+          resolvedAt: "2026-03-11T09:00:00.000Z",
+          lastError: null,
+          alreadyAdded: false,
+          branchId: null,
+          chainName: null,
+          enabled: null,
+        },
+      ],
+      syncState: "fresh",
+      lastSyncedAt: "2026-03-11T09:00:00.000Z",
+      lastError: null,
+    });
   });
 
-  it("loads branches without fetching the full dashboard snapshot", async () => {
+  it("loads settings, saved branches, and the source catalog without fetching the dashboard snapshot", async () => {
     render(
       <MemoryRouter>
         <BranchesPage />
@@ -72,20 +98,82 @@ describe("BranchesPage", () => {
     await waitFor(() => {
       expect(mockApi.getSettings).toHaveBeenCalled();
       expect(mockApi.listBranches).toHaveBeenCalled();
+      expect(mockApi.branchCatalog).toHaveBeenCalled();
     });
 
     expect(mockApi.dashboard).not.toHaveBeenCalled();
+    expect(screen.getByText("Start typing to search source branches.")).toBeInTheDocument();
+    expect(screen.queryByText("Carrefour, Zahraa El Maadi - El Me'arag El Ouloy")).not.toBeInTheDocument();
   });
 
-  it("fills the branch name from the structured lookup response and shows the lookup note", async () => {
-    mockApi.lookupVendorName.mockResolvedValue({
-      ok: true,
-      name: "Saved Branch",
-      source: "branch_mapping",
-      resolvedGlobalEntityId: "HF_EG",
-      checkedSources: ["branch_mapping"],
-      note: "Name filled from the saved branch mapping for this vendor.",
-    });
+  it("adds a branch from the local source catalog after selecting a chain", async () => {
+    mockApi.addBranch.mockResolvedValue({ ok: true, id: 33 });
+    mockApi.listBranches
+      .mockResolvedValueOnce({ items: [] })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 33,
+            name: "Carrefour, Zahraa El Maadi - El Me'arag El Ouloy",
+            chainName: "Chain A",
+            ordersVendorId: 48664,
+            availabilityVendorId: "740921",
+            globalEntityId: "HF_EG",
+            enabled: true,
+            lateThresholdOverride: null,
+            unassignedThresholdOverride: null,
+          },
+        ],
+      });
+    mockApi.branchCatalog
+      .mockResolvedValueOnce({
+        items: [
+          {
+            availabilityVendorId: "740921",
+            ordersVendorId: 48664,
+            name: "Carrefour, Zahraa El Maadi - El Me'arag El Ouloy",
+            globalEntityId: "HF_EG",
+            availabilityState: "OPEN",
+            changeable: true,
+            presentInSource: true,
+            resolveStatus: "resolved",
+            lastSeenAt: "2026-03-11T09:00:00.000Z",
+            resolvedAt: "2026-03-11T09:00:00.000Z",
+            lastError: null,
+            alreadyAdded: false,
+            branchId: null,
+            chainName: null,
+            enabled: null,
+          },
+        ],
+        syncState: "fresh",
+        lastSyncedAt: "2026-03-11T09:00:00.000Z",
+        lastError: null,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            availabilityVendorId: "740921",
+            ordersVendorId: 48664,
+            name: "Carrefour, Zahraa El Maadi - El Me'arag El Ouloy",
+            globalEntityId: "HF_EG",
+            availabilityState: "OPEN",
+            changeable: true,
+            presentInSource: true,
+            resolveStatus: "resolved",
+            lastSeenAt: "2026-03-11T09:00:00.000Z",
+            resolvedAt: "2026-03-11T09:00:00.000Z",
+            lastError: null,
+            alreadyAdded: true,
+            branchId: 33,
+            chainName: "Chain A",
+            enabled: true,
+          },
+        ],
+        syncState: "fresh",
+        lastSyncedAt: "2026-03-11T09:05:00.000Z",
+        lastError: null,
+      });
 
     render(
       <MemoryRouter>
@@ -94,57 +182,27 @@ describe("BranchesPage", () => {
     );
 
     await waitFor(() => {
-      expect(mockApi.getSettings).toHaveBeenCalled();
-      expect(mockApi.listBranches).toHaveBeenCalled();
+      expect(screen.getByText("Start typing to search source branches.")).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByLabelText("Orders Vendor ID"), {
-      target: { value: "33" },
+    fireEvent.change(screen.getByPlaceholderText("Search by branch name or availability ID"), {
+      target: { value: "zahraa" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Auto-fill Name" }));
+    fireEvent.click(screen.getByText("Carrefour, Zahraa El Maadi - El Me'arag El Ouloy"));
+    fireEvent.mouseDown(screen.getByLabelText("Chain"));
+    fireEvent.click(screen.getByRole("option", { name: "Chain A" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Branch" }));
 
     await waitFor(() => {
-      expect(mockApi.lookupVendorName).toHaveBeenCalledWith(33, "HF_EG");
+      expect(mockApi.addBranch).toHaveBeenCalledWith({
+        availabilityVendorId: "740921",
+        chainName: "Chain A",
+        enabled: true,
+      });
     });
-
-    expect((screen.getByLabelText("Branch Name") as HTMLInputElement).value).toBe("Saved Branch");
-    expect(screen.getByText("Name filled from the saved branch mapping for this vendor.")).toBeInTheDocument();
   });
 
-  it("shows the explicit unresolved lookup note instead of a generic error", async () => {
-    mockApi.lookupVendorName.mockResolvedValue({
-      ok: true,
-      name: null,
-      source: "none",
-      resolvedGlobalEntityId: "HF_EG",
-      checkedSources: ["branch_mapping", "recent_orders"],
-      note: "Checked saved branch mappings and recent orders in the last 30 days. No name could be inferred for this vendor right now.",
-    });
-
-    render(
-      <MemoryRouter>
-        <BranchesPage />
-      </MemoryRouter>,
-    );
-
-    await waitFor(() => {
-      expect(mockApi.getSettings).toHaveBeenCalled();
-      expect(mockApi.listBranches).toHaveBeenCalled();
-    });
-
-    fireEvent.change(screen.getByLabelText("Orders Vendor ID"), {
-      target: { value: "33" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Auto-fill Name" }));
-
-    await waitFor(() => {
-      expect(mockApi.lookupVendorName).toHaveBeenCalledWith(33, "HF_EG");
-    });
-
-    expect(screen.getByText("Checked saved branch mappings and recent orders in the last 30 days. No name could be inferred for this vendor right now.")).toBeInTheDocument();
-  });
-
-  it("surfaces paused branches first and lets operators toggle a branch back into monitor", async () => {
+  it("lets operators toggle a paused branch back into monitor from the saved branches list", async () => {
     mockApi.listBranches.mockResolvedValue({
       items: [
         {
@@ -158,18 +216,31 @@ describe("BranchesPage", () => {
           lateThresholdOverride: null,
           unassignedThresholdOverride: null,
         },
+      ],
+    });
+    mockApi.branchCatalog.mockResolvedValue({
+      items: [
         {
-          id: 1,
-          name: "Live Branch",
-          chainName: "Chain A",
-          ordersVendorId: 11,
-          availabilityVendorId: "101",
+          availabilityVendorId: "202",
+          ordersVendorId: 22,
+          name: "Paused Branch",
           globalEntityId: "HF_EG",
-          enabled: true,
-          lateThresholdOverride: null,
-          unassignedThresholdOverride: null,
+          availabilityState: "OPEN",
+          changeable: true,
+          presentInSource: true,
+          resolveStatus: "resolved",
+          lastSeenAt: "2026-03-11T09:00:00.000Z",
+          resolvedAt: "2026-03-11T09:00:00.000Z",
+          lastError: null,
+          alreadyAdded: true,
+          branchId: 2,
+          chainName: "Chain A",
+          enabled: false,
         },
       ],
+      syncState: "fresh",
+      lastSyncedAt: "2026-03-11T09:00:00.000Z",
+      lastError: null,
     });
     mockApi.setBranchMonitoring.mockResolvedValue({
       ok: true,
@@ -193,7 +264,13 @@ describe("BranchesPage", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Paused Branch")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Paused/i })).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole("checkbox", { name: "Toggle monitor for Paused Branch" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Paused/i }));
+
+    await waitFor(() => {
       expect(screen.getByRole("checkbox", { name: "Toggle monitor for Paused Branch" })).toBeInTheDocument();
     });
 

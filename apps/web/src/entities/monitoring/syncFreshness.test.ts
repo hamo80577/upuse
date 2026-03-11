@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { getLatestMonitoringUpdateAt, getStaleThresholdMs, getSyncAgeMs, isSyncStale } from "./syncFreshness";
+import {
+  getLatestMonitoringUpdateAt,
+  getStaleThresholdMs,
+  getSyncAgeMs,
+  getSyncAutoRecoveryCooldownMs,
+  getSyncDelayWarningThresholdMs,
+  isSyncStale,
+} from "./syncFreshness";
 
 describe("syncFreshness helpers", () => {
   it("computes stale threshold in milliseconds", () => {
@@ -9,6 +16,16 @@ describe("syncFreshness helpers", () => {
         availabilityRefreshSeconds: 45,
       }),
     ).toBe(45_000);
+  });
+
+  it("adds a grace window before marking the live sync delayed", () => {
+    expect(getSyncDelayWarningThresholdMs(30_000)).toBe(45_000);
+    expect(getSyncDelayWarningThresholdMs(60_000)).toBe(90_000);
+  });
+
+  it("rate limits automatic stale recoveries", () => {
+    expect(getSyncAutoRecoveryCooldownMs(30_000)).toBe(60_000);
+    expect(getSyncAutoRecoveryCooldownMs(45_000)).toBe(90_000);
   });
 
   it("picks latest monitoring timestamp", () => {

@@ -58,6 +58,34 @@ export interface BranchMapping {
   unassignedThresholdOverride?: number | null;
 }
 
+export type BranchCatalogResolveStatus = "resolved" | "unresolved" | "error";
+export type BranchCatalogSyncState = "fresh" | "syncing" | "stale" | "error";
+
+export interface BranchCatalogItem {
+  availabilityVendorId: AvailabilityVendorId;
+  ordersVendorId: OrdersVendorId | null;
+  name: string | null;
+  globalEntityId: string;
+  availabilityState: AvailabilityState;
+  changeable: boolean;
+  presentInSource: boolean;
+  resolveStatus: BranchCatalogResolveStatus;
+  lastSeenAt: string | null;
+  resolvedAt: string | null;
+  lastError: string | null;
+  alreadyAdded: boolean;
+  branchId: number | null;
+  chainName: string | null;
+  enabled: boolean | null;
+}
+
+export interface BranchCatalogResponse {
+  items: BranchCatalogItem[];
+  syncState: BranchCatalogSyncState;
+  lastSyncedAt: string | null;
+  lastError: string | null;
+}
+
 export interface OrdersMetrics {
   totalToday: number;
   cancelledToday: number;
@@ -74,9 +102,26 @@ export interface BranchLiveOrder {
   placedAt?: string;
   pickupAt?: string;
   customerFirstName?: string;
+  shopperId?: number;
   shopperFirstName?: string;
   isUnassigned: boolean;
   isLate: boolean;
+}
+
+export interface BranchPickerSummaryItem {
+  shopperId: number;
+  shopperFirstName: string;
+  ordersToday: number;
+  firstPickupAt: string | null;
+  lastPickupAt: string | null;
+  activeLastHour: boolean;
+}
+
+export interface BranchPickersSummary {
+  todayCount: number;
+  activePreparingCount: number;
+  lastHourCount: number;
+  items: BranchPickerSummaryItem[];
 }
 
 export interface AvailabilityRecord {
@@ -118,6 +163,8 @@ export interface BranchSnapshot {
   thresholds?: ThresholdProfile;
 
   metrics: OrdersMetrics;
+  preparingNow: number;
+  preparingPickersNow: number;
 
   lastUpdatedAt?: string; // ISO
 }
@@ -151,12 +198,16 @@ export interface DashboardSnapshot {
   branches: BranchSnapshot[];
 }
 
+export type BranchDetailCacheState = "fresh" | "warming" | "stale";
+
 interface BranchDetailBase {
   branch: BranchSnapshot;
   totals: OrdersMetrics;
   fetchedAt: string | null;
+  cacheState: BranchDetailCacheState;
   unassignedOrders: BranchLiveOrder[];
   preparingOrders: BranchLiveOrder[];
+  pickers: BranchPickersSummary;
 }
 
 export interface BranchDetailOk extends BranchDetailBase {

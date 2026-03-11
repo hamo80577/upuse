@@ -40,7 +40,7 @@ function order(index: number, overrides?: Partial<Record<string, unknown>>) {
     placedAt: `2026-03-05T0${(index % 9) + 1}:00:00.000Z`,
     pickupAt: `2026-03-05T1${(index % 9)}:00:00.000Z`,
     vendor: { id: 56742 },
-    shopper: { firstName: "Shopper" },
+    shopper: { id: 90_000 + index, firstName: `Shopper ${index + 1}` },
     ...overrides,
   };
 }
@@ -51,10 +51,11 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
     mockCairoDayWindowUtc.mockClear();
     mockNowUtcIso.mockClear();
     mockIsPastPickup.mockClear();
+    process.env.UPUSE_BRANCH_DETAIL_CACHE_TTL_SECONDS = "0";
     process.env.UPUSE_ORDERS_WINDOW_SPLIT_MAX_DEPTH = "8";
   });
 
-  it("fetches all pages using isCompleted=false and pickupAt sorting", async () => {
+  it("fetches all pages using pickupAt sorting and returns queue + picker analytics", async () => {
     const page0 = Array.from({ length: 20 }, (_, index) =>
       order(index, index === 0 ? { status: "UNASSIGNED", shopper: null } : {}),
     );
@@ -85,11 +86,9 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
     expect(firstUrl).toContain("startDate=2026-03-04T22%3A00%3A00.000Z");
     expect(firstUrl).toContain("endDate=2026-03-05T21%3A59%3A59.999Z");
     expect(firstUrl).toContain("order=pickupAt%2Casc");
-    expect(firstUrl).toContain("isCompleted=false");
     expect(firstUrl).toContain("vendor_id%5B0%5D=56742");
 
     expect(secondUrl).toContain("page=1");
-    expect(secondUrl).toContain("isCompleted=false");
 
     expect(result.metrics.activeNow).toBe(23);
     expect(result.metrics.totalToday).toBe(23);
@@ -98,7 +97,112 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
     expect(result.unassignedOrders.length).toBe(2);
     expect(result.preparingOrders.length).toBe(21);
     expect(result.unassignedOrders[0]?.externalId).toBe("ORD-1");
+    expect(result.preparingOrders[0]?.shopperId).toBe(90009);
+    expect(result.pickers.todayCount).toBe(21);
+    expect(result.pickers.activePreparingCount).toBe(21);
+    expect(result.pickers.lastHourCount).toBe(2);
     expect(result.fetchedAt).toBe("2026-03-05T10:00:00.000Z");
+  });
+
+  it("computes unique picker analytics across all branch orders for the Cairo day", async () => {
+    mockAxiosGet.mockResolvedValue({
+      data: {
+        items: [
+          order(0, {
+            status: "PREPARING",
+            pickupAt: "2026-03-05T09:30:00.000Z",
+            shopper: { id: 101, firstName: "Mohamed" },
+          }),
+          order(1, {
+            isCompleted: true,
+            pickupAt: "2026-03-05T09:45:00.000Z",
+            shopper: { id: 101, firstName: "Mohamed" },
+          }),
+          order(2, {
+            status: "PREPARING",
+            pickupAt: "2026-03-05T07:30:00.000Z",
+            shopper: { id: 202, firstName: "Sara" },
+          }),
+          order(3, {
+            status: "UNASSIGNED",
+            shopper: null,
+          }),
+          order(4, {
+            isCompleted: true,
+            pickupAt: undefined,
+            shopper: { id: 202, firstName: "Sara" },
+          }),
+          order(5, {
+            isCompleted: true,
+            pickupAt: "2026-03-05T09:10:00.000Z",
+            shopper: { id: 404, firstName: "Ali" },
+          }),
+          order(6, {
+            isCompleted: true,
+            pickupAt: undefined,
+            shopper: { id: 505, firstName: "Nada" },
+          }),
+          order(7, {
+            isCompleted: true,
+            pickupAt: "2026-03-05T10:30:00.000Z",
+            shopper: { id: 101, firstName: "Mohamed" },
+          }),
+        ],
+      },
+    });
+
+    const result = await fetchVendorOrdersDetail({
+      token: "token",
+      globalEntityId: "HF_EG",
+      vendorId: 56742,
+      pageSize: 20,
+    });
+
+    expect(result.metrics.totalToday).toBe(8);
+    expect(result.metrics.doneToday).toBe(5);
+    expect(result.metrics.activeNow).toBe(3);
+    expect(result.metrics.unassignedNow).toBe(1);
+    expect(result.unassignedOrders).toHaveLength(1);
+    expect(result.preparingOrders).toHaveLength(2);
+    expect(result.pickers).toEqual({
+      todayCount: 4,
+      activePreparingCount: 2,
+      lastHourCount: 2,
+      items: [
+        {
+          shopperId: 101,
+          shopperFirstName: "Mohamed",
+          ordersToday: 3,
+          firstPickupAt: "2026-03-05T09:30:00.000Z",
+          lastPickupAt: "2026-03-05T10:30:00.000Z",
+          activeLastHour: true,
+        },
+        {
+          shopperId: 202,
+          shopperFirstName: "Sara",
+          ordersToday: 2,
+          firstPickupAt: "2026-03-05T07:30:00.000Z",
+          lastPickupAt: "2026-03-05T07:30:00.000Z",
+          activeLastHour: false,
+        },
+        {
+          shopperId: 404,
+          shopperFirstName: "Ali",
+          ordersToday: 1,
+          firstPickupAt: "2026-03-05T09:10:00.000Z",
+          lastPickupAt: "2026-03-05T09:10:00.000Z",
+          activeLastHour: true,
+        },
+        {
+          shopperId: 505,
+          shopperFirstName: "Nada",
+          ordersToday: 1,
+          firstPickupAt: null,
+          lastPickupAt: null,
+          activeLastHour: false,
+        },
+      ],
+    });
   });
 
   it("throws a structured error when branch detail pagination exceeds the safe page limit", async () => {
@@ -205,6 +309,54 @@ describe("ordersClient.fetchOrdersAggregates", () => {
     expect(secondRetryUrl).toContain("vendor_id%5B1%5D=51125");
 
     expect(result.byVendor.size).toBe(4);
+  });
+
+  it("tracks in-preparation orders and unique active pickers per vendor", async () => {
+    mockAxiosGet.mockResolvedValue({
+      data: {
+        items: [
+          order(0, {
+            vendor: { id: 56742 },
+            shopper: { id: 101, firstName: "Mohamed" },
+          }),
+          order(1, {
+            vendor: { id: 56742 },
+            shopper: { id: 101, firstName: "Mohamed" },
+          }),
+          order(2, {
+            vendor: { id: 56742 },
+            status: "UNASSIGNED",
+            shopper: null,
+          }),
+          order(3, {
+            vendor: { id: 56743 },
+            shopper: { id: 202, firstName: "Sara" },
+          }),
+          order(4, {
+            vendor: { id: 56743 },
+            isCompleted: true,
+            shopper: { id: 202, firstName: "Sara" },
+          }),
+        ],
+      },
+    });
+
+    const result = await fetchOrdersAggregates({
+      token: "token",
+      globalEntityId: "HF_EG",
+      vendorIds: [56742, 56743],
+      pageSize: 500,
+      maxVendorsPerRequest: 10,
+    });
+
+    expect(result.preparingByVendor.get(56742)).toEqual({
+      preparingNow: 2,
+      preparingPickersNow: 1,
+    });
+    expect(result.preparingByVendor.get(56743)).toEqual({
+      preparingNow: 1,
+      preparingPickersNow: 1,
+    });
   });
 
   it("throws a structured error when aggregate pagination exceeds the safe page limit", async () => {

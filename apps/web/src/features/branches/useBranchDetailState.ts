@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
-import type { BranchDetailResult, BranchSnapshot } from "../../api/types";
+import type { BranchDetailResult, BranchPickersSummary, BranchSnapshot } from "../../api/types";
 import { appendOlderLogDayUnique, upsertLatestLogDay, type BranchLogDay } from "./logState";
 
 const DETAIL_CACHE_TTL_MS = 60_000;
-const DETAIL_AUTO_REFRESH_INTERVAL_MS = 60_000;
 
 function getCairoDayKey(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -48,15 +47,29 @@ function getResultBranchId(detail: BranchDetailResult | null) {
   return detail.branch.branchId;
 }
 
+function emptyPickers(): BranchPickersSummary {
+  return {
+    todayCount: 0,
+    activePreparingCount: 0,
+    lastHourCount: 0,
+    items: [],
+  };
+}
+
 export function useBranchDetailState(options: {
   branchId: number | null;
   branchSnapshot?: BranchSnapshot | null;
   open: boolean;
+  loadLogs?: boolean;
+  loadPickers?: boolean;
 }) {
   const [detail, setDetail] = useState<BranchDetailResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pickers, setPickers] = useState<BranchPickersSummary | null>(null);
+  const [pickersLoading, setPickersLoading] = useState(false);
+  const [pickersError, setPickersError] = useState<string | null>(null);
   const [logDays, setLogDays] = useState<BranchLogDay[]>([]);
   const [logLoading, setLogLoading] = useState(false);
   const [logLoadingMore, setLogLoadingMore] = useState(false);
@@ -64,14 +77,16 @@ export function useBranchDetailState(options: {
   const [logError, setLogError] = useState<string | null>(null);
   const [clearingLog, setClearingLog] = useState(false);
   const [manualDetailRefreshTick, setManualDetailRefreshTick] = useState(0);
-  const [autoDetailRefreshTick, setAutoDetailRefreshTick] = useState(0);
   const [manualLogRefreshTick, setManualLogRefreshTick] = useState(0);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const loadedBranchIdRef = useRef<number | null>(null);
-  const loadedLogBranchIdRef = useRef<number | null>(null);
+  const loadedPickersCacheKeyRef = useRef("");
+  const loadedLogCacheKeyRef = useRef("");
   const lastHandledManualDetailRefreshTickRef = useRef(0);
-  const lastHandledAutoDetailRefreshTickRef = useRef(0);
+  const lastHandledManualPickerRefreshTickRef = useRef(0);
   const lastHandledManualLogRefreshTickRef = useRef(0);
+  const lastHandledSnapshotDetailSignatureRef = useRef("");
+  const lastHandledSnapshotPickerSignatureRef = useRef("");
   const lastLogStatusSignatureRef = useRef("");
   const detailCacheRef = useRef(new Map<string, { expiresAtMs: number; value: BranchDetailResult }>());
   const detailRequestRef = useRef<{ requestId: number; controller: AbortController } | null>(null);
@@ -82,6 +97,9 @@ export function useBranchDetailState(options: {
   const olderLogRequestIdRef = useRef(0);
   const detailDayKey = getCairoDayKey();
   const statusSignature = buildBranchStatusSignature(options.branchSnapshot);
+  const snapshotRefreshSignature = options.branchSnapshot
+    ? `${options.branchSnapshot.branchId}|${options.branchSnapshot.lastUpdatedAt ?? ""}`
+    : "";
 
   useEffect(() => {
     if (!options.open || !options.branchId) return;
@@ -89,11 +107,13 @@ export function useBranchDetailState(options: {
     const cacheKey = branchDetailCacheKey(options.branchId, detailDayKey);
     const currentBranchMatches = loadedBranchIdRef.current === options.branchId;
     const manualRefreshRequested = lastHandledManualDetailRefreshTickRef.current !== manualDetailRefreshTick;
-    const autoRefreshRequested = lastHandledAutoDetailRefreshTickRef.current !== autoDetailRefreshTick;
-    const forceRefresh = manualRefreshRequested || autoRefreshRequested;
+    const snapshotRefreshRequested = Boolean(snapshotRefreshSignature) &&
+      currentBranchMatches &&
+      lastHandledSnapshotDetailSignatureRef.current !== snapshotRefreshSignature;
+    const forceRefresh = manualRefreshRequested || snapshotRefreshRequested;
 
     lastHandledManualDetailRefreshTickRef.current = manualDetailRefreshTick;
-    lastHandledAutoDetailRefreshTickRef.current = autoDetailRefreshTick;
+    lastHandledSnapshotDetailSignatureRef.current = snapshotRefreshSignature;
 
     const cached = detailCacheRef.current.get(cacheKey);
     if (!forceRefresh && cached && cached.expiresAtMs > Date.now()) {
@@ -110,6 +130,9 @@ export function useBranchDetailState(options: {
       setLoading(true);
       setRefreshing(false);
       setDetail(null);
+      setPickers(null);
+      setPickersLoading(false);
+      setPickersError(null);
     } else {
       setRefreshing(true);
     }
@@ -121,7 +144,7 @@ export function useBranchDetailState(options: {
     detailRequestIdRef.current = requestId;
     detailRequestRef.current = { requestId, controller };
 
-    api.branchDetail(options.branchId, { signal: controller.signal })
+    api.branchDetail(options.branchId, { signal: controller.signal, includePickerItems: false })
       .then((data) => {
         if (!active || requestId !== detailRequestIdRef.current) return;
         if (data.kind !== "branch_not_found") {
@@ -150,7 +173,7 @@ export function useBranchDetailState(options: {
     return () => {
       active = false;
     };
-  }, [autoDetailRefreshTick, detailDayKey, manualDetailRefreshTick, options.branchId, options.open]);
+  }, [detailDayKey, manualDetailRefreshTick, options.branchId, options.open, snapshotRefreshSignature]);
 
   useEffect(() => {
     if (options.open) return;
@@ -165,18 +188,23 @@ export function useBranchDetailState(options: {
     olderLogRequestIdRef.current += 1;
     detailCacheRef.current.clear();
     loadedBranchIdRef.current = null;
-    loadedLogBranchIdRef.current = null;
+    loadedPickersCacheKeyRef.current = "";
+    loadedLogCacheKeyRef.current = "";
     lastHandledManualDetailRefreshTickRef.current = 0;
-    lastHandledAutoDetailRefreshTickRef.current = 0;
+    lastHandledManualPickerRefreshTickRef.current = 0;
     lastHandledManualLogRefreshTickRef.current = 0;
+    lastHandledSnapshotDetailSignatureRef.current = "";
+    lastHandledSnapshotPickerSignatureRef.current = "";
     lastLogStatusSignatureRef.current = "";
     setManualDetailRefreshTick(0);
-    setAutoDetailRefreshTick(0);
     setManualLogRefreshTick(0);
     setDetail(null);
     setLoading(false);
     setRefreshing(false);
     setError(null);
+    setPickers(null);
+    setPickersLoading(false);
+    setPickersError(null);
     setLogDays([]);
     setLogLoading(false);
     setLogLoadingMore(false);
@@ -186,21 +214,56 @@ export function useBranchDetailState(options: {
   }, [options.open]);
 
   useEffect(() => {
-    if (!options.open || !options.branchId) return;
+    if (!options.open || !options.branchId || !options.loadPickers) return;
 
-    const timer = window.setInterval(() => {
-      setAutoDetailRefreshTick((current) => current + 1);
-    }, DETAIL_AUTO_REFRESH_INTERVAL_MS);
+    const cacheKey = branchDetailCacheKey(options.branchId, detailDayKey);
+    const initialLoad = loadedPickersCacheKeyRef.current !== cacheKey;
+    const manualRefreshRequested = lastHandledManualPickerRefreshTickRef.current !== manualDetailRefreshTick;
+    const snapshotRefreshRequested = Boolean(snapshotRefreshSignature) &&
+      loadedPickersCacheKeyRef.current === cacheKey &&
+      lastHandledSnapshotPickerSignatureRef.current !== snapshotRefreshSignature;
+    if (!initialLoad && !manualRefreshRequested && !snapshotRefreshRequested) {
+      return;
+    }
+
+    lastHandledManualPickerRefreshTickRef.current = manualDetailRefreshTick;
+    lastHandledSnapshotPickerSignatureRef.current = snapshotRefreshSignature;
+
+    let active = true;
+    const controller = new AbortController();
+
+    if (initialLoad) {
+      setPickers(null);
+    }
+    setPickersLoading(true);
+    setPickersError(null);
+
+    api.branchPickers(options.branchId, { signal: controller.signal })
+      .then((data) => {
+        if (!active) return;
+        setPickers(data);
+        loadedPickersCacheKeyRef.current = cacheKey;
+      })
+      .catch((e: unknown) => {
+        if (!active || isAbortError(e)) return;
+        setPickersError(e instanceof Error ? e.message || "Failed to load pickers" : "Failed to load pickers");
+      })
+      .finally(() => {
+        if (!active) return;
+        setPickersLoading(false);
+      });
 
     return () => {
-      window.clearInterval(timer);
+      active = false;
+      controller.abort();
     };
-  }, [options.branchId, options.open]);
+  }, [detailDayKey, manualDetailRefreshTick, options.branchId, options.loadPickers, options.open, snapshotRefreshSignature]);
 
   useEffect(() => {
-    if (!options.open || !options.branchId) return;
+    if (!options.open || !options.branchId || !options.loadLogs) return;
 
-    const initialLoad = loadedLogBranchIdRef.current !== options.branchId;
+    const cacheKey = branchDetailCacheKey(options.branchId, detailDayKey);
+    const initialLoad = loadedLogCacheKeyRef.current !== cacheKey;
     const manualRefreshRequested = lastHandledManualLogRefreshTickRef.current !== manualLogRefreshTick;
     const statusChanged = !initialLoad && lastLogStatusSignatureRef.current !== statusSignature;
     if (!initialLoad && !manualRefreshRequested && !statusChanged) {
@@ -238,7 +301,7 @@ export function useBranchDetailState(options: {
           });
           return update.next;
         });
-        loadedLogBranchIdRef.current = options.branchId;
+        loadedLogCacheKeyRef.current = cacheKey;
       })
       .catch((e: Error) => {
         if (!active || isAbortError(e) || requestId !== latestLogRequestIdRef.current) return;
@@ -256,7 +319,7 @@ export function useBranchDetailState(options: {
         latestLogRequestRef.current = null;
       }
     };
-  }, [manualLogRefreshTick, options.branchId, options.open, statusSignature]);
+  }, [detailDayKey, manualLogRefreshTick, options.branchId, options.loadLogs, options.open, statusSignature]);
 
   useEffect(() => {
     if (!options.open) return;
@@ -317,11 +380,20 @@ export function useBranchDetailState(options: {
     }
   };
 
+  const resolvedPickers =
+    pickers ??
+    (detail && detail.kind !== "branch_not_found"
+      ? detail.pickers
+      : emptyPickers());
+
   return {
     detail,
     loading,
     refreshing,
     error,
+    pickers: resolvedPickers,
+    pickersLoading,
+    pickersError,
     logDays,
     logLoading,
     logLoadingMore,

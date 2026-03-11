@@ -67,4 +67,36 @@ describe("httpClient", () => {
     expect(unauthorizedListener).not.toHaveBeenCalled();
     window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, unauthorizedListener);
   });
+
+  it("converts html error pages into a friendly tunnel message", async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        "<!doctype html><html><head><title>Cloudflare Tunnel error | upuse.org | Cloudflare</title></head><body>offline</body></html>",
+        {
+          status: 530,
+          headers: { "Content-Type": "text/html" },
+        },
+      ),
+    );
+
+    await expect(requestJson<{ ok: boolean }>("/api/dashboard")).rejects.toThrow(
+      "Cloudflare tunnel is temporarily unavailable. Please try again in a moment.",
+    );
+  });
+
+  it("converts successful html payloads into a friendly api error", async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        "<!doctype html><html><head><title>Cloudflare Tunnel error | upuse.org | Cloudflare</title></head><body>offline</body></html>",
+        {
+          status: 200,
+          headers: { "Content-Type": "text/html" },
+        },
+      ),
+    );
+
+    await expect(requestJson<{ ok: boolean }>("/api/dashboard")).rejects.toThrow(
+      "Cloudflare tunnel is temporarily unavailable. Please try again in a moment.",
+    );
+  });
 });

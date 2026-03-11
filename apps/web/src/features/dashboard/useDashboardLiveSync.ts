@@ -2,7 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, describeApiError } from "../../api/client";
 import type { DashboardLiveConnectionState, DashboardSnapshot } from "../../api/types";
 import { useMonitorStatus } from "../../app/providers/MonitorStatusProvider";
-import { getLatestMonitoringUpdateAt, getStaleThresholdMs, getSyncAgeMs, isSyncStale } from "../../entities/monitoring/syncFreshness";
+import {
+  getLatestMonitoringUpdateAt,
+  getStaleThresholdMs,
+  getSyncAgeMs,
+  getSyncAutoRecoveryCooldownMs,
+  getSyncDelayWarningThresholdMs,
+  isSyncStale,
+} from "../../entities/monitoring/syncFreshness";
 
 const STREAM_RECONNECT_DELAYS_MS = [1000, 3000, 5000, 10000] as const;
 const FALLBACK_POLL_MS = 15000;
@@ -25,9 +32,46 @@ const emptySnap: DashboardSnapshot = {
   branches: [],
 };
 
-function normalizeDashboardSnapshot(snapshot: DashboardSnapshot | null | undefined): DashboardSnapshot {
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isValidOrdersMetrics(metrics: unknown) {
+  if (!metrics || typeof metrics !== "object") return false;
+
+  const candidate = metrics as DashboardSnapshot["branches"][number]["metrics"];
+  return (
+    isFiniteNumber(candidate.totalToday) &&
+    isFiniteNumber(candidate.cancelledToday) &&
+    isFiniteNumber(candidate.doneToday) &&
+    isFiniteNumber(candidate.activeNow) &&
+    isFiniteNumber(candidate.lateNow) &&
+    isFiniteNumber(candidate.unassignedNow)
+  );
+}
+
+function isValidBranchSnapshot(branch: unknown) {
+  if (!branch || typeof branch !== "object") return false;
+
+  const candidate = branch as DashboardSnapshot["branches"][number];
+  return (
+    isFiniteNumber(candidate.branchId) &&
+    typeof candidate.name === "string" &&
+    typeof candidate.chainName === "string" &&
+    typeof candidate.monitorEnabled === "boolean" &&
+    isFiniteNumber(candidate.ordersVendorId) &&
+    typeof candidate.availabilityVendorId === "string" &&
+    typeof candidate.status === "string" &&
+    typeof candidate.statusColor === "string" &&
+    isValidOrdersMetrics(candidate.metrics) &&
+    isFiniteNumber(candidate.preparingNow) &&
+    isFiniteNumber(candidate.preparingPickersNow)
+  );
+}
+
+function normalizeDashboardSnapshot(snapshot: DashboardSnapshot | null | undefined): DashboardSnapshot | null {
   if (!snapshot || typeof snapshot !== "object") {
-    return emptySnap;
+    return null;
   }
 
   const monitoring =
@@ -46,7 +90,10 @@ function normalizeDashboardSnapshot(snapshot: DashboardSnapshot | null | undefin
         }
       : emptySnap.totals;
 
-  const branches = Array.isArray(snapshot.branches) ? snapshot.branches : emptySnap.branches;
+  const branches = Array.isArray(snapshot.branches) ? snapshot.branches : null;
+  if (!branches || !branches.every(isValidBranchSnapshot)) {
+    return null;
+  }
 
   return {
     monitoring,
@@ -76,6 +123,7 @@ export function useDashboardLiveSync() {
   const [connectionState, setConnectionStateState] = useState<DashboardLiveConnectionState>("connecting");
 
   const applyMonitoringRef = useRef(applyMonitoring);
+  const snapRef = useRef<DashboardSnapshot>(emptySnap);
   const connectionStateRef = useRef<DashboardLiveConnectionState>("connecting");
   const fallbackPollRef = useRef<number | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -85,6 +133,7 @@ export function useDashboardLiveSync() {
   const hasSnapshotRef = useRef(false);
   const mountedRef = useRef(true);
   const staleRecoveryKeyRef = useRef<string | null>(null);
+  const lastAutoRecoveryAtRef = useRef(0);
 
   const setConnectionState = (nextState: DashboardLiveConnectionState) => {
     connectionStateRef.current = nextState;
@@ -93,7 +142,17 @@ export function useDashboardLiveSync() {
 
   const applySnapshot = (nextSnap: DashboardSnapshot | null | undefined) => {
     const normalized = normalizeDashboardSnapshot(nextSnap);
+    if (!normalized) {
+      if (!hasSnapshotRef.current) {
+        snapRef.current = emptySnap;
+        setSnapState(emptySnap);
+        applyMonitoringRef.current(emptySnap.monitoring);
+      }
+      return;
+    }
+
     hasSnapshotRef.current = true;
+    snapRef.current = normalized;
     setSnapState(normalized);
     setSyncError(null);
     applyMonitoringRef.current(normalized.monitoring);
@@ -293,6 +352,8 @@ export function useDashboardLiveSync() {
     ordersRefreshSeconds: refreshSettings.ordersRefreshSeconds,
     availabilityRefreshSeconds: refreshSettings.availabilityRefreshSeconds,
   });
+  const syncDelayWarningThresholdMs = getSyncDelayWarningThresholdMs(staleThresholdMs);
+  const autoRecoveryCooldownMs = getSyncAutoRecoveryCooldownMs(staleThresholdMs);
   const syncAgeMs = getSyncAgeMs({
     latestMonitoringUpdateAt,
     syncClockMs: syncClock,
@@ -301,7 +362,7 @@ export function useDashboardLiveSync() {
     running: snap.monitoring.running,
     latestMonitoringUpdateAt,
     syncAgeMs,
-    staleThresholdMs,
+    staleThresholdMs: syncDelayWarningThresholdMs,
   });
 
   const attemptSyncRecovery = async (manual = false) => {
@@ -344,12 +405,16 @@ export function useDashboardLiveSync() {
   };
 
   useEffect(() => {
-    if (!syncStale || !latestMonitoringUpdateAt) return;
+    if (!syncStale || !latestMonitoringUpdateAt || syncRecovering) return;
     if (staleRecoveryKeyRef.current === latestMonitoringUpdateAt) return;
 
+    const now = Date.now();
+    if (now - lastAutoRecoveryAtRef.current < autoRecoveryCooldownMs) return;
+
     staleRecoveryKeyRef.current = latestMonitoringUpdateAt;
+    lastAutoRecoveryAtRef.current = now;
     void attemptSyncRecovery();
-  }, [syncStale, latestMonitoringUpdateAt]);
+  }, [syncStale, latestMonitoringUpdateAt, syncRecovering, autoRecoveryCooldownMs, syncAgeMs]);
 
   return {
     snap,

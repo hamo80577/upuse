@@ -49,7 +49,7 @@ function availability(id: string, state: AvailabilityRecord["availabilityState"]
 }
 
 describe("monitorOrdersPolling.createOrdersPollingPlan", () => {
-  it("skips same-day closed branches after their first snapshot while polling other states", () => {
+  it("includes every enabled branch in orders polling regardless of availability state", () => {
     const branches = [
       branch({ id: 1, ordersVendorId: 101, availabilityVendorId: "a1" }),
       branch({ id: 2, ordersVendorId: 102, availabilityVendorId: "a2" }),
@@ -72,12 +72,12 @@ describe("monitorOrdersPolling.createOrdersPollingPlan", () => {
       cairoDayKey: "2026-03-03",
     });
 
-    expect(plan.vendorIds).toEqual([101, 102, 104, 105]);
-    expect(plan.resetBranchIds).toEqual([1, 2, 5]);
-    expect(plan.captureBranchIds).toEqual([4]);
+    expect(plan.vendorIds).toEqual([101, 102, 103, 104, 105]);
+    expect(plan.resetBranchIds).toEqual([]);
+    expect(plan.captureBranchIds).toEqual([]);
   });
 
-  it("re-queues a closed branch when the Cairo day changes", () => {
+  it("keeps a closed branch queued even if it was already captured earlier in the day", () => {
     const plan = createOrdersPollingPlan({
       branches: [branch({ id: 1, ordersVendorId: 101, availabilityVendorId: "a1" })],
       availabilityByVendor: new Map([["a1", availability("a1", "CLOSED")]]),
@@ -87,7 +87,7 @@ describe("monitorOrdersPolling.createOrdersPollingPlan", () => {
 
     expect(plan.vendorIds).toEqual([101]);
     expect(plan.resetBranchIds).toEqual([]);
-    expect(plan.captureBranchIds).toEqual([1]);
+    expect(plan.captureBranchIds).toEqual([]);
   });
 
   it("removes disabled branches from polling and clears any cached closed snapshot flag", () => {

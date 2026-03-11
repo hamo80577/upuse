@@ -17,7 +17,7 @@ import { MonitorEngine } from "./monitor/index.js";
 import { health } from "./routes/health.js";
 import { createUserRoute, listUsersRoute, loginRoute, logoutRoute, meRoute } from "./routes/auth.js";
 import { getSettingsRoute, putSettingsRoute, testTokensRoute } from "./routes/settings.js";
-import { listBranchesRoute, addBranchRoute, updateBranchRoute, updateBranchMonitoringRoute, branchDetailRoute, deleteBranchRoute, lookupVendorNameRoute, parseMappingRoute } from "./routes/branches.js";
+import { listBranchesRoute, branchCatalogRoute, refreshBranchCatalogRoute, addBranchRoute, updateBranchRoute, updateBranchMonitoringRoute, branchDetailRoute, branchPickersRoute, deleteBranchRoute, lookupVendorNameRoute, parseMappingRoute } from "./routes/branches.js";
 import { dashboardRoute } from "./routes/dashboard.js";
 import { clearLogsRoute, logsRoute } from "./routes/logs.js";
 import { downloadMonitorReportRoute } from "./routes/reports.js";
@@ -48,10 +48,13 @@ app.put("/api/settings", requireCapability("manage_settings_tokens"), putSetting
 app.post("/api/settings/test", requireCapability("test_settings_tokens"), testTokensRoute);
 
 app.get("/api/branches", listBranchesRoute);
+app.get("/api/branches/catalog", branchCatalogRoute);
+app.post("/api/branches/catalog/refresh", requireCapability("manage_branch_mappings"), refreshBranchCatalogRoute);
 app.post("/api/branches", requireCapability("manage_branch_mappings"), addBranchRoute);
 app.put("/api/branches/:id", requireCapability("manage_branch_mappings"), updateBranchRoute);
 app.patch("/api/branches/:id/monitoring", requireCapability("manage_branch_mappings"), updateBranchMonitoringRoute(engine));
 app.get("/api/branches/:id/detail", branchDetailRoute(engine));
+app.get("/api/branches/:id/pickers", branchPickersRoute());
 app.delete("/api/branches/:id", requireCapability("delete_branch_mappings"), deleteBranchRoute);
 app.get("/api/branches/lookup-vendor-name", requireCapability("lookup_branch_vendors"), lookupVendorNameRoute);
 app.post("/api/branches/parse-mapping", requireCapability("lookup_branch_vendors"), parseMappingRoute);
