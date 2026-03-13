@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
+import { TEST_GLOBAL_ENTITY_ID } from "../../../../test/globalEntityId";
 
 const mockApi = vi.hoisted(() => ({
   dashboard: vi.fn(),
@@ -55,7 +56,7 @@ describe("SettingsPage", () => {
     mockApi.getSettings.mockReset();
     mockApi.listBranches.mockReset();
     mockApi.getSettings.mockResolvedValue({
-      globalEntityId: "HF_EG",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
       ordersToken: "",
       availabilityToken: "",
       chainNames: ["Chain A"],

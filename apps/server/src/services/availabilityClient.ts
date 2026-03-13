@@ -1,5 +1,6 @@
 import axios from "axios";
 import { z } from "zod";
+import { GlobalEntityIdSchema } from "../config/globalEntityId.js";
 import type { AvailabilityRecord } from "../types/models.js";
 
 const READ_BASE = "https://vendor-api-eg.me.restaurant-partners.com";
@@ -10,7 +11,7 @@ const AvailabilityRecordSchema = z.object({
   changeable: z.boolean(),
   availabilityState: z.enum(["OPEN", "CLOSED_UNTIL", "CLOSED"]),
   platformRestaurantId: z.string().min(1),
-  globalEntityId: z.string().trim().min(2).max(64).regex(/^[A-Za-z0-9_-]+$/),
+  globalEntityId: GlobalEntityIdSchema,
 }).passthrough();
 
 function createMalformedAvailabilityPayloadError(message: string) {

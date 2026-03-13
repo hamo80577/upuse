@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TEST_GLOBAL_ENTITY_ID, TEST_GLOBAL_ENTITY_ID_VARIANT } from "../../../../test/globalEntityId";
 
 const {
   mockGetSettings,
@@ -130,7 +131,7 @@ describe("monitorEngine.getSnapshot", () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",
       availabilityToken: "",
-      globalEntityId: "HF_EG",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
       chainNames: [],
       chains: [],
       lateThreshold: 4,
@@ -149,7 +150,7 @@ describe("monitorEngine.getSnapshot", () => {
         chainName: "",
         ordersVendorId: 101,
         availabilityVendorId: "av-1",
-        globalEntityId: "HF_EG",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
         enabled: true,
       },
     ]);
@@ -189,7 +190,7 @@ describe("monitorEngine.getSnapshot", () => {
           changeable: true,
           availabilityState: "CLOSED_UNTIL",
           platformRestaurantId: "av-1",
-          globalEntityId: "HF_EG",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID,
           closedUntil: "2026-03-04T13:16:59.000Z",
           modifiedBy: "log_vendor_monitor",
         },
@@ -214,7 +215,7 @@ describe("monitorEngine.getSnapshot", () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",
       availabilityToken: "",
-      globalEntityId: "HF_EG",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
       chainNames: [],
       chains: [],
       lateThreshold: 4,
@@ -233,7 +234,7 @@ describe("monitorEngine.getSnapshot", () => {
         chainName: "",
         ordersVendorId: 111,
         availabilityVendorId: "av-11",
-        globalEntityId: "HF_EG",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
         enabled: true,
       },
     ]);
@@ -272,7 +273,7 @@ describe("monitorEngine.getSnapshot", () => {
           changeable: true,
           availabilityState: "OPEN",
           platformRestaurantId: "av-11",
-          globalEntityId: "HF_EG",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID,
         },
       ],
     ]);
@@ -287,7 +288,7 @@ describe("monitorEngine.getSnapshot", () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",
       availabilityToken: "",
-      globalEntityId: "HF_EG",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
       chainNames: [],
       chains: [],
       lateThreshold: 4,
@@ -306,7 +307,7 @@ describe("monitorEngine.getSnapshot", () => {
         chainName: "",
         ordersVendorId: 111,
         availabilityVendorId: "av-11",
-        globalEntityId: "HF_EG",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
         enabled: true,
       },
     ]);
@@ -352,7 +353,7 @@ describe("monitorEngine.getSnapshot", () => {
           changeable: true,
           availabilityState: "OPEN",
           platformRestaurantId: "av-11",
-          globalEntityId: "HF_EG",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID,
         },
       ],
     ]);
@@ -371,7 +372,7 @@ describe("monitorEngine.getSnapshot", () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",
       availabilityToken: "",
-      globalEntityId: "HF_EG",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
       chainNames: [],
       chains: [],
       lateThreshold: 4,
@@ -390,7 +391,7 @@ describe("monitorEngine.getSnapshot", () => {
         chainName: "",
         ordersVendorId: 303,
         availabilityVendorId: "av-3",
-        globalEntityId: "HF_EG",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
         enabled: true,
       },
     ]);
@@ -430,7 +431,7 @@ describe("monitorEngine.getSnapshot", () => {
           changeable: true,
           availabilityState: "CLOSED_UNTIL",
           platformRestaurantId: "av-3",
-          globalEntityId: "HF_EG",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID,
           closedUntil: "2026-03-08T13:54:53.000Z",
           modifiedBy: "log_vendor_monitor",
         },
@@ -449,7 +450,7 @@ describe("monitorEngine.getSnapshot", () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",
       availabilityToken: "",
-      globalEntityId: "HF_EG",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
       chainNames: [],
       chains: [],
       lateThreshold: 4,
@@ -468,7 +469,7 @@ describe("monitorEngine.getSnapshot", () => {
         chainName: "",
         ordersVendorId: 202,
         availabilityVendorId: "av-2",
-        globalEntityId: "HF_EG",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
         enabled: true,
       },
     ]);
@@ -507,7 +508,7 @@ describe("monitorEngine.getSnapshot", () => {
           changeable: true,
           availabilityState: "CLOSED_UNTIL",
           platformRestaurantId: "av-2",
-          globalEntityId: "HF_EG",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID,
           closedUntil: "2026-03-04T13:30:00.000Z",
           modifiedBy: "external_source",
         },
@@ -572,7 +573,7 @@ describe("monitorEngine.stop", () => {
       changeable: true,
       availabilityState: "OPEN",
       platformRestaurantId: "av-1",
-      globalEntityId: "HF_EG",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
     }]]);
     engine.lastOrdersFetchAt = "2026-03-07T01:00:00.000Z";
     engine.lastAvailabilityFetchAt = "2026-03-07T01:00:10.000Z";
@@ -621,7 +622,7 @@ describe("monitorEngine.reconcile", () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",
       availabilityToken: "",
-      globalEntityId: "HF_SA",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
       chainNames: [],
       chains: [],
       lateThreshold: 4,
@@ -639,7 +640,7 @@ describe("monitorEngine.reconcile", () => {
         chainName: "",
         ordersVendorId: 808,
         availabilityVendorId: "av-8",
-        globalEntityId: "HF_SA",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
         enabled: true,
       },
       {
@@ -648,7 +649,7 @@ describe("monitorEngine.reconcile", () => {
         chainName: "",
         ordersVendorId: 909,
         availabilityVendorId: "av-9",
-        globalEntityId: "HF_SA",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
         enabled: true,
       },
     ]);
@@ -672,14 +673,14 @@ describe("monitorEngine.reconcile", () => {
           changeable: true,
           availabilityState: "OPEN",
           platformRestaurantId: "av-8",
-          globalEntityId: "HF_SA",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
         },
         {
           platformKey: "test",
           changeable: true,
           availabilityState: "OPEN",
           platformRestaurantId: "av-9",
-          globalEntityId: "HF_SA",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
         },
       ])
       .mockResolvedValueOnce([
@@ -688,7 +689,7 @@ describe("monitorEngine.reconcile", () => {
           changeable: true,
           availabilityState: "CLOSED_UNTIL",
           platformRestaurantId: "av-8",
-          globalEntityId: "HF_SA",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
           closedUntil: "2026-03-08T14:49:00.000Z",
         },
         {
@@ -696,7 +697,7 @@ describe("monitorEngine.reconcile", () => {
           changeable: true,
           availabilityState: "CLOSED_UNTIL",
           platformRestaurantId: "av-9",
-          globalEntityId: "HF_SA",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
           closedUntil: "2026-03-08T14:49:00.000Z",
         },
       ]);
@@ -714,18 +715,18 @@ describe("monitorEngine.reconcile", () => {
       [909, { totalToday: 12, cancelledToday: 0, doneToday: 4, activeNow: 8, lateNow: 0, unassignedNow: 6 }],
     ]);
     engine.availabilityByVendor = new Map([
-      ["av-8", { platformKey: "test", changeable: true, availabilityState: "OPEN", platformRestaurantId: "av-8", globalEntityId: "HF_SA" }],
-      ["av-9", { platformKey: "test", changeable: true, availabilityState: "OPEN", platformRestaurantId: "av-9", globalEntityId: "HF_SA" }],
+      ["av-8", { platformKey: "test", changeable: true, availabilityState: "OPEN", platformRestaurantId: "av-8", globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT }],
+      ["av-9", { platformKey: "test", changeable: true, availabilityState: "OPEN", platformRestaurantId: "av-9", globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT }],
     ]);
 
     await engine.reconcile("orders");
 
     expect(mockSetAvailability).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      globalEntityId: "HF_SA",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
       availabilityVendorId: "av-8",
     }));
     expect(mockSetAvailability).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      globalEntityId: "HF_SA",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
       availabilityVendorId: "av-9",
     }));
     expect(mockFetchAvailabilities).toHaveBeenCalledTimes(2);
@@ -737,7 +738,7 @@ describe("monitorEngine.reconcile", () => {
       mockGetSettings.mockReturnValue({
         ordersToken: "",
         availabilityToken: "",
-        globalEntityId: "HF_EG",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
         chainNames: [],
         chains: [],
         lateThreshold: 4,
@@ -779,7 +780,7 @@ describe("monitorEngine.reconcile", () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",
       availabilityToken: "",
-      globalEntityId: "HF_EG",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
       chainNames: [],
       chains: [],
       lateThreshold: 4,
@@ -798,7 +799,7 @@ describe("monitorEngine.reconcile", () => {
         chainName: "",
         ordersVendorId: 505,
         availabilityVendorId: "av-5",
-        globalEntityId: "HF_EG",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
         enabled: true,
       },
     ]);
@@ -840,7 +841,7 @@ describe("monitorEngine.reconcile", () => {
           changeable: true,
           availabilityState: "CLOSED_UNTIL",
           platformRestaurantId: "av-5",
-          globalEntityId: "HF_EG",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID,
           closedUntil: "2026-03-08T13:54:53.000Z",
           modifiedBy: "log_vendor_monitor",
         },
@@ -856,7 +857,7 @@ describe("monitorEngine.reconcile", () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",
       availabilityToken: "",
-      globalEntityId: "HF_EG",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
       chainNames: [],
       chains: [],
       lateThreshold: 4,
@@ -874,7 +875,7 @@ describe("monitorEngine.reconcile", () => {
         chainName: "",
         ordersVendorId: 808,
         availabilityVendorId: "av-8",
-        globalEntityId: "HF_EG",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
         enabled: true,
       },
     ]);
@@ -903,7 +904,7 @@ describe("monitorEngine.reconcile", () => {
         changeable: true,
         availabilityState: "OPEN",
         platformRestaurantId: "av-8",
-        globalEntityId: "HF_EG",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
       },
     ]);
     mockRecordMonitorCloseAction.mockReturnValue(81);
@@ -933,7 +934,7 @@ describe("monitorEngine.reconcile", () => {
           changeable: true,
           availabilityState: "OPEN",
           platformRestaurantId: "av-8",
-          globalEntityId: "HF_EG",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID,
         },
       ],
     ]);
@@ -951,7 +952,7 @@ describe("monitorEngine.reconcile", () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",
       availabilityToken: "",
-      globalEntityId: "HF_EG",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
       chainNames: [],
       chains: [],
       lateThreshold: 4,
@@ -970,7 +971,7 @@ describe("monitorEngine.reconcile", () => {
         chainName: "",
         ordersVendorId: 606,
         availabilityVendorId: "av-6",
-        globalEntityId: "HF_EG",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
         enabled: true,
       },
     ]);
@@ -1021,7 +1022,7 @@ describe("monitorEngine.reconcile", () => {
           changeable: true,
           availabilityState: "CLOSED_UNTIL",
           platformRestaurantId: "av-6",
-          globalEntityId: "HF_EG",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID,
           closedUntil: "2026-03-08T13:30:00.000Z",
           modifiedBy: "external_source",
         },
@@ -1040,3 +1041,4 @@ describe("monitorEngine.reconcile", () => {
     });
   });
 });
+

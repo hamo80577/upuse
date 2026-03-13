@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createOrdersPollingPlan, createOrdersPollingRequests } from "./monitorOrdersPolling.js";
 import type { AvailabilityRecord, ResolvedBranchMapping } from "../types/models.js";
+import { TEST_GLOBAL_ENTITY_ID, TEST_GLOBAL_ENTITY_ID_VARIANT } from "../../../../test/globalEntityId";
 
 function branch(
   params: Partial<ResolvedBranchMapping> & Pick<ResolvedBranchMapping, "id" | "ordersVendorId" | "availabilityVendorId">,
@@ -11,7 +12,7 @@ function branch(
     chainName: params.chainName ?? "",
     ordersVendorId: params.ordersVendorId,
     availabilityVendorId: params.availabilityVendorId,
-    globalEntityId: params.globalEntityId ?? "HF_EG",
+    globalEntityId: params.globalEntityId ?? TEST_GLOBAL_ENTITY_ID,
     enabled: params.enabled ?? true,
     catalogState: "available",
     lateThresholdOverride: null,
@@ -25,7 +26,7 @@ function availability(id: string, state: AvailabilityRecord["availabilityState"]
     changeable: true,
     availabilityState: state,
     platformRestaurantId: id,
-    globalEntityId: "HF_EG",
+    globalEntityId: TEST_GLOBAL_ENTITY_ID,
   };
 }
 
@@ -76,16 +77,16 @@ describe("monitorOrdersPolling.createOrdersPollingRequests", () => {
   it("groups selected vendor ids by configured global entity", () => {
     const requests = createOrdersPollingRequests({
       branches: [
-        branch({ id: 1, ordersVendorId: 101, availabilityVendorId: "a1", globalEntityId: "HF_EG" }),
-        branch({ id: 2, ordersVendorId: 102, availabilityVendorId: "a2", globalEntityId: "HF_SA" }),
-        branch({ id: 3, ordersVendorId: 103, availabilityVendorId: "a3", globalEntityId: "HF_EG" }),
+        branch({ id: 1, ordersVendorId: 101, availabilityVendorId: "a1", globalEntityId: TEST_GLOBAL_ENTITY_ID }),
+        branch({ id: 2, ordersVendorId: 102, availabilityVendorId: "a2", globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT }),
+        branch({ id: 3, ordersVendorId: 103, availabilityVendorId: "a3", globalEntityId: TEST_GLOBAL_ENTITY_ID }),
       ],
       vendorIds: [101, 102, 103],
     });
 
     expect(requests).toEqual([
-      { globalEntityId: "HF_EG", vendorIds: [101, 103] },
-      { globalEntityId: "HF_SA", vendorIds: [102] },
+      { globalEntityId: TEST_GLOBAL_ENTITY_ID, vendorIds: [101, 103] },
+      { globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT, vendorIds: [102] },
     ]);
   });
 
@@ -101,7 +102,7 @@ describe("monitorOrdersPolling.createOrdersPollingRequests", () => {
     });
 
     expect(requests).toEqual([
-      { globalEntityId: "HF_EG", vendorIds: [201, 202] },
+      { globalEntityId: TEST_GLOBAL_ENTITY_ID, vendorIds: [201, 202] },
     ]);
   });
 });

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { TEST_GLOBAL_ENTITY_ID } from "../../../../test/globalEntityId";
 
 const { mockAxiosGet, mockAxiosPut } = vi.hoisted(() => ({
   mockAxiosGet: vi.fn(),
@@ -46,7 +47,7 @@ describe("availabilityClient", () => {
             changeable: true,
             availabilityState: "OPEN",
             platformRestaurantId: "vendor-1",
-            globalEntityId: "HF_EG",
+            globalEntityId: TEST_GLOBAL_ENTITY_ID,
           },
         ],
       });
@@ -57,7 +58,7 @@ describe("availabilityClient", () => {
     await expect(promise).resolves.toEqual([
       expect.objectContaining({
         platformRestaurantId: "vendor-1",
-        globalEntityId: "HF_EG",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
       }),
     ]);
     expect(mockAxiosGet).toHaveBeenCalledTimes(2);
@@ -76,7 +77,7 @@ describe("availabilityClient", () => {
 
     await expect(setAvailability({
       token: "token",
-      globalEntityId: "HF_EG",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
       availabilityVendorId: "vendor-1",
       state: "OPEN",
     })).rejects.toThrow(/malformed payload/i);

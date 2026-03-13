@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { decide } from "./policyEngine.js";
 import type { AvailabilityRecord, OrdersMetrics, ResolvedBranchMapping, Settings } from "../types/models.js";
+import { TEST_GLOBAL_ENTITY_ID } from "../../../../test/globalEntityId";
 
 function baseSettings(): Settings {
   return {
@@ -26,7 +27,7 @@ function baseBranch(): ResolvedBranchMapping {
     ordersVendorId: 101,
     availabilityVendorId: "202",
     catalogState: "available",
-    globalEntityId: "HF_EG",
+    globalEntityId: TEST_GLOBAL_ENTITY_ID,
     enabled: true,
     lateThresholdOverride: null,
     unassignedThresholdOverride: null,
@@ -50,7 +51,7 @@ function openAvailability(): AvailabilityRecord {
     changeable: true,
     availabilityState: "OPEN",
     platformRestaurantId: "202",
-    globalEntityId: "HF_EG",
+    globalEntityId: TEST_GLOBAL_ENTITY_ID,
   };
 }
 
@@ -60,7 +61,7 @@ function tempCloseAvailability(params: Partial<AvailabilityRecord> = {}): Availa
     changeable: true,
     availabilityState: "CLOSED_UNTIL",
     platformRestaurantId: "202",
-    globalEntityId: "HF_EG",
+    globalEntityId: TEST_GLOBAL_ENTITY_ID,
     closedUntil: "2026-03-03T10:30:00.000Z",
     modifiedBy: "log_vendor_monitor",
     ...params,

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TEST_GLOBAL_ENTITY_ID } from "../../../../test/globalEntityId";
 
 const {
   mockAxiosGet,
@@ -71,7 +72,7 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
 
     const result = await fetchVendorOrdersDetail({
       token: "token",
-      globalEntityId: "HF_EG",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
       vendorId: 56742,
     });
 
@@ -80,7 +81,7 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
     const firstUrl = String(mockAxiosGet.mock.calls[0]?.[0]);
     const secondUrl = String(mockAxiosGet.mock.calls[1]?.[0]);
 
-    expect(firstUrl).toContain("global_entity_id=HF_EG");
+    expect(firstUrl).toContain(`global_entity_id=${TEST_GLOBAL_ENTITY_ID}`);
     expect(firstUrl).toContain("page=0");
     expect(firstUrl).toContain("pageSize=20");
     expect(firstUrl).toContain("startDate=2026-03-04T22%3A00%3A00.000Z");
@@ -153,7 +154,7 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
 
     const result = await fetchVendorOrdersDetail({
       token: "token",
-      globalEntityId: "HF_EG",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
       vendorId: 56742,
       pageSize: 20,
     });
@@ -216,7 +217,7 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
     await expect(
       fetchVendorOrdersDetail({
         token: "token",
-        globalEntityId: "HF_EG",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
         vendorId: 56742,
         pageSize: 1,
       }),
@@ -224,7 +225,7 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
       code: "UPUSE_ORDERS_PAGE_LIMIT_EXCEEDED",
       details: expect.objectContaining({
         scope: "branch_detail",
-        globalEntityId: "HF_EG",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
         vendorId: 56742,
       }),
     });
@@ -250,7 +251,7 @@ describe("ordersClient.fetchOrdersAggregates", () => {
 
     const result = await fetchOrdersAggregates({
       token: "token",
-      globalEntityId: "HF_EG",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
       vendorIds,
       pageSize: 500,
       maxVendorsPerRequest: 50,
@@ -292,7 +293,7 @@ describe("ordersClient.fetchOrdersAggregates", () => {
 
     const result = await fetchOrdersAggregates({
       token: "token",
-      globalEntityId: "HF_EG",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
       vendorIds,
       pageSize: 500,
       maxVendorsPerRequest: 50,
@@ -343,7 +344,7 @@ describe("ordersClient.fetchOrdersAggregates", () => {
 
     const result = await fetchOrdersAggregates({
       token: "token",
-      globalEntityId: "HF_EG",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
       vendorIds: [56742, 56743],
       pageSize: 500,
       maxVendorsPerRequest: 10,
@@ -376,7 +377,7 @@ describe("ordersClient.fetchOrdersAggregates", () => {
     await expect(
       fetchOrdersAggregates({
         token: "token",
-        globalEntityId: "HF_EG",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
         vendorIds: [56742],
         pageSize: 1,
         maxVendorsPerRequest: 1,
@@ -385,7 +386,7 @@ describe("ordersClient.fetchOrdersAggregates", () => {
       code: "UPUSE_ORDERS_PAGE_LIMIT_EXCEEDED",
       details: expect.objectContaining({
         scope: "orders_aggregate",
-        globalEntityId: "HF_EG",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
       }),
     });
   });

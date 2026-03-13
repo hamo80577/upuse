@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TEST_GLOBAL_ENTITY_ID, TEST_GLOBAL_ENTITY_ID_VARIANT } from "../../../../test/globalEntityId";
 
 const {
   mockAddBranch,
@@ -100,7 +101,7 @@ function branchMapping(overrides?: Record<string, unknown>) {
 function resolvedBranch(overrides?: Record<string, unknown>) {
   return {
     ...branchMapping(),
-    globalEntityId: "HF_EG",
+    globalEntityId: TEST_GLOBAL_ENTITY_ID,
     catalogState: "available",
     ...overrides,
   };
@@ -162,7 +163,7 @@ describe("branches routes", () => {
     mockLog.mockReset();
 
     mockGetSettings.mockReturnValue({
-      globalEntityId: "HF_EG",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
       ordersRefreshSeconds: 30,
       chains: [{ name: "Chain A", lateThreshold: 5, unassignedThreshold: 5 }],
       lateThreshold: 5,
@@ -336,7 +337,7 @@ describe("branches routes", () => {
 
   it("returns live branch detail when snapshot and local cache are available", async () => {
     mockGetBranchById.mockReturnValue(branchMapping());
-    mockGetResolvedBranchById.mockReturnValue(resolvedBranch({ globalEntityId: "HF_SA" }));
+    mockGetResolvedBranchById.mockReturnValue(resolvedBranch({ globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT }));
     mockGetMirrorBranchDetail.mockReturnValue({
       metrics: branchSnapshot().metrics,
       fetchedAt: "2026-03-06T10:05:00.000Z",
@@ -350,7 +351,7 @@ describe("branches routes", () => {
     await branchDetailRoute({ getSnapshot: () => ({ branches: [branchSnapshot()] }) } as any)({ params: { id: "7" } } as any, res);
 
     expect(mockGetMirrorBranchDetail).toHaveBeenCalledWith({
-      globalEntityId: "HF_SA",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
       vendorId: 111,
       ordersRefreshSeconds: 30,
       includePickerItems: true,
@@ -391,7 +392,7 @@ describe("branches routes", () => {
 
   it("returns 503 while the local picker cache is warming", async () => {
     mockGetBranchById.mockReturnValue(branchMapping());
-    mockGetResolvedBranchById.mockReturnValue(resolvedBranch({ globalEntityId: "HF_SA" }));
+    mockGetResolvedBranchById.mockReturnValue(resolvedBranch({ globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT }));
     mockGetMirrorBranchPickers.mockReturnValue({
       cacheState: "warming",
       pickers: emptyPickers(),
@@ -401,7 +402,7 @@ describe("branches routes", () => {
     await branchPickersRoute()({ params: { id: "7" } } as any, res);
 
     expect(mockGetMirrorBranchPickers).toHaveBeenCalledWith({
-      globalEntityId: "HF_SA",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
       vendorId: 111,
       ordersRefreshSeconds: 30,
     });

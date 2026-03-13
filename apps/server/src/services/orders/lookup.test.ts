@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { TEST_GLOBAL_ENTITY_ID } from "../../../../../test/globalEntityId";
 
 const { mockGetWithRetry } = vi.hoisted(() => ({
   mockGetWithRetry: vi.fn(),
@@ -31,7 +32,7 @@ describe("lookupVendorName", () => {
     await expect(
       lookupVendorName({
         token: "orders-token",
-        globalEntityId: "HF_EG",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
         ordersVendorId: 77,
       }),
     ).resolves.toBe("Branch A");
@@ -39,7 +40,7 @@ describe("lookupVendorName", () => {
     const [url] = mockGetWithRetry.mock.calls[0];
     const query = new URL(String(url)).searchParams;
 
-    expect(query.get("global_entity_id")).toBe("HF_EG");
+    expect(query.get("global_entity_id")).toBe(TEST_GLOBAL_ENTITY_ID);
     expect(query.get("startDate")).toBe("2026-02-04T22:00:00.000Z");
     expect(query.get("endDate")).toBe("2026-03-06T21:59:59.999Z");
     expect(query.get("pageSize")).toBe("1");

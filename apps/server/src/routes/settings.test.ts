@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TEST_GLOBAL_ENTITY_ID, TEST_GLOBAL_ENTITY_ID_VARIANT } from "../../../../test/globalEntityId";
 
 const {
   mockGetSettings,
@@ -159,7 +160,7 @@ describe("putSettingsRoute", () => {
     mockUpdateSettings.mockImplementation((patch: Record<string, unknown>) => ({
       ordersToken: patch.ordersToken ?? "orders-token",
       availabilityToken: patch.availabilityToken ?? "availability-token",
-      globalEntityId: patch.globalEntityId ?? "HF_EG",
+      globalEntityId: patch.globalEntityId ?? TEST_GLOBAL_ENTITY_ID,
       chainNames: [],
       chains: [],
       lateThreshold: patch.lateThreshold ?? 5,
@@ -201,7 +202,7 @@ describe("putSettingsRoute", () => {
   it("accepts global entity updates without requiring token changes", () => {
     const req: any = {
       body: {
-        globalEntityId: "HF_SA",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
       },
     };
     const res = createResponse();
@@ -209,13 +210,13 @@ describe("putSettingsRoute", () => {
     putSettingsRoute(req, res);
 
     expect(mockUpdateSettings).toHaveBeenCalledWith({
-      globalEntityId: "HF_SA",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
     });
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatchObject({
       ok: true,
       settings: {
-        globalEntityId: "HF_SA",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
       },
     });
   });

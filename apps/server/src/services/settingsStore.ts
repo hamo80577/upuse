@@ -1,4 +1,5 @@
 import { db, cryptoBox } from "../config/db.js";
+import { GlobalEntityIdSchema } from "../config/globalEntityId.js";
 import { z } from "zod";
 import type { ChainThreshold, Settings } from "../types/models.js";
 
@@ -20,7 +21,7 @@ interface SettingsRow {
 const SettingsSchema = z.object({
   ordersToken: z.string(),
   availabilityToken: z.string(),
-  globalEntityId: z.string().trim().min(2).max(64).regex(/^[A-Za-z0-9_-]+$/),
+  globalEntityId: GlobalEntityIdSchema,
   chainNames: z.array(z.string().trim().min(1).max(120)).max(200),
   chains: z.array(
     z.object({
@@ -181,7 +182,7 @@ export function getSettings(): Settings {
   const settings: Settings = {
     ordersToken: cryptoBox.decrypt(row.ordersTokenEnc),
     availabilityToken: cryptoBox.decrypt(row.availabilityTokenEnc),
-    globalEntityId: SettingsSchema.shape.globalEntityId.parse(row.globalEntityId),
+    globalEntityId: GlobalEntityIdSchema.parse(row.globalEntityId),
     chainNames: chains.map((item) => item.name),
     chains,
     lateThreshold: row.lateThreshold,
@@ -201,7 +202,7 @@ export function getGlobalEntityId() {
     throw new Error("Settings row not found");
   }
 
-  return SettingsSchema.shape.globalEntityId.parse(row.globalEntityId);
+  return GlobalEntityIdSchema.parse(row.globalEntityId);
 }
 
 export function updateSettings(patch: Partial<Settings>) {
