@@ -1,4 +1,3 @@
-import { FIXED_GLOBAL_ENTITY_ID } from "../config/constants.js";
 export function createOrdersPollingPlan(params) {
     void params.availabilityByVendor;
     void params.closedSnapshotDayByBranch;
@@ -21,13 +20,18 @@ export function createOrdersPollingPlan(params) {
 }
 export function createOrdersPollingRequests(params) {
     const selectedVendorIds = new Set(params.vendorIds);
-    const resolvedVendorIds = Array.from(new Set(params.branches
-        .filter((branch) => selectedVendorIds.has(branch.ordersVendorId))
-        .map((branch) => branch.ordersVendorId)));
-    return resolvedVendorIds.length
-        ? [{
-                globalEntityId: FIXED_GLOBAL_ENTITY_ID,
-                vendorIds: resolvedVendorIds,
-            }]
-        : [];
+    const vendorIdsByEntity = new Map();
+    for (const branch of params.branches) {
+        if (!selectedVendorIds.has(branch.ordersVendorId))
+            continue;
+        const vendorIds = vendorIdsByEntity.get(branch.globalEntityId) ?? [];
+        if (!vendorIds.includes(branch.ordersVendorId)) {
+            vendorIds.push(branch.ordersVendorId);
+        }
+        vendorIdsByEntity.set(branch.globalEntityId, vendorIds);
+    }
+    return Array.from(vendorIdsByEntity.entries()).map(([globalEntityId, vendorIds]) => ({
+        globalEntityId,
+        vendorIds,
+    }));
 }

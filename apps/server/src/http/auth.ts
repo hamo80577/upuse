@@ -14,6 +14,12 @@ export type AppCapability =
   | "test_settings_tokens"
   | "clear_logs";
 
+const PUBLIC_API_PATHS = new Set([
+  "/api/health",
+  "/api/ready",
+  "/api/auth/login",
+]);
+
 const roleCapabilities: Record<AppUserRole, ReadonlySet<AppCapability>> = {
   admin: new Set<AppCapability>([
     "manage_users",
@@ -33,7 +39,7 @@ const roleCapabilities: Record<AppUserRole, ReadonlySet<AppCapability>> = {
 };
 
 function isPublicApiPath(path: string) {
-  return path === "/api/health" || path === "/api/auth/login";
+  return PUBLIC_API_PATHS.has(path);
 }
 
 export function hasCapability(role: AppUserRole | undefined, capability: AppCapability) {

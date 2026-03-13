@@ -149,7 +149,7 @@ describe("monitorEngine.getSnapshot", () => {
         chainName: "",
         ordersVendorId: 101,
         availabilityVendorId: "av-1",
-        globalEntityId: "",
+        globalEntityId: "HF_EG",
         enabled: true,
       },
     ]);
@@ -233,7 +233,7 @@ describe("monitorEngine.getSnapshot", () => {
         chainName: "",
         ordersVendorId: 111,
         availabilityVendorId: "av-11",
-        globalEntityId: "",
+        globalEntityId: "HF_EG",
         enabled: true,
       },
     ]);
@@ -306,7 +306,7 @@ describe("monitorEngine.getSnapshot", () => {
         chainName: "",
         ordersVendorId: 111,
         availabilityVendorId: "av-11",
-        globalEntityId: "",
+        globalEntityId: "HF_EG",
         enabled: true,
       },
     ]);
@@ -390,7 +390,7 @@ describe("monitorEngine.getSnapshot", () => {
         chainName: "",
         ordersVendorId: 303,
         availabilityVendorId: "av-3",
-        globalEntityId: "",
+        globalEntityId: "HF_EG",
         enabled: true,
       },
     ]);
@@ -468,7 +468,7 @@ describe("monitorEngine.getSnapshot", () => {
         chainName: "",
         ordersVendorId: 202,
         availabilityVendorId: "av-2",
-        globalEntityId: "",
+        globalEntityId: "HF_EG",
         enabled: true,
       },
     ]);
@@ -617,6 +617,164 @@ describe("monitorEngine.reconcile", () => {
     mockDecide.mockReturnValue({ type: "NOOP" });
   });
 
+  it("uses the branch-configured global entity and refreshes availability at most once before and once after a multi-branch action batch", async () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: "HF_SA",
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 20,
+      availabilityRefreshSeconds: 11,
+      maxVendorsPerOrdersRequest: 50,
+    });
+    mockListBranches.mockReturnValue([
+      {
+        id: 8,
+        name: "Branch 8",
+        chainName: "",
+        ordersVendorId: 808,
+        availabilityVendorId: "av-8",
+        globalEntityId: "HF_SA",
+        enabled: true,
+      },
+      {
+        id: 9,
+        name: "Branch 9",
+        chainName: "",
+        ordersVendorId: 909,
+        availabilityVendorId: "av-9",
+        globalEntityId: "HF_SA",
+        enabled: true,
+      },
+    ]);
+
+    mockGetRuntime.mockReturnValue({
+      lastUpuseCloseUntil: null,
+      lastUpuseCloseReason: null,
+      lastUpuseCloseAt: null,
+      lastUpuseCloseEventId: null,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      externalOpenDetectedAt: null,
+      lastActionAt: null,
+    });
+    mockDecide.mockReturnValue({ type: "CLOSE", reason: "UNASSIGNED" });
+    mockSetAvailability.mockResolvedValue({});
+    mockFetchAvailabilities
+      .mockResolvedValueOnce([
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "OPEN",
+          platformRestaurantId: "av-8",
+          globalEntityId: "HF_SA",
+        },
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "OPEN",
+          platformRestaurantId: "av-9",
+          globalEntityId: "HF_SA",
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "CLOSED_UNTIL",
+          platformRestaurantId: "av-8",
+          globalEntityId: "HF_SA",
+          closedUntil: "2026-03-08T14:49:00.000Z",
+        },
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "CLOSED_UNTIL",
+          platformRestaurantId: "av-9",
+          globalEntityId: "HF_SA",
+          closedUntil: "2026-03-08T14:49:00.000Z",
+        },
+      ]);
+    mockRecordMonitorCloseAction.mockReturnValue(81);
+
+    const engine = new MonitorEngine() as any;
+    engine.running = true;
+    engine.ordersFresh = true;
+    engine.ordersDataStateByVendor = new Map([
+      [808, "fresh"],
+      [909, "fresh"],
+    ]);
+    engine.ordersByVendor = new Map([
+      [808, { totalToday: 20, cancelledToday: 1, doneToday: 11, activeNow: 8, lateNow: 0, unassignedNow: 7 }],
+      [909, { totalToday: 12, cancelledToday: 0, doneToday: 4, activeNow: 8, lateNow: 0, unassignedNow: 6 }],
+    ]);
+    engine.availabilityByVendor = new Map([
+      ["av-8", { platformKey: "test", changeable: true, availabilityState: "OPEN", platformRestaurantId: "av-8", globalEntityId: "HF_SA" }],
+      ["av-9", { platformKey: "test", changeable: true, availabilityState: "OPEN", platformRestaurantId: "av-9", globalEntityId: "HF_SA" }],
+    ]);
+
+    await engine.reconcile("orders");
+
+    expect(mockSetAvailability).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      globalEntityId: "HF_SA",
+      availabilityVendorId: "av-8",
+    }));
+    expect(mockSetAvailability).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      globalEntityId: "HF_SA",
+      availabilityVendorId: "av-9",
+    }));
+    expect(mockFetchAvailabilities).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not schedule overlapping orders cycles while a previous run is still in flight", async () => {
+    vi.useFakeTimers();
+    try {
+      mockGetSettings.mockReturnValue({
+        ordersToken: "",
+        availabilityToken: "",
+        globalEntityId: "HF_EG",
+        chainNames: [],
+        chains: [],
+        lateThreshold: 4,
+        unassignedThreshold: 5,
+        tempCloseMinutes: 30,
+        graceMinutes: 5,
+        ordersRefreshSeconds: 30,
+        availabilityRefreshSeconds: 12,
+        maxVendorsPerOrdersRequest: 50,
+      });
+
+      let resolveOrders: (() => void) | null = null;
+      const engine = new MonitorEngine() as any;
+      engine.running = true;
+      engine.lifecycleId = 1;
+      engine.runOrdersCycle = vi.fn(() => new Promise<void>((resolve) => {
+        resolveOrders = resolve;
+      }));
+      engine.runAvailabilityCycle = vi.fn(async () => {});
+
+      engine.schedule(true, 1);
+      await vi.runOnlyPendingTimersAsync();
+
+      expect(engine.runOrdersCycle).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(engine.runOrdersCycle).toHaveBeenCalledTimes(1);
+
+      resolveOrders?.();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(engine.runOrdersCycle).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not reconstruct a UPuse runtime from modifiedBy alone", async () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",
@@ -640,7 +798,7 @@ describe("monitorEngine.reconcile", () => {
         chainName: "",
         ordersVendorId: 505,
         availabilityVendorId: "av-5",
-        globalEntityId: "",
+        globalEntityId: "HF_EG",
         enabled: true,
       },
     ]);
@@ -716,7 +874,7 @@ describe("monitorEngine.reconcile", () => {
         chainName: "",
         ordersVendorId: 808,
         availabilityVendorId: "av-8",
-        globalEntityId: "",
+        globalEntityId: "HF_EG",
         enabled: true,
       },
     ]);
@@ -738,9 +896,7 @@ describe("monitorEngine.reconcile", () => {
       return runtime;
     });
     mockDecide.mockReturnValue({ type: "CLOSE", reason: "UNASSIGNED" });
-    mockSetAvailability.mockResolvedValue({
-      closedUntil: "2026-03-08T14:49:00.000Z",
-    });
+    mockSetAvailability.mockResolvedValue({});
     mockFetchAvailabilities.mockResolvedValue([
       {
         platformKey: "test",
@@ -786,7 +942,7 @@ describe("monitorEngine.reconcile", () => {
 
     expect(mockRecordMonitorCloseAction).toHaveBeenCalledWith(expect.objectContaining({
       note: undefined,
-      closedUntil: "2026-03-08T14:49:00.000Z",
+      closedUntil: "2026-03-04T13:15:30.000Z",
     }));
     expect(mockLog).toHaveBeenCalledWith(8, "INFO", "TEMP CLOSE — Unassigned=7");
   });
@@ -814,7 +970,7 @@ describe("monitorEngine.reconcile", () => {
         chainName: "",
         ordersVendorId: 606,
         availabilityVendorId: "av-6",
-        globalEntityId: "",
+        globalEntityId: "HF_EG",
         enabled: true,
       },
     ]);

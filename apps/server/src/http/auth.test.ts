@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AUTH_SESSION_COOKIE_NAME } from "./sessionCookie.js";
+import { getAppPermissions } from "../../../web/src/app/permissions.ts";
 
 const { mockGetSessionUserByToken } = vi.hoisted(() => ({
   mockGetSessionUserByToken: vi.fn(),
@@ -9,7 +10,7 @@ vi.mock("../services/authStore.js", () => ({
   getSessionUserByToken: mockGetSessionUserByToken,
 }));
 
-import { createSessionAuthMiddleware, hasCapability, requireCapability } from "./auth.js";
+import { createSessionAuthMiddleware, hasCapability, requireAuthenticatedApi, requireCapability } from "./auth.js";
 
 describe("createSessionAuthMiddleware", () => {
   beforeEach(() => {
@@ -108,5 +109,44 @@ describe("authorization capabilities", () => {
       ok: false,
       message: "Forbidden",
     });
+  });
+
+  it("keeps frontend role permissions aligned with backend capability enforcement", () => {
+    for (const role of ["admin", "user"] as const) {
+      const permissions = getAppPermissions(role);
+
+      expect(permissions.canManageUsers).toBe(hasCapability(role, "manage_users"));
+      expect(permissions.canManageMonitor).toBe(hasCapability(role, "manage_monitor"));
+      expect(permissions.canRefreshOrdersNow).toBe(hasCapability(role, "refresh_monitor_orders"));
+      expect(permissions.canManageBranches).toBe(hasCapability(role, "manage_branch_mappings"));
+      expect(permissions.canDeleteBranches).toBe(hasCapability(role, "delete_branch_mappings"));
+      expect(permissions.canManageSettings).toBe(hasCapability(role, "manage_settings"));
+      expect(permissions.canManageTokens).toBe(hasCapability(role, "manage_settings_tokens"));
+      expect(permissions.canTestTokens).toBe(hasCapability(role, "test_settings_tokens"));
+      expect(permissions.canClearLogs).toBe(hasCapability(role, "clear_logs"));
+      expect(permissions.canLookupBranchVendors).toBe(true);
+    }
+
+    const anonymousPermissions = getAppPermissions(null);
+    expect(anonymousPermissions.canLookupBranchVendors).toBe(false);
+    expect(anonymousPermissions.canManageTokens).toBe(false);
+    expect(anonymousPermissions.canTestTokens).toBe(false);
+  });
+
+  it("allows readiness probes to bypass authenticated API enforcement", () => {
+    const req: any = {
+      path: "/api/ready",
+      method: "GET",
+    };
+    const res: any = {
+      status: vi.fn(() => res),
+      json: vi.fn(() => res),
+    };
+    const next = vi.fn();
+
+    requireAuthenticatedApi()(req, res, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(res.status).not.toHaveBeenCalled();
   });
 });

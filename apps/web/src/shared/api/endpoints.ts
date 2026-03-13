@@ -1,6 +1,7 @@
 import type {
   AuthMeResponse,
   AuthUsersResponse,
+  HealthStatusResponse,
   LoginResponse,
   AppUserRole,
   BranchDetailResult,
@@ -72,7 +73,8 @@ function normalizeBranchItemsResponse(response: { items: Array<BranchMappingItem
 }
 
 export const api = {
-  health: () => requestJson<{ ok: boolean }>("/api/health", undefined, { timeoutMs: 10_000 }),
+  health: () => requestJson<HealthStatusResponse>("/api/health", undefined, { timeoutMs: 10_000 }),
+  readiness: () => requestJson<HealthStatusResponse>("/api/ready", undefined, { timeoutMs: 10_000 }),
   login: (payload: { email: string; password: string }) =>
     requestJson<LoginResponse>("/api/auth/login", {
       method: "POST",
@@ -237,7 +239,6 @@ export const api = {
             chainName: payload.chainName,
             ordersVendorId: payload.ordersVendorId,
             availabilityVendorId: payload.availabilityVendorId,
-            globalEntityId: "HF_EG",
             enabled: true,
           }),
         });

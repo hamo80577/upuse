@@ -30,34 +30,57 @@ const anonymousPermissions: AppPermissions = {
   canClearLogs: false,
 };
 
+type UiCapability =
+  | "manage_users"
+  | "manage_monitor"
+  | "refresh_monitor_orders"
+  | "manage_branch_mappings"
+  | "delete_branch_mappings"
+  | "manage_settings"
+  | "manage_settings_tokens"
+  | "test_settings_tokens"
+  | "clear_logs"
+  | "lookup_branch_vendors";
+
+const roleCapabilities: Record<AppUserRole, ReadonlySet<UiCapability>> = {
+  admin: new Set<UiCapability>([
+    "manage_users",
+    "manage_monitor",
+    "refresh_monitor_orders",
+    "manage_branch_mappings",
+    "delete_branch_mappings",
+    "manage_settings",
+    "manage_settings_tokens",
+    "test_settings_tokens",
+    "clear_logs",
+    "lookup_branch_vendors",
+  ]),
+  user: new Set<UiCapability>([
+    "manage_monitor",
+    "manage_branch_mappings",
+    "lookup_branch_vendors",
+  ]),
+};
+
+function hasUiCapability(role: AppUserRole | null | undefined, capability: UiCapability) {
+  if (!role) return false;
+  return roleCapabilities[role]?.has(capability) ?? false;
+}
+
 export function getAppPermissions(role?: AppUserRole | null): AppPermissions {
-  if (role === "admin") {
-    return {
-      isAdmin: true,
-      canManage: true,
-      canManageUsers: true,
-      canManageMonitor: true,
-      canRefreshOrdersNow: true,
-      canManageBranches: true,
-      canDeleteBranches: true,
-      canLookupBranchVendors: true,
-      canManageSettings: true,
-      canManageTokens: true,
-      canTestTokens: true,
-      canClearLogs: true,
-    };
-  }
-
-  if (role === "user") {
-    return {
-      ...anonymousPermissions,
-      canManageMonitor: true,
-      canManageBranches: true,
-      canLookupBranchVendors: true,
-      canManageTokens: true,
-      canTestTokens: true,
-    };
-  }
-
-  return anonymousPermissions;
+  return {
+    ...anonymousPermissions,
+    isAdmin: role === "admin",
+    canManage: role === "admin",
+    canManageUsers: hasUiCapability(role, "manage_users"),
+    canManageMonitor: hasUiCapability(role, "manage_monitor"),
+    canRefreshOrdersNow: hasUiCapability(role, "refresh_monitor_orders"),
+    canManageBranches: hasUiCapability(role, "manage_branch_mappings"),
+    canDeleteBranches: hasUiCapability(role, "delete_branch_mappings"),
+    canLookupBranchVendors: hasUiCapability(role, "lookup_branch_vendors"),
+    canManageSettings: hasUiCapability(role, "manage_settings"),
+    canManageTokens: hasUiCapability(role, "manage_settings_tokens"),
+    canTestTokens: hasUiCapability(role, "test_settings_tokens"),
+    canClearLogs: hasUiCapability(role, "clear_logs"),
+  };
 }

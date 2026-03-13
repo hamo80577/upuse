@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { FIXED_GLOBAL_ENTITY_ID } from "../config/constants.js";
 import { addBranch, deleteBranch, getBranchById, getResolvedBranchById, listBranches, setBranchMonitoringEnabled, setBranchThresholdOverrides, } from "../services/branchStore.js";
 import { listVendorCatalog } from "../services/vendorCatalogStore.js";
 import { getSettings } from "../services/settingsStore.js";
@@ -261,7 +260,7 @@ export function branchDetailRoute(engine) {
         const getSnapshotBranch = () => engine.getSnapshot().branches.find((item) => item.branchId === id);
         const includePickerItems = req.query?.includePickerItems !== "0";
         const localDetail = getMirrorBranchDetail({
-            globalEntityId: FIXED_GLOBAL_ENTITY_ID,
+            globalEntityId: branch.globalEntityId,
             vendorId: branch.ordersVendorId,
             ordersRefreshSeconds: settings.ordersRefreshSeconds,
             includePickerItems,
@@ -324,7 +323,7 @@ export function branchPickersRoute() {
         }
         const settings = getSettings();
         const localPickers = getMirrorBranchPickers({
-            globalEntityId: FIXED_GLOBAL_ENTITY_ID,
+            globalEntityId: resolved.branch.globalEntityId,
             vendorId: resolved.branch.ordersVendorId,
             ordersRefreshSeconds: settings.ordersRefreshSeconds,
         });

@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import { resolveDataDir, resolveDbFilePath } from "./paths.js";
+import { DEFAULT_GLOBAL_ENTITY_ID } from "./constants.js";
 import { createCryptoBox, createEncryptionKeyring, parseEncryptionSecretList } from "./encryption.js";
 import { resolveEncryptionSecret } from "./secret.js";
 import { hashPassword, normalizeEmail } from "../services/auth/passwords.js";
@@ -515,7 +516,7 @@ export function migrate() {
     const defaultSettings = {
       ordersTokenEnc: cryptoBox.encrypt(""),
       availabilityTokenEnc: cryptoBox.encrypt(""),
-      globalEntityId: "HF_EG",
+      globalEntityId: DEFAULT_GLOBAL_ENTITY_ID,
       chainNamesJson: "[]",
       chainThresholdsJson: "[]",
       lateThreshold: 5,

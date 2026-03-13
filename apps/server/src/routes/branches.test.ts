@@ -162,6 +162,7 @@ describe("branches routes", () => {
     mockLog.mockReset();
 
     mockGetSettings.mockReturnValue({
+      globalEntityId: "HF_EG",
       ordersRefreshSeconds: 30,
       chains: [{ name: "Chain A", lateThreshold: 5, unassignedThreshold: 5 }],
       lateThreshold: 5,
@@ -335,7 +336,7 @@ describe("branches routes", () => {
 
   it("returns live branch detail when snapshot and local cache are available", async () => {
     mockGetBranchById.mockReturnValue(branchMapping());
-    mockGetResolvedBranchById.mockReturnValue(resolvedBranch());
+    mockGetResolvedBranchById.mockReturnValue(resolvedBranch({ globalEntityId: "HF_SA" }));
     mockGetMirrorBranchDetail.mockReturnValue({
       metrics: branchSnapshot().metrics,
       fetchedAt: "2026-03-06T10:05:00.000Z",
@@ -349,7 +350,7 @@ describe("branches routes", () => {
     await branchDetailRoute({ getSnapshot: () => ({ branches: [branchSnapshot()] }) } as any)({ params: { id: "7" } } as any, res);
 
     expect(mockGetMirrorBranchDetail).toHaveBeenCalledWith({
-      globalEntityId: "HF_EG",
+      globalEntityId: "HF_SA",
       vendorId: 111,
       ordersRefreshSeconds: 30,
       includePickerItems: true,
@@ -390,7 +391,7 @@ describe("branches routes", () => {
 
   it("returns 503 while the local picker cache is warming", async () => {
     mockGetBranchById.mockReturnValue(branchMapping());
-    mockGetResolvedBranchById.mockReturnValue(resolvedBranch());
+    mockGetResolvedBranchById.mockReturnValue(resolvedBranch({ globalEntityId: "HF_SA" }));
     mockGetMirrorBranchPickers.mockReturnValue({
       cacheState: "warming",
       pickers: emptyPickers(),
@@ -400,7 +401,7 @@ describe("branches routes", () => {
     await branchPickersRoute()({ params: { id: "7" } } as any, res);
 
     expect(mockGetMirrorBranchPickers).toHaveBeenCalledWith({
-      globalEntityId: "HF_EG",
+      globalEntityId: "HF_SA",
       vendorId: 111,
       ordersRefreshSeconds: 30,
     });

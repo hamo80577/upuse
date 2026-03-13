@@ -5,6 +5,7 @@ const SettingsPatch = z
     .object({
     ordersToken: z.string().optional(),
     availabilityToken: z.string().optional(),
+    globalEntityId: z.string().trim().min(2).max(64).regex(/^[A-Za-z0-9_-]+$/).optional(),
     chains: z.array(z.object({
         name: z.string().min(1).max(120),
         lateThreshold: z.number().int().min(0).max(999),

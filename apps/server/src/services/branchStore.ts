@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { db } from "../config/db.js";
-import { FIXED_GLOBAL_ENTITY_ID } from "../config/constants.js";
+import { getGlobalEntityId } from "./settingsStore.js";
 import { getVendorCatalogItem } from "./vendorCatalogStore.js";
 import type { BranchMapping, ResolvedBranchMapping } from "../types/models.js";
 
@@ -66,7 +66,7 @@ function mapBranchRow(row: JoinedBranchRow): BranchMapping {
   };
 }
 
-function buildResolvedBranch(branch: BranchMapping): ResolvedBranchMapping | null {
+function buildResolvedBranch(branch: BranchMapping, globalEntityId: string): ResolvedBranchMapping | null {
   if (!branch.name || !branch.ordersVendorId || branch.catalogState !== "available") {
     return null;
   }
@@ -75,7 +75,7 @@ function buildResolvedBranch(branch: BranchMapping): ResolvedBranchMapping | nul
     ...branch,
     name: branch.name,
     ordersVendorId: branch.ordersVendorId,
-    globalEntityId: FIXED_GLOBAL_ENTITY_ID,
+    globalEntityId,
     catalogState: "available",
   };
 }
@@ -107,9 +107,10 @@ export function listBranches(): BranchMapping[] {
 export function listResolvedBranches(options?: { enabledOnly?: boolean }): ResolvedBranchMapping[] {
   const whereClause = options?.enabledOnly ? "WHERE branches.enabled = 1" : "";
   const rows = db.prepare<[], JoinedBranchRow>(getJoinedBranchQuery(whereClause)).all();
+  const globalEntityId = getGlobalEntityId();
   return rows
     .map(mapBranchRow)
-    .map(buildResolvedBranch)
+    .map((branch) => buildResolvedBranch(branch, globalEntityId))
     .filter((branch): branch is ResolvedBranchMapping => branch !== null);
 }
 
@@ -120,7 +121,7 @@ export function getBranchById(id: number): BranchMapping | null {
 
 export function getResolvedBranchById(id: number): ResolvedBranchMapping | null {
   const branch = getBranchById(id);
-  return branch ? buildResolvedBranch(branch) : null;
+  return branch ? buildResolvedBranch(branch, getGlobalEntityId()) : null;
 }
 
 export function addBranch(input: { availabilityVendorId: string; chainName?: string; enabled?: boolean }) {

@@ -1,4 +1,3 @@
-import { FIXED_GLOBAL_ENTITY_ID } from "../config/constants.js";
 import type { AvailabilityRecord, OrdersVendorId, ResolvedBranchMapping } from "../types/models.js";
 
 export interface OrdersPollingPlan {
@@ -46,16 +45,19 @@ export function createOrdersPollingRequests(params: {
   vendorIds: OrdersVendorId[];
 }): OrdersPollingRequest[] {
   const selectedVendorIds = new Set(params.vendorIds);
-  const resolvedVendorIds = Array.from(new Set(
-    params.branches
-      .filter((branch) => selectedVendorIds.has(branch.ordersVendorId))
-      .map((branch) => branch.ordersVendorId),
-  ));
+  const vendorIdsByEntity = new Map<string, OrdersVendorId[]>();
 
-  return resolvedVendorIds.length
-    ? [{
-      globalEntityId: FIXED_GLOBAL_ENTITY_ID,
-      vendorIds: resolvedVendorIds,
-    }]
-    : [];
+  for (const branch of params.branches) {
+    if (!selectedVendorIds.has(branch.ordersVendorId)) continue;
+    const vendorIds = vendorIdsByEntity.get(branch.globalEntityId) ?? [];
+    if (!vendorIds.includes(branch.ordersVendorId)) {
+      vendorIds.push(branch.ordersVendorId);
+    }
+    vendorIdsByEntity.set(branch.globalEntityId, vendorIds);
+  }
+
+  return Array.from(vendorIdsByEntity.entries()).map(([globalEntityId, vendorIds]) => ({
+    globalEntityId,
+    vendorIds,
+  }));
 }

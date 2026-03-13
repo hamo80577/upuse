@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
@@ -8,19 +8,23 @@ const mockApi = vi.hoisted(() => ({
   listBranches: vi.fn(),
 }));
 
+const mockAuthState = vi.hoisted(() => ({
+  value: {
+    canManageMonitor: true,
+    canManageSettings: true,
+    canManageTokens: true,
+    canTestTokens: true,
+    canManage: true,
+  },
+}));
+
 vi.mock("../api/client", () => ({
   api: mockApi,
   describeApiError: (error: unknown, fallback = "Request failed") => (error instanceof Error ? error.message : fallback),
 }));
 
 vi.mock("../app/providers/AuthProvider", () => ({
-  useAuth: () => ({
-    canManageMonitor: true,
-    canManageSettings: true,
-    canManageTokens: true,
-    canTestTokens: true,
-    canManage: true,
-  }),
+  useAuth: () => mockAuthState.value,
 }));
 
 vi.mock("../app/providers/MonitorStatusProvider", () => ({
@@ -40,10 +44,18 @@ import { SettingsPage } from "./Settings";
 
 describe("SettingsPage", () => {
   beforeEach(() => {
+    mockAuthState.value = {
+      canManageMonitor: true,
+      canManageSettings: true,
+      canManageTokens: true,
+      canTestTokens: true,
+      canManage: true,
+    };
     mockApi.dashboard.mockReset();
     mockApi.getSettings.mockReset();
     mockApi.listBranches.mockReset();
     mockApi.getSettings.mockResolvedValue({
+      globalEntityId: "HF_EG",
       ordersToken: "",
       availabilityToken: "",
       chainNames: ["Chain A"],
@@ -72,5 +84,30 @@ describe("SettingsPage", () => {
 
     expect(mockApi.dashboard).not.toHaveBeenCalled();
     expect(mockApi.listBranches).not.toHaveBeenCalled();
+  });
+
+  it("does not expose token actions to restricted roles", async () => {
+    mockAuthState.value = {
+      canManageMonitor: true,
+      canManageSettings: false,
+      canManageTokens: false,
+      canTestTokens: false,
+      canManage: false,
+    };
+
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(mockApi.getSettings).toHaveBeenCalled();
+    });
+
+    expect(screen.queryByLabelText("Orders API Token")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Availability API Token")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Test Tokens" })).not.toBeInTheDocument();
+    expect(screen.getByText("Token management and token tests are restricted to admins.")).toBeInTheDocument();
   });
 });

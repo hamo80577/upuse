@@ -12,12 +12,13 @@ import { getEnv } from "./config/env.js";
 import { resolveWebDistDir } from "./config/paths.js";
 import { resolveSecurityConfig } from "./config/security.js";
 import { resolveStartupConfig } from "./config/startup.js";
+import { getSettings } from "./services/settingsStore.js";
 import { attachDashboardWebSocketServer } from "./http/dashboardWebSocket.js";
 import { createApiNoStoreMiddleware, createCorsOptions, createTrustedOriginMiddleware } from "./http/security.js";
 import { createSessionAuthMiddleware, requireAdminRole, requireAuthenticatedApi, requireCapability } from "./http/auth.js";
 import { MonitorEngine } from "./monitor/index.js";
 
-import { health } from "./routes/health.js";
+import { health, readiness } from "./routes/health.js";
 import { createUserRoute, listUsersRoute, loginRoute, logoutRoute, meRoute } from "./routes/auth.js";
 import { getSettingsRoute, getTokenTestRoute, putSettingsRoute, testTokensRoute } from "./routes/settings.js";
 import { listBranchesRoute, listVendorSourceRoute, addBranchRoute, updateBranchThresholdOverridesRoute, updateBranchMonitoringRoute, branchDetailRoute, branchPickersRoute, deleteBranchRoute } from "./routes/branches.js";
@@ -32,6 +33,7 @@ const startupConfig = resolveStartupConfig();
 if (startupConfig.syncVendorCatalogOnStartup && startupConfig.vendorCatalogCsvPath) {
   syncVendorCatalogFromCsv(startupConfig.vendorCatalogCsvPath);
 }
+getSettings();
 
 function looksLikeLinkPreviewBot(userAgent: string | undefined) {
   if (!userAgent) return false;
@@ -58,6 +60,7 @@ const engine = new MonitorEngine();
 
 // Routes
 app.get("/api/health", health(engine));
+app.get("/api/ready", readiness(engine));
 app.post("/api/auth/login", loginRoute);
 app.use(requireAuthenticatedApi());
 app.get("/api/auth/me", meRoute);

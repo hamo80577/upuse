@@ -35,6 +35,7 @@ export type OrdersSyncState = "warming" | "healthy" | "degraded";
 export interface Settings {
   ordersToken: string;
   availabilityToken: string;
+  globalEntityId: string;
   chainNames: string[];
   chains: ChainThreshold[];
 

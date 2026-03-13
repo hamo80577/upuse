@@ -1,5 +1,4 @@
 import { DateTime } from "luxon";
-import { FIXED_GLOBAL_ENTITY_ID } from "../../config/constants.js";
 import { getSettings } from "../../services/settingsStore.js";
 import { listResolvedBranches, getRuntime, setRuntime } from "../../services/branchStore.js";
 import { fetchAvailabilities, setAvailability } from "../../services/availabilityClient.js";
@@ -76,8 +75,6 @@ export class MonitorEngine {
     consecutiveOrdersSourceFailures = 0;
     ordersTimer = null;
     availabilityTimer = null;
-    availabilityStartTimeout = null;
-    immediateAvailabilityTimeout = null;
     lifecycleId = 0;
     manualOrdersRefreshPromise = null;
     jobMutex = new Mutex();
@@ -126,17 +123,11 @@ export class MonitorEngine {
     }
     clearScheduleHandles() {
         if (this.ordersTimer)
-            clearInterval(this.ordersTimer);
+            clearTimeout(this.ordersTimer);
         if (this.availabilityTimer)
-            clearInterval(this.availabilityTimer);
-        if (this.availabilityStartTimeout)
-            clearTimeout(this.availabilityStartTimeout);
-        if (this.immediateAvailabilityTimeout)
-            clearTimeout(this.immediateAvailabilityTimeout);
+            clearTimeout(this.availabilityTimer);
         this.ordersTimer = null;
         this.availabilityTimer = null;
-        this.availabilityStartTimeout = null;
-        this.immediateAvailabilityTimeout = null;
     }
     isRunning() {
         return this.running;
@@ -384,22 +375,6 @@ export class MonitorEngine {
         return parsed.isValid
             ? parsed.toISO({ suppressMilliseconds: false }) ?? undefined
             : undefined;
-    }
-    async syncBranchAvailabilityAfterWrite(availabilityVendorId, expectedState) {
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-            try {
-                const fresh = await this.fetchAvailabilityFresh();
-                const record = fresh.get(availabilityVendorId);
-                if (record && (!expectedState || record.availabilityState === expectedState)) {
-                    return record;
-                }
-            }
-            catch { }
-            if (attempt < 2) {
-                await new Promise((resolve) => setTimeout(resolve, 700));
-            }
-        }
-        return this.availabilityByVendor.get(availabilityVendorId);
     }
     syncExternalClosureState(nowIso) {
         const settings = getSettings();
@@ -653,27 +628,37 @@ export class MonitorEngine {
     schedule(runImmediately = true, lifecycleId) {
         this.clearScheduleHandles();
         const settings = getSettings();
-        // Orders runs at t0, availability is offset to avoid collision.
         const ordersMs = settings.ordersRefreshSeconds * 1000;
         const availMs = settings.availabilityRefreshSeconds * 1000;
-        const offsetMs = Math.min(15000, Math.floor(availMs / 2)); // default 15s for 30s
-        this.ordersTimer = setInterval(() => {
-            void this.runOrdersCycle(undefined, lifecycleId).catch(() => { });
-        }, ordersMs);
-        this.availabilityStartTimeout = setTimeout(() => {
-            if (!this.isLifecycleActive(lifecycleId))
-                return;
-            this.availabilityTimer = setInterval(() => {
-                void this.runAvailabilityCycle(undefined, lifecycleId).catch(() => { });
-            }, availMs);
-        }, offsetMs);
-        if (runImmediately) {
-            // Run once immediately
-            void this.runOrdersCycle(undefined, lifecycleId).catch(() => { });
-            this.immediateAvailabilityTimeout = setTimeout(() => {
-                void this.runAvailabilityCycle(undefined, lifecycleId).catch(() => { });
-            }, offsetMs);
-        }
+        const offsetMs = Math.min(15000, Math.floor(availMs / 2));
+        const scheduleOrders = (delayMs) => {
+            this.ordersTimer = setTimeout(() => {
+                if (!this.isLifecycleActive(lifecycleId))
+                    return;
+                void this.runOrdersCycle(undefined, lifecycleId)
+                    .catch(() => { })
+                    .finally(() => {
+                    if (this.isLifecycleActive(lifecycleId)) {
+                        scheduleOrders(ordersMs);
+                    }
+                });
+            }, delayMs);
+        };
+        const scheduleAvailability = (delayMs) => {
+            this.availabilityTimer = setTimeout(() => {
+                if (!this.isLifecycleActive(lifecycleId))
+                    return;
+                void this.runAvailabilityCycle(undefined, lifecycleId)
+                    .catch(() => { })
+                    .finally(() => {
+                    if (this.isLifecycleActive(lifecycleId)) {
+                        scheduleAvailability(availMs);
+                    }
+                });
+            }, delayMs);
+        };
+        scheduleOrders(runImmediately ? 0 : ordersMs);
+        scheduleAvailability(runImmediately ? offsetMs : offsetMs + availMs);
     }
     async prime(lifecycleId) {
         // Best effort initial fetch
@@ -821,12 +806,19 @@ export class MonitorEngine {
         this.lastHealthyAt = nowUtcIso();
     }
     async reconcile(trigger, expectedLifecycleId) {
-        // Use latest caches for UI; actions require fresh availability snapshot just-in-time.
         if (!this.ordersFresh || !this.isLifecycleActive(expectedLifecycleId))
             return;
         const settings = getSettings();
         const branches = listResolvedBranches({ enabledOnly: true });
         const nowIso = nowUtcIso();
+        let actionAvailability = trigger === "availability" ? new Map(this.availabilityByVendor) : null;
+        let shouldRefreshAvailabilityAfterActions = false;
+        const ensureActionAvailability = async () => {
+            if (actionAvailability)
+                return actionAvailability;
+            actionAvailability = await this.fetchAvailabilityFresh(expectedLifecycleId);
+            return actionAvailability;
+        };
         for (const branch of branches) {
             if (!this.isLifecycleActive(expectedLifecycleId))
                 return;
@@ -921,8 +913,7 @@ export class MonitorEngine {
             await this.actionMutex.runExclusive(async () => {
                 if (!this.isLifecycleActive(expectedLifecycleId))
                     return;
-                // Before any action: fetch fresh availability NOW (bulk) and filter for this branch.
-                const fresh = await this.fetchAvailabilityFresh(expectedLifecycleId);
+                const fresh = await ensureActionAvailability();
                 if (!this.isLifecycleActive(expectedLifecycleId))
                     return;
                 const current = fresh.get(branch.availabilityVendorId);
@@ -941,36 +932,34 @@ export class MonitorEngine {
                         return;
                     const actionRuntime = getRuntime(branch.id);
                     const isReappliedAfterExternalOpen = Boolean(actionRuntime?.externalOpenDetectedAt);
-                    const availabilityGlobalEntityId = FIXED_GLOBAL_ENTITY_ID;
                     if (!this.isLifecycleActive(expectedLifecycleId))
                         return;
                     const mutationResult = await setAvailability({
                         token: settings.availabilityToken,
-                        globalEntityId: availabilityGlobalEntityId,
+                        globalEntityId: branch.globalEntityId,
                         availabilityVendorId: branch.availabilityVendorId,
                         state: "TEMPORARY_CLOSURE",
                         durationMinutes: settings.tempCloseMinutes,
                     });
                     if (!this.isLifecycleActive(expectedLifecycleId))
                         return;
-                    const syncedAvailability = await this.syncBranchAvailabilityAfterWrite(branch.availabilityVendorId, "CLOSED_UNTIL");
-                    if (!this.isLifecycleActive(expectedLifecycleId))
-                        return;
-                    const confirmedUntil = syncedAvailability?.availabilityState === "CLOSED_UNTIL"
-                        ? syncedAvailability.closedUntil
-                        : undefined;
+                    shouldRefreshAvailabilityAfterActions = true;
+                    const confirmedUntil = this.extractClosedUntilCandidate(mutationResult);
                     const actualUntil = confirmedUntil ??
-                        this.extractClosedUntilCandidate(mutationResult) ??
                         DateTime.fromISO(nowIso, { zone: "utc" })
                             .plus({ minutes: settings.tempCloseMinutes })
                             .toISO({ suppressMilliseconds: false }) ??
                         undefined;
-                    this.availabilityByVendor.set(branch.availabilityVendorId, {
-                        ...(syncedAvailability ?? current),
+                    const updatedAvailability = {
+                        ...current,
                         availabilityState: "CLOSED_UNTIL",
+                        platformRestaurantId: branch.availabilityVendorId,
+                        globalEntityId: branch.globalEntityId,
                         closedUntil: actualUntil,
                         modifiedBy: "log_vendor_monitor",
-                    });
+                    };
+                    fresh.set(branch.availabilityVendorId, updatedAvailability);
+                    this.availabilityByVendor.set(branch.availabilityVendorId, updatedAvailability);
                     const confirmedUntilLabel = confirmedUntil
                         ? DateTime.fromISO(confirmedUntil, { zone: "utc" }).setZone("Africa/Cairo").toFormat("HH:mm")
                         : null;
@@ -1019,7 +1008,6 @@ export class MonitorEngine {
                     const ownsClosure = this.isMonitorOwnedClosure(rt, current);
                     if (!ownsClosure)
                         return;
-                    const availabilityGlobalEntityId = FIXED_GLOBAL_ENTITY_ID;
                     if (current.modifiedBy === "log_vendor_monitor" && current.closedUntil) {
                         rt = this.syncTrackedMonitorRuntime(branch, metrics, rt, current.closedUntil, settings);
                     }
@@ -1027,21 +1015,23 @@ export class MonitorEngine {
                         return;
                     await setAvailability({
                         token: settings.availabilityToken,
-                        globalEntityId: availabilityGlobalEntityId,
+                        globalEntityId: branch.globalEntityId,
                         availabilityVendorId: branch.availabilityVendorId,
                         state: "OPEN",
                     });
                     if (!this.isLifecycleActive(expectedLifecycleId))
                         return;
-                    const syncedAvailability = await this.syncBranchAvailabilityAfterWrite(branch.availabilityVendorId, "OPEN");
-                    if (!this.isLifecycleActive(expectedLifecycleId))
-                        return;
-                    this.availabilityByVendor.set(branch.availabilityVendorId, {
-                        ...(syncedAvailability ?? current),
+                    shouldRefreshAvailabilityAfterActions = true;
+                    const updatedAvailability = {
+                        ...current,
                         availabilityState: "OPEN",
+                        platformRestaurantId: branch.availabilityVendorId,
+                        globalEntityId: branch.globalEntityId,
                         closedUntil: undefined,
                         modifiedBy: "log_vendor_monitor",
-                    });
+                    };
+                    fresh.set(branch.availabilityVendorId, updatedAvailability);
+                    this.availabilityByVendor.set(branch.availabilityVendorId, updatedAvailability);
                     markCloseEventReopened({
                         eventId: rt?.lastUpuseCloseEventId,
                         reopenedAt: nowIso,
@@ -1064,6 +1054,15 @@ export class MonitorEngine {
                     return;
                 }
             });
+        }
+        if (!shouldRefreshAvailabilityAfterActions || !this.isLifecycleActive(expectedLifecycleId))
+            return;
+        try {
+            await this.fetchAvailabilityFresh(expectedLifecycleId);
+        }
+        catch (error) {
+            const detail = this.getErrorDetail(error).detail ?? error?.message ?? "Unknown error";
+            log(null, "WARN", `Availability confirmation refresh failed: ${detail}`);
         }
     }
     async fetchAvailabilityFresh(expectedLifecycleId) {

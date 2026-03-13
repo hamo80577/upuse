@@ -5,6 +5,7 @@ import type { ChainThreshold, Settings } from "../types/models.js";
 interface SettingsRow {
   ordersTokenEnc: string;
   availabilityTokenEnc: string;
+  globalEntityId: string;
   chainNamesJson: string;
   chainThresholdsJson: string;
   lateThreshold: number;
@@ -19,6 +20,7 @@ interface SettingsRow {
 const SettingsSchema = z.object({
   ordersToken: z.string(),
   availabilityToken: z.string(),
+  globalEntityId: z.string().trim().min(2).max(64).regex(/^[A-Za-z0-9_-]+$/),
   chainNames: z.array(z.string().trim().min(1).max(120)).max(200),
   chains: z.array(
     z.object({
@@ -179,6 +181,7 @@ export function getSettings(): Settings {
   const settings: Settings = {
     ordersToken: cryptoBox.decrypt(row.ordersTokenEnc),
     availabilityToken: cryptoBox.decrypt(row.availabilityTokenEnc),
+    globalEntityId: SettingsSchema.shape.globalEntityId.parse(row.globalEntityId),
     chainNames: chains.map((item) => item.name),
     chains,
     lateThreshold: row.lateThreshold,
@@ -190,6 +193,15 @@ export function getSettings(): Settings {
     maxVendorsPerOrdersRequest: row.maxVendorsPerOrdersRequest,
   };
   return settings;
+}
+
+export function getGlobalEntityId() {
+  const row = db.prepare<[], Pick<SettingsRow, "globalEntityId">>("SELECT globalEntityId FROM settings WHERE id=1").get();
+  if (!row) {
+    throw new Error("Settings row not found");
+  }
+
+  return SettingsSchema.shape.globalEntityId.parse(row.globalEntityId);
 }
 
 export function updateSettings(patch: Partial<Settings>) {
@@ -207,6 +219,7 @@ export function updateSettings(patch: Partial<Settings>) {
     UPDATE settings SET
       ordersTokenEnc = ?,
       availabilityTokenEnc = ?,
+      globalEntityId = ?,
       chainNamesJson = ?,
       chainThresholdsJson = ?,
       lateThreshold = ?,
@@ -220,6 +233,7 @@ export function updateSettings(patch: Partial<Settings>) {
   `).run(
     cryptoBox.encrypt(merged.ordersToken),
     cryptoBox.encrypt(merged.availabilityToken),
+    merged.globalEntityId,
     JSON.stringify(merged.chainNames),
     JSON.stringify(merged.chains),
     merged.lateThreshold,

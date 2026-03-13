@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { db } from "../config/db.js";
-import { FIXED_GLOBAL_ENTITY_ID } from "../config/constants.js";
 import { listResolvedBranches } from "./branchStore.js";
 import { getSettings } from "./settingsStore.js";
 import { fetchAvailabilities } from "./availabilityClient.js";
@@ -313,7 +312,7 @@ async function runSettingsTokenTestJob(jobId: string, settings: Settings, branch
   try {
     await probeOrdersVendorAccess({
       token: ordersToken,
-      globalEntityId: FIXED_GLOBAL_ENTITY_ID,
+      globalEntityId: branches[0]!.globalEntityId,
       ordersVendorId: branches[0]!.ordersVendorId,
     });
     upsertJob(jobId, {
@@ -348,7 +347,7 @@ async function runSettingsTokenTestJob(jobId: string, settings: Settings, branch
     try {
       const probe = await probeOrdersVendorAccess({
         token: ordersToken,
-        globalEntityId: FIXED_GLOBAL_ENTITY_ID,
+        globalEntityId: branch.globalEntityId,
         ordersVendorId: branch.ordersVendorId,
       });
 

@@ -25,6 +25,7 @@ export interface MonitorSourceError {
 export type OrdersDataState = "fresh" | "stale" | "warming";
 export type OrdersSyncMode = "mirror";
 export type OrdersSyncState = "warming" | "healthy" | "degraded";
+export type HealthReadinessState = "ready" | "idle" | "warming" | "degraded";
 
 export interface OrdersMetrics {
   totalToday: number;
@@ -194,6 +195,7 @@ export type BranchDetailResult =
 export type DashboardLiveConnectionState = "connecting" | "live" | "fallback" | "disconnected";
 
 export interface SettingsMasked {
+  globalEntityId: string;
   ordersToken: string;
   availabilityToken: string;
   chainNames: string[];
@@ -209,6 +211,28 @@ export interface SettingsMasked {
   availabilityRefreshSeconds: number;
 
   maxVendorsPerOrdersRequest: number;
+}
+
+export interface HealthStatusResponse {
+  ok: boolean;
+  name: string;
+  live: boolean;
+  ready: boolean;
+  readiness: {
+    state: HealthReadinessState;
+    message: string;
+  };
+  monitorRunning: boolean;
+  monitorDegraded: boolean;
+  lastSnapshotAt: string | null;
+  lastErrorAt: string | null;
+  ordersSync: {
+    mode: OrdersSyncMode;
+    state: OrdersSyncState;
+    lastSuccessfulSyncAt?: string;
+    staleBranchCount: number;
+    consecutiveSourceFailures: number;
+  };
 }
 
 export interface TokenTestResult {

@@ -22,6 +22,7 @@ export function Settings() {
   const [testJobId, setTestJobId] = useState<string | null>(null);
   const [mobileSection, setMobileSection] = useState<"monitor" | "tokens">("monitor");
   const canSave = canManageSettings || canManageTokens;
+  const canAccessTokenSection = canManageTokens || canTestTokens;
   const testPollTimerRef = useRef<number | null>(null);
 
   const clearTestPollTimer = () => {
@@ -227,7 +228,7 @@ export function Settings() {
               >
                 <Tabs value={mobileSection} onChange={(_event, value) => setMobileSection(value)} variant="fullWidth" sx={{ minHeight: 42, "& .MuiTab-root": { minHeight: 42, fontWeight: 900, textTransform: "none" } }}>
                   <Tab value="monitor" label="Monitor" />
-                  <Tab value="tokens" label="Tokens" />
+                  {canAccessTokenSection ? <Tab value="tokens" label="Tokens" /> : null}
                 </Tabs>
               </Box>
             ) : null}
@@ -280,90 +281,96 @@ export function Settings() {
               </Stack>
 
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2} sx={{ mt: 1.5 }}>
-                <Button variant="contained" onClick={save} disabled={!canSave}>
-                  {canSave ? "Save" : "Read Only"}
-                </Button>
+                {canManageSettings ? <Button variant="contained" onClick={save}>Save</Button> : null}
               </Stack>
             </Box>
 
-            <Box sx={{ display: { xs: !isMobile || mobileSection === "tokens" ? "block" : "none", sm: "block" } }}>
-              <Divider sx={{ display: { xs: isMobile ? "none" : "block", sm: "block" }, mb: { xs: 0, sm: 0 } }} />
+            {canAccessTokenSection ? (
+              <Box sx={{ display: { xs: !isMobile || mobileSection === "tokens" ? "block" : "none", sm: "block" } }}>
+                <Divider sx={{ display: { xs: isMobile ? "none" : "block", sm: "block" }, mb: { xs: 0, sm: 0 } }} />
 
-              <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 1.5, display: { xs: "none", sm: "block" } }}>
-                Tokens
-              </Typography>
+                <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 1.5, display: { xs: "none", sm: "block" } }}>
+                  Tokens
+                </Typography>
 
-              <Stack spacing={1.5}>
-                <TextField
-                  label="Orders API Token"
-                  type="password"
-                  placeholder={s?.ordersToken ? s.ordersToken : ""}
-                  value={form.ordersToken ?? ""}
-                  onChange={(e) => setForm((p: any) => ({ ...p, ordersToken: e.target.value }))}
-                  disabled={!canManageTokens}
-                  fullWidth
-                />
-                <TextField
-                  label="Availability API Token"
-                  type="password"
-                  placeholder={s?.availabilityToken ? s.availabilityToken : ""}
-                  value={form.availabilityToken ?? ""}
-                  onChange={(e) => setForm((p: any) => ({ ...p, availabilityToken: e.target.value }))}
-                  disabled={!canManageTokens}
-                  fullWidth
-                />
-              </Stack>
+                <Stack spacing={1.5}>
+                  <TextField
+                    label="Orders API Token"
+                    type="password"
+                    placeholder={s?.ordersToken ? s.ordersToken : ""}
+                    value={form.ordersToken ?? ""}
+                    onChange={(e) => setForm((p: any) => ({ ...p, ordersToken: e.target.value }))}
+                    disabled={!canManageTokens}
+                    fullWidth
+                  />
+                  <TextField
+                    label="Availability API Token"
+                    type="password"
+                    placeholder={s?.availabilityToken ? s.availabilityToken : ""}
+                    value={form.availabilityToken ?? ""}
+                    onChange={(e) => setForm((p: any) => ({ ...p, availabilityToken: e.target.value }))}
+                    disabled={!canManageTokens}
+                    fullWidth
+                  />
+                </Stack>
 
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2} sx={{ mt: 1.5 }}>
-                <Button variant="contained" onClick={save} disabled={!canSave}>
-                  {canSave ? "Save" : "Read Only"}
-                </Button>
-                <Button variant="outlined" onClick={runTest} disabled={!canTestTokens || !!testJobId}>
-                  {testJobId ? "Testing..." : "Test Tokens"}
-                </Button>
-              </Stack>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2} sx={{ mt: 1.5 }}>
+                  {canManageTokens ? <Button variant="contained" onClick={save}>Save</Button> : null}
+                  {canTestTokens ? (
+                    <Button variant="outlined" onClick={runTest} disabled={!!testJobId}>
+                      {testJobId ? "Testing..." : "Test Tokens"}
+                    </Button>
+                  ) : null}
+                </Stack>
 
-              {test ? (
-                <Box sx={{ mt: 1 }}>
-                  <Stack spacing={1}>
-                    <Alert severity={test.status === "failed" ? "error" : test.status === "completed" ? "success" : "info"}>
-                      Token Test Job: {test.status} • {test.progress.processedBranches}/{test.progress.totalBranches} branches • {test.progress.percent}%
-                    </Alert>
-                    <Alert severity={test.availability.ok ? "success" : test.availability.configured ? "error" : "warning"}>
-                      Availability Token:{" "}
-                      {test.availability.ok
-                        ? "OK"
-                        : test.availability.message || `Failed${test.availability.status ? ` (HTTP ${test.availability.status})` : ""}`}
-                    </Alert>
-                    <Alert severity={test.orders.configValid ? "success" : "warning"}>
-                      Orders Config: {test.orders.configValid ? "Ready for branch checks" : test.orders.configMessage || "Configuration incomplete"}
-                    </Alert>
-                    {test.orders.probe ? (
-                      <Alert severity={test.orders.probe.ok ? "success" : test.orders.probe.configured ? "warning" : "warning"}>
-                        Orders Probe:{" "}
-                        {test.orders.probe.ok
-                          ? "OK"
-                          : test.orders.probe.message || `Failed${test.orders.probe.status ? ` (HTTP ${test.orders.probe.status})` : ""}`}
+                {test ? (
+                  <Box sx={{ mt: 1 }}>
+                    <Stack spacing={1}>
+                      <Alert severity={test.status === "failed" ? "error" : test.status === "completed" ? "success" : "info"}>
+                        Token Test Job: {test.status} • {test.progress.processedBranches}/{test.progress.totalBranches} branches • {test.progress.percent}%
                       </Alert>
-                    ) : null}
-                    <Alert severity={test.orders.ok ? "success" : test.orders.failedBranchCount > 0 ? "warning" : "info"}>
-                      Orders Branch Sweep: {test.orders.passedBranchCount}/{test.orders.enabledBranchCount} enabled branches passed
-                      {test.orders.failedBranchCount > 0 ? `, ${test.orders.failedBranchCount} failed` : ""}
-                    </Alert>
-                    {test.orders.branches.length ? (
-                      <Stack spacing={0.75}>
-                        {test.orders.branches.map((branch) => (
-                          <Alert key={branch.branchId} severity={branch.ok ? "success" : "error"} variant="outlined">
-                            {branch.name} ({branch.ordersVendorId}):{" "}
-                            {branch.ok ? branch.sampleVendorName || branch.message || "Token OK" : branch.message || `Failed${branch.status ? ` (HTTP ${branch.status})` : ""}`}
-                          </Alert>
-                        ))}
-                      </Stack>
-                    ) : null}
-                  </Stack>
-                </Box>
-              ) : null}
-            </Box>
+                      <Alert severity={test.availability.ok ? "success" : test.availability.configured ? "error" : "warning"}>
+                        Availability Token:{" "}
+                        {test.availability.ok
+                          ? "OK"
+                          : test.availability.message || `Failed${test.availability.status ? ` (HTTP ${test.availability.status})` : ""}`}
+                      </Alert>
+                      <Alert severity={test.orders.configValid ? "success" : "warning"}>
+                        Orders Config: {test.orders.configValid ? "Ready for branch checks" : test.orders.configMessage || "Configuration incomplete"}
+                      </Alert>
+                      {test.orders.probe ? (
+                        <Alert severity={test.orders.probe.ok ? "success" : test.orders.probe.configured ? "warning" : "warning"}>
+                          Orders Probe:{" "}
+                          {test.orders.probe.ok
+                            ? "OK"
+                            : test.orders.probe.message || `Failed${test.orders.probe.status ? ` (HTTP ${test.orders.probe.status})` : ""}`}
+                        </Alert>
+                      ) : null}
+                      <Alert severity={test.orders.ok ? "success" : test.orders.failedBranchCount > 0 ? "warning" : "info"}>
+                        Orders Branch Sweep: {test.orders.passedBranchCount}/{test.orders.enabledBranchCount} enabled branches passed
+                        {test.orders.failedBranchCount > 0 ? `, ${test.orders.failedBranchCount} failed` : ""}
+                      </Alert>
+                      {test.orders.branches.length ? (
+                        <Stack spacing={0.75}>
+                          {test.orders.branches.map((branch) => (
+                            <Alert key={branch.branchId} severity={branch.ok ? "success" : "error"} variant="outlined">
+                              {branch.name} ({branch.ordersVendorId}):{" "}
+                              {branch.ok ? branch.sampleVendorName || branch.message || "Token OK" : branch.message || `Failed${branch.status ? ` (HTTP ${branch.status})` : ""}`}
+                            </Alert>
+                          ))}
+                        </Stack>
+                      ) : null}
+                    </Stack>
+                  </Box>
+                ) : null}
+              </Box>
+            ) : null}
+
+            {!canAccessTokenSection ? (
+              <Alert severity="info" variant="outlined">
+                Token management and token tests are restricted to admins.
+              </Alert>
+            ) : null}
           </CardContent>
         </Card>
       </Container>

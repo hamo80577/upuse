@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { db } from "../config/db.js";
-import { FIXED_GLOBAL_ENTITY_ID } from "../config/constants.js";
+import { getGlobalEntityId } from "./settingsStore.js";
 import { getVendorCatalogItem } from "./vendorCatalogStore.js";
 const AddBranchSchema = z.object({
     availabilityVendorId: z.string().trim().min(1).max(30),
@@ -34,7 +34,7 @@ function mapBranchRow(row) {
         unassignedThresholdOverride: row.unassignedThresholdOverride,
     };
 }
-function buildResolvedBranch(branch) {
+function buildResolvedBranch(branch, globalEntityId) {
     if (!branch.name || !branch.ordersVendorId || branch.catalogState !== "available") {
         return null;
     }
@@ -42,7 +42,7 @@ function buildResolvedBranch(branch) {
         ...branch,
         name: branch.name,
         ordersVendorId: branch.ordersVendorId,
-        globalEntityId: FIXED_GLOBAL_ENTITY_ID,
+        globalEntityId,
         catalogState: "available",
     };
 }
@@ -71,9 +71,10 @@ export function listBranches() {
 export function listResolvedBranches(options) {
     const whereClause = options?.enabledOnly ? "WHERE branches.enabled = 1" : "";
     const rows = db.prepare(getJoinedBranchQuery(whereClause)).all();
+    const globalEntityId = getGlobalEntityId();
     return rows
         .map(mapBranchRow)
-        .map(buildResolvedBranch)
+        .map((branch) => buildResolvedBranch(branch, globalEntityId))
         .filter((branch) => branch !== null);
 }
 export function getBranchById(id) {
@@ -82,7 +83,7 @@ export function getBranchById(id) {
 }
 export function getResolvedBranchById(id) {
     const branch = getBranchById(id);
-    return branch ? buildResolvedBranch(branch) : null;
+    return branch ? buildResolvedBranch(branch, getGlobalEntityId()) : null;
 }
 export function addBranch(input) {
     const parsed = AddBranchSchema.parse(input);

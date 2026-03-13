@@ -159,6 +159,7 @@ describe("putSettingsRoute", () => {
     mockUpdateSettings.mockImplementation((patch: Record<string, unknown>) => ({
       ordersToken: patch.ordersToken ?? "orders-token",
       availabilityToken: patch.availabilityToken ?? "availability-token",
+      globalEntityId: patch.globalEntityId ?? "HF_EG",
       chainNames: [],
       chains: [],
       lateThreshold: patch.lateThreshold ?? 5,
@@ -193,6 +194,28 @@ describe("putSettingsRoute", () => {
         ordersToken: "upda…oken",
         availabilityToken: "avai…oken",
         lateThreshold: 9,
+      },
+    });
+  });
+
+  it("accepts global entity updates without requiring token changes", () => {
+    const req: any = {
+      body: {
+        globalEntityId: "HF_SA",
+      },
+    };
+    const res = createResponse();
+
+    putSettingsRoute(req, res);
+
+    expect(mockUpdateSettings).toHaveBeenCalledWith({
+      globalEntityId: "HF_SA",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      settings: {
+        globalEntityId: "HF_SA",
       },
     });
   });

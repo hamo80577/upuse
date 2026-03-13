@@ -1,6 +1,5 @@
 import { DateTime } from "luxon";
 import { db } from "../config/db.js";
-import { FIXED_GLOBAL_ENTITY_ID } from "../config/constants.js";
 import { cairoDayWindowUtc, isPastPickup, nowUtcIso } from "../utils/time.js";
 import { createOrdersPollingRequests } from "./monitorOrdersPolling.js";
 import { getWithRetry, isRetryableOrdersRequestError } from "./orders/httpClient.js";
@@ -449,7 +448,7 @@ function markMissingActiveOrdersInactive(params) {
 function buildMirrorVendors(branches) {
     const byKey = new Map();
     for (const branch of branches.filter((item) => item.enabled)) {
-        const globalEntityId = FIXED_GLOBAL_ENTITY_ID;
+        const globalEntityId = branch.globalEntityId;
         const key = `${globalEntityId}::${branch.ordersVendorId}`;
         if (!byKey.has(key)) {
             byKey.set(key, {
@@ -781,8 +780,11 @@ export async function syncOrdersMirror(params) {
     const errors = [...bootstrap.failures, ...active.failures, ...history.failures];
     const failedVendorIds = new Set(errors.flatMap((error) => error.vendorIds));
     for (const vendorId of vendorIds) {
+        const branch = params.branches.find((item) => item.ordersVendorId === vendorId);
+        if (!branch)
+            continue;
         statusesByVendor.set(vendorId, getMirrorVendorSyncStatus({
-            globalEntityId: FIXED_GLOBAL_ENTITY_ID,
+            globalEntityId: branch.globalEntityId,
             vendorId,
             ordersRefreshSeconds: params.ordersRefreshSeconds,
             dayKey,

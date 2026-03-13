@@ -1,6 +1,5 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { FIXED_GLOBAL_ENTITY_ID } from "../config/constants.js";
 import type { MonitorEngine } from "../services/monitorEngine.js";
 import {
   addBranch,
@@ -345,7 +344,7 @@ export function branchDetailRoute(engine: MonitorEngine) {
     const getSnapshotBranch = () => engine.getSnapshot().branches.find((item) => item.branchId === id);
     const includePickerItems = req.query?.includePickerItems !== "0";
     const localDetail = getMirrorBranchDetail({
-      globalEntityId: FIXED_GLOBAL_ENTITY_ID,
+      globalEntityId: branch.globalEntityId,
       vendorId: branch.ordersVendorId,
       ordersRefreshSeconds: settings.ordersRefreshSeconds,
       includePickerItems,
@@ -421,7 +420,7 @@ export function branchPickersRoute() {
 
     const settings = getSettings();
     const localPickers = getMirrorBranchPickers({
-      globalEntityId: FIXED_GLOBAL_ENTITY_ID,
+      globalEntityId: resolved.branch.globalEntityId,
       vendorId: resolved.branch.ordersVendorId,
       ordersRefreshSeconds: settings.ordersRefreshSeconds,
     });

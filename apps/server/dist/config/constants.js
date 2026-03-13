@@ -1,1 +1,1 @@
-export const FIXED_GLOBAL_ENTITY_ID = "HF_EG";
+export const DEFAULT_GLOBAL_ENTITY_ID = "HF_EG";

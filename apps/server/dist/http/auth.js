@@ -1,5 +1,10 @@
 import { getSessionUserByToken } from "../services/authStore.js";
 import { readAuthSessionToken } from "./sessionCookie.js";
+const PUBLIC_API_PATHS = new Set([
+    "/api/health",
+    "/api/ready",
+    "/api/auth/login",
+]);
 const roleCapabilities = {
     admin: new Set([
         "manage_users",
@@ -18,7 +23,7 @@ const roleCapabilities = {
     ]),
 };
 function isPublicApiPath(path) {
-    return path === "/api/health" || path === "/api/auth/login";
+    return PUBLIC_API_PATHS.has(path);
 }
 export function hasCapability(role, capability) {
     if (!role)

@@ -11,7 +11,7 @@ function branch(
     chainName: params.chainName ?? "",
     ordersVendorId: params.ordersVendorId,
     availabilityVendorId: params.availabilityVendorId,
-    globalEntityId: "HF_EG",
+    globalEntityId: params.globalEntityId ?? "HF_EG",
     enabled: params.enabled ?? true,
     catalogState: "available",
     lateThresholdOverride: null,
@@ -73,18 +73,19 @@ describe("monitorOrdersPolling.createOrdersPollingPlan", () => {
 });
 
 describe("monitorOrdersPolling.createOrdersPollingRequests", () => {
-  it("always emits one fixed-entity request for the selected vendor ids", () => {
+  it("groups selected vendor ids by configured global entity", () => {
     const requests = createOrdersPollingRequests({
       branches: [
-        branch({ id: 1, ordersVendorId: 101, availabilityVendorId: "a1" }),
-        branch({ id: 2, ordersVendorId: 102, availabilityVendorId: "a2" }),
-        branch({ id: 3, ordersVendorId: 103, availabilityVendorId: "a3" }),
+        branch({ id: 1, ordersVendorId: 101, availabilityVendorId: "a1", globalEntityId: "HF_EG" }),
+        branch({ id: 2, ordersVendorId: 102, availabilityVendorId: "a2", globalEntityId: "HF_SA" }),
+        branch({ id: 3, ordersVendorId: 103, availabilityVendorId: "a3", globalEntityId: "HF_EG" }),
       ],
       vendorIds: [101, 102, 103],
     });
 
     expect(requests).toEqual([
-      { globalEntityId: "HF_EG", vendorIds: [101, 102, 103] },
+      { globalEntityId: "HF_EG", vendorIds: [101, 103] },
+      { globalEntityId: "HF_SA", vendorIds: [102] },
     ]);
   });
 

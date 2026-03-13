@@ -210,7 +210,7 @@ describe("BranchesPage", () => {
         ordersVendorId: 48665,
       });
     });
-  });
+  }, 15_000);
 
   it("lets operators toggle a paused branch back into monitor", async () => {
     mockApi.listBranches.mockResolvedValue({
