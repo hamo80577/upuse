@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   mockGetSettings,
   mockListBranches,
+  mockListResolvedBranches,
   mockGetRuntime,
   mockSetRuntime,
   mockFetchAvailabilities,
@@ -13,6 +14,7 @@ const {
 } = vi.hoisted(() => ({
   mockGetSettings: vi.fn(),
   mockListBranches: vi.fn(),
+  mockListResolvedBranches: vi.fn(),
   mockGetRuntime: vi.fn(),
   mockSetRuntime: vi.fn(),
   mockFetchAvailabilities: vi.fn(),
@@ -28,6 +30,7 @@ vi.mock("./settingsStore.js", () => ({
 
 vi.mock("./branchStore.js", () => ({
   listBranches: mockListBranches,
+  listResolvedBranches: mockListResolvedBranches,
   getRuntime: mockGetRuntime,
   setRuntime: mockSetRuntime,
 }));
@@ -53,7 +56,6 @@ vi.mock("./actionReportStore.js", () => ({
 vi.mock("./monitorOrdersPolling.js", () => ({
   createOrdersPollingPlan: vi.fn(),
   createOrdersPollingRequests: vi.fn(),
-  resolveOrdersGlobalEntityId: vi.fn((_branch: unknown, fallbackGlobalEntityId: string) => fallbackGlobalEntityId),
 }));
 
 vi.mock("./policyEngine.js", () => ({
@@ -112,6 +114,7 @@ describe("monitorEngine.getSnapshot", () => {
   beforeEach(() => {
     mockGetSettings.mockReset();
     mockListBranches.mockReset();
+    mockListResolvedBranches.mockReset();
     mockGetRuntime.mockReset();
     mockSetRuntime.mockReset();
     mockFetchAvailabilities.mockReset();
@@ -120,6 +123,7 @@ describe("monitorEngine.getSnapshot", () => {
     mockRecordMonitorCloseAction.mockReset();
     mockDecide.mockReset();
     mockDecide.mockReturnValue({ type: "NOOP" });
+    mockListResolvedBranches.mockImplementation((...args) => mockListBranches(...args));
   });
 
   it("rebuilds missing monitor close metadata from the tracked closure window instead of stale lastActionAt", () => {
@@ -573,7 +577,11 @@ describe("monitorEngine.stop", () => {
     engine.lastOrdersFetchAt = "2026-03-07T01:00:00.000Z";
     engine.lastAvailabilityFetchAt = "2026-03-07T01:00:10.000Z";
     engine.lastHealthyAt = "2026-03-07T01:00:10.000Z";
-    engine.closedOrdersSnapshotDayByBranch = new Map([[1, "2026-03-07"]]);
+    engine.ordersDataStateByVendor = new Map([[101, "fresh"]]);
+    engine.ordersLastSyncedAtByVendor = new Map([[101, "2026-03-07T01:00:00.000Z"]]);
+    engine.ordersLastSuccessfulSyncAt = "2026-03-07T01:00:00.000Z";
+    engine.staleOrdersBranchCount = 1;
+    engine.consecutiveOrdersSourceFailures = 2;
 
     engine.stop();
 
@@ -587,7 +595,11 @@ describe("monitorEngine.stop", () => {
     expect(engine.lastOrdersFetchAt).toBeUndefined();
     expect(engine.lastAvailabilityFetchAt).toBeUndefined();
     expect(engine.lastHealthyAt).toBeUndefined();
-    expect(engine.closedOrdersSnapshotDayByBranch.size).toBe(0);
+    expect(engine.ordersDataStateByVendor.size).toBe(0);
+    expect(engine.ordersLastSyncedAtByVendor.size).toBe(0);
+    expect(engine.ordersLastSuccessfulSyncAt).toBeUndefined();
+    expect(engine.staleOrdersBranchCount).toBe(0);
+    expect(engine.consecutiveOrdersSourceFailures).toBe(0);
   });
 });
 
@@ -648,6 +660,7 @@ describe("monitorEngine.reconcile", () => {
     const engine = new MonitorEngine() as any;
     engine.running = true;
     engine.ordersFresh = true;
+    engine.ordersDataStateByVendor = new Map([[505, "fresh"]]);
     engine.ordersByVendor = new Map([
       [
         505,
@@ -742,6 +755,7 @@ describe("monitorEngine.reconcile", () => {
     const engine = new MonitorEngine() as any;
     engine.running = true;
     engine.ordersFresh = true;
+    engine.ordersDataStateByVendor = new Map([[808, "fresh"]]);
     engine.ordersByVendor = new Map([
       [
         808,

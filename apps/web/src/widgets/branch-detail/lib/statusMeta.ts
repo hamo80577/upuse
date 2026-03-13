@@ -8,9 +8,9 @@ export function statusChip(branch: BranchSnapshot) {
   return { label: "Unknown", sx: { bgcolor: "#f1f5f9", color: "#475569" } };
 }
 
-export function closeReasonChip(reason?: BranchSnapshot["closeReason"]) {
-  if (reason === "LATE") return { label: "Late Trigger", sx: { bgcolor: "rgba(251,146,60,0.14)", color: "#9a3412" } };
-  if (reason === "UNASSIGNED") return { label: "Unassigned Trigger", sx: { bgcolor: "rgba(239,68,68,0.12)", color: "#b91c1c" } };
+export function closeReasonMeta(reason?: BranchSnapshot["closeReason"]) {
+  if (reason === "LATE") return { label: "Late Trigger", tone: "#9a3412", background: "rgba(255,237,213,0.94)", border: "rgba(251,146,60,0.22)" };
+  if (reason === "UNASSIGNED") return { label: "Unassigned Trigger", tone: "#b91c1c", background: "rgba(254,226,226,0.94)", border: "rgba(248,113,113,0.22)" };
   return null;
 }
 
@@ -20,7 +20,7 @@ export function statusPanelMeta(branch: BranchSnapshot) {
       title: "Paused from Monitor",
       caption: "This branch is excluded from live monitor cycles until it is turned back on.",
       tone: "#4338ca",
-      sourceLabel: "Paused",
+      sourceLabel: null,
       showTimer: false,
     };
   }
@@ -46,7 +46,7 @@ export function statusPanelMeta(branch: BranchSnapshot) {
           ? "Timer is tracked, but the source is not changeable right now."
           : "Observed from source. The monitor will not reopen it automatically.",
       tone: "#166534",
-      sourceLabel: isUpuseControlled ? "UPuse" : "External",
+      sourceLabel: isUpuseControlled ? "UPuse Control" : "External Source",
       showTimer: true,
     };
   }
@@ -56,7 +56,7 @@ export function statusPanelMeta(branch: BranchSnapshot) {
       title: "Closed from Source",
       caption: "No temporary timer is active for this branch.",
       tone: "#92400e",
-      sourceLabel: "Source",
+      sourceLabel: "Source Closed",
       showTimer: false,
     };
   }

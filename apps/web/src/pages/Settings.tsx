@@ -1,11 +1,11 @@
 import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
 import { Alert, Box, Button, Card, CardContent, Container, Divider, Snackbar, Stack, Tab, Tabs, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, describeApiError } from "../api/client";
 import { useAuth } from "../app/providers/AuthProvider";
 import { useMonitorStatus } from "../app/providers/MonitorStatusProvider";
-import type { SettingsMasked, SettingsTokenTestResponse } from "../api/types";
+import type { SettingsMasked, SettingsTokenTestSnapshot } from "../api/types";
 import { TopBar } from "../components/TopBar";
 
 export function Settings() {
@@ -18,14 +18,22 @@ export function Settings() {
   const [s, setS] = useState<SettingsMasked | null>(null);
   const [form, setForm] = useState<any>({});
   const [toast, setToast] = useState<{ type: "success" | "error" | "info"; msg: string } | null>(null);
-  const [test, setTest] = useState<SettingsTokenTestResponse | null>(null);
+  const [test, setTest] = useState<SettingsTokenTestSnapshot | null>(null);
+  const [testJobId, setTestJobId] = useState<string | null>(null);
   const [mobileSection, setMobileSection] = useState<"monitor" | "tokens">("monitor");
   const canSave = canManageSettings || canManageTokens;
+  const testPollTimerRef = useRef<number | null>(null);
+
+  const clearTestPollTimer = () => {
+    if (testPollTimerRef.current != null) {
+      window.clearTimeout(testPollTimerRef.current);
+      testPollTimerRef.current = null;
+    }
+  };
 
   const applySettings = (settings: SettingsMasked) => {
     setS(settings);
     setForm({
-      globalEntityId: settings.globalEntityId,
       tempCloseMinutes: settings.tempCloseMinutes,
       graceMinutes: settings.graceMinutes,
       ordersRefreshSeconds: settings.ordersRefreshSeconds,
@@ -52,6 +60,12 @@ export function Settings() {
 
   useEffect(() => {
     void loadProtectedData();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearTestPollTimer();
+    };
   }, []);
 
   const onStart = async () => {
@@ -88,7 +102,6 @@ export function Settings() {
     try {
       const payload: any = canManageSettings
         ? {
-            globalEntityId: form.globalEntityId,
             tempCloseMinutes: form.tempCloseMinutes,
             graceMinutes: form.graceMinutes,
             ordersRefreshSeconds: form.ordersRefreshSeconds,
@@ -118,6 +131,7 @@ export function Settings() {
       applySettings(fresh);
       setToast({ type: "success", msg: "Saved" });
       setTest(null);
+      setTestJobId(null);
     } catch {
       setToast({ type: "error", msg: "Save failed" });
     }
@@ -129,12 +143,39 @@ export function Settings() {
       return;
     }
     try {
-      const r = await api.testTokens();
-      setTest(r);
-    } catch {
-      setToast({ type: "error", msg: "Test failed" });
+      clearTestPollTimer();
+      const started = await api.startTokenTest();
+      setTestJobId(started.jobId);
+      setTest(started.snapshot);
+    } catch (error) {
+      setToast({ type: "error", msg: describeApiError(error, "Test failed") });
     }
   };
+
+  useEffect(() => {
+    if (!testJobId) return;
+    if (!test || (test.status !== "pending" && test.status !== "running")) return;
+
+    clearTestPollTimer();
+    testPollTimerRef.current = window.setTimeout(() => {
+      void api.getTokenTest(testJobId)
+        .then((snapshot) => {
+          setTest(snapshot);
+          if (snapshot.status === "completed" || snapshot.status === "failed") {
+            setTestJobId(null);
+          }
+        })
+        .catch((error) => {
+          clearTestPollTimer();
+          setTestJobId(null);
+          setToast({ type: "error", msg: describeApiError(error, "Test failed") });
+        });
+    }, 1200);
+
+    return () => {
+      clearTestPollTimer();
+    };
+  }, [test, testJobId]);
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
@@ -193,13 +234,6 @@ export function Settings() {
 
             <Box sx={{ display: { xs: !isMobile || mobileSection === "monitor" ? "block" : "none", sm: "block" } }}>
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-                <TextField
-                  label="Global Entity ID"
-                  value={form.globalEntityId ?? ""}
-                  onChange={(e) => setForm((p: any) => ({ ...p, globalEntityId: e.target.value }))}
-                  disabled={!canManageSettings}
-                  fullWidth
-                />
                 <TextField
                   label="Temp Close (minutes)"
                   type="number"
@@ -284,14 +318,17 @@ export function Settings() {
                 <Button variant="contained" onClick={save} disabled={!canSave}>
                   {canSave ? "Save" : "Read Only"}
                 </Button>
-                <Button variant="outlined" onClick={runTest} disabled={!canTestTokens}>
-                  Test Tokens
+                <Button variant="outlined" onClick={runTest} disabled={!canTestTokens || !!testJobId}>
+                  {testJobId ? "Testing..." : "Test Tokens"}
                 </Button>
               </Stack>
 
               {test ? (
                 <Box sx={{ mt: 1 }}>
                   <Stack spacing={1}>
+                    <Alert severity={test.status === "failed" ? "error" : test.status === "completed" ? "success" : "info"}>
+                      Token Test Job: {test.status} • {test.progress.processedBranches}/{test.progress.totalBranches} branches • {test.progress.percent}%
+                    </Alert>
                     <Alert severity={test.availability.ok ? "success" : test.availability.configured ? "error" : "warning"}>
                       Availability Token:{" "}
                       {test.availability.ok
@@ -301,6 +338,14 @@ export function Settings() {
                     <Alert severity={test.orders.configValid ? "success" : "warning"}>
                       Orders Config: {test.orders.configValid ? "Ready for branch checks" : test.orders.configMessage || "Configuration incomplete"}
                     </Alert>
+                    {test.orders.probe ? (
+                      <Alert severity={test.orders.probe.ok ? "success" : test.orders.probe.configured ? "warning" : "warning"}>
+                        Orders Probe:{" "}
+                        {test.orders.probe.ok
+                          ? "OK"
+                          : test.orders.probe.message || `Failed${test.orders.probe.status ? ` (HTTP ${test.orders.probe.status})` : ""}`}
+                      </Alert>
+                    ) : null}
                     <Alert severity={test.orders.ok ? "success" : test.orders.failedBranchCount > 0 ? "warning" : "info"}>
                       Orders Branch Sweep: {test.orders.passedBranchCount}/{test.orders.enabledBranchCount} enabled branches passed
                       {test.orders.failedBranchCount > 0 ? `, ${test.orders.failedBranchCount} failed` : ""}
@@ -309,7 +354,7 @@ export function Settings() {
                       <Stack spacing={0.75}>
                         {test.orders.branches.map((branch) => (
                           <Alert key={branch.branchId} severity={branch.ok ? "success" : "error"} variant="outlined">
-                            {branch.name} ({branch.ordersVendorId}, {branch.globalEntityId || "missing entity"}):{" "}
+                            {branch.name} ({branch.ordersVendorId}):{" "}
                             {branch.ok ? branch.sampleVendorName || branch.message || "Token OK" : branch.message || `Failed${branch.status ? ` (HTTP ${branch.status})` : ""}`}
                           </Alert>
                         ))}

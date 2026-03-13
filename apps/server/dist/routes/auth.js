@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { resolveSecurityConfig } from "../config/security.js";
 import { createAuthSession, createUser, deleteAuthSession, listUsers, verifyUserCredentials } from "../services/authStore.js";
 import { clearAuthSessionCookie, setAuthSessionCookie } from "../http/sessionCookie.js";
 import { normalizeEmail } from "../services/auth/passwords.js";
@@ -21,7 +22,20 @@ function isUniqueEmailError(error) {
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOGIN_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_ATTEMPT_BLOCK_MS = 15 * 60 * 1000;
+const { loginRateLimitMaxKeys: MAX_LOGIN_ATTEMPT_KEYS } = resolveSecurityConfig();
 const loginAttempts = new Map();
+function touchLoginAttempt(key, state) {
+    loginAttempts.delete(key);
+    loginAttempts.set(key, state);
+}
+function enforceLoginAttemptCapacity() {
+    while (loginAttempts.size > MAX_LOGIN_ATTEMPT_KEYS) {
+        const oldestKey = loginAttempts.keys().next().value;
+        if (!oldestKey)
+            return;
+        loginAttempts.delete(oldestKey);
+    }
+}
 function getLoginAttemptKey(req, email) {
     return `${req.ip || "unknown"}:${normalizeEmail(email)}`;
 }
@@ -43,6 +57,7 @@ function getBlockedUntilMs(key, nowMs = Date.now()) {
         }
         return null;
     }
+    touchLoginAttempt(key, state);
     return state.blockedUntilMs;
 }
 function registerFailedLoginAttempt(key, nowMs = Date.now()) {
@@ -62,7 +77,8 @@ function registerFailedLoginAttempt(key, nowMs = Date.now()) {
     if (nextState.count >= MAX_LOGIN_ATTEMPTS) {
         nextState.blockedUntilMs = nowMs + LOGIN_ATTEMPT_BLOCK_MS;
     }
-    loginAttempts.set(key, nextState);
+    touchLoginAttempt(key, nextState);
+    enforceLoginAttemptCapacity();
     return nextState;
 }
 function clearLoginAttempts(key) {

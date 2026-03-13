@@ -9,21 +9,39 @@ import { ZodError } from "zod";
 import { migrate } from "./config/db.js";
 import { getEnv } from "./config/env.js";
 import { resolveWebDistDir } from "./config/paths.js";
-import { createCorsOptions } from "./http/security.js";
+import { resolveSecurityConfig } from "./config/security.js";
+import { resolveStartupConfig } from "./config/startup.js";
+import { attachDashboardWebSocketServer } from "./http/dashboardWebSocket.js";
+import { createApiNoStoreMiddleware, createCorsOptions, createTrustedOriginMiddleware } from "./http/security.js";
 import { createSessionAuthMiddleware, requireAdminRole, requireAuthenticatedApi, requireCapability } from "./http/auth.js";
 import { MonitorEngine } from "./monitor/index.js";
 import { health } from "./routes/health.js";
 import { createUserRoute, listUsersRoute, loginRoute, logoutRoute, meRoute } from "./routes/auth.js";
-import { getSettingsRoute, putSettingsRoute, testTokensRoute } from "./routes/settings.js";
-import { listBranchesRoute, branchCatalogRoute, refreshBranchCatalogRoute, addBranchRoute, updateBranchRoute, updateBranchMonitoringRoute, branchDetailRoute, branchPickersRoute, deleteBranchRoute, lookupVendorNameRoute, parseMappingRoute } from "./routes/branches.js";
+import { getSettingsRoute, getTokenTestRoute, putSettingsRoute, testTokensRoute } from "./routes/settings.js";
+import { listBranchesRoute, listVendorSourceRoute, addBranchRoute, updateBranchThresholdOverridesRoute, updateBranchMonitoringRoute, branchDetailRoute, branchPickersRoute, deleteBranchRoute } from "./routes/branches.js";
 import { dashboardRoute } from "./routes/dashboard.js";
 import { clearLogsRoute, logsRoute } from "./routes/logs.js";
 import { downloadMonitorReportRoute } from "./routes/reports.js";
 import { startMonitorRoute, stopMonitorRoute, monitorStatusRoute, refreshOrdersNowRoute, streamRoute } from "./routes/monitor.js";
+import { syncVendorCatalogFromCsv } from "./services/vendorCatalogStore.js";
 migrate();
+const startupConfig = resolveStartupConfig();
+if (startupConfig.syncVendorCatalogOnStartup && startupConfig.vendorCatalogCsvPath) {
+    syncVendorCatalogFromCsv(startupConfig.vendorCatalogCsvPath);
+}
+function looksLikeLinkPreviewBot(userAgent) {
+    if (!userAgent)
+        return false;
+    return /(WhatsApp|facebookexternalhit|Facebot|TelegramBot|Slackbot|Discordbot|LinkedInBot|Twitterbot|SkypeUriPreview)/i.test(userAgent);
+}
 const app = express();
+const securityConfig = resolveSecurityConfig();
+app.disable("x-powered-by");
+app.set("trust proxy", securityConfig.trustProxy);
 app.use(cors(createCorsOptions()));
 app.use(helmet());
+app.use(createApiNoStoreMiddleware());
+app.use(createTrustedOriginMiddleware());
 app.use(express.json({ limit: "1mb" }));
 app.use(morgan("tiny"));
 app.use(createSessionAuthMiddleware());
@@ -39,17 +57,15 @@ app.post("/api/auth/users", requireAdminRole(), createUserRoute);
 app.get("/api/settings", getSettingsRoute);
 app.put("/api/settings", requireCapability("manage_settings_tokens"), putSettingsRoute);
 app.post("/api/settings/test", requireCapability("test_settings_tokens"), testTokensRoute);
+app.get("/api/settings/test/:jobId", requireCapability("test_settings_tokens"), getTokenTestRoute);
 app.get("/api/branches", listBranchesRoute);
-app.get("/api/branches/catalog", branchCatalogRoute);
-app.post("/api/branches/catalog/refresh", requireCapability("manage_branch_mappings"), refreshBranchCatalogRoute);
+app.get("/api/branches/source", listVendorSourceRoute);
 app.post("/api/branches", requireCapability("manage_branch_mappings"), addBranchRoute);
-app.put("/api/branches/:id", requireCapability("manage_branch_mappings"), updateBranchRoute);
+app.patch("/api/branches/:id/threshold-overrides", requireCapability("manage_settings"), updateBranchThresholdOverridesRoute);
 app.patch("/api/branches/:id/monitoring", requireCapability("manage_branch_mappings"), updateBranchMonitoringRoute(engine));
 app.get("/api/branches/:id/detail", branchDetailRoute(engine));
 app.get("/api/branches/:id/pickers", branchPickersRoute());
 app.delete("/api/branches/:id", requireCapability("delete_branch_mappings"), deleteBranchRoute);
-app.get("/api/branches/lookup-vendor-name", requireCapability("lookup_branch_vendors"), lookupVendorNameRoute);
-app.post("/api/branches/parse-mapping", requireCapability("lookup_branch_vendors"), parseMappingRoute);
 app.get("/api/dashboard", dashboardRoute(engine));
 app.get("/api/logs", logsRoute);
 app.delete("/api/logs", requireCapability("clear_logs"), clearLogsRoute);
@@ -58,7 +74,10 @@ app.post("/api/monitor/start", requireCapability("manage_monitor"), startMonitor
 app.post("/api/monitor/stop", requireCapability("manage_monitor"), stopMonitorRoute(engine));
 app.get("/api/monitor/status", monitorStatusRoute(engine));
 app.post("/api/monitor/refresh-orders", requireCapability("refresh_monitor_orders"), refreshOrdersNowRoute(engine));
-app.get("/api/stream", streamRoute(engine));
+app.get("/api/stream", streamRoute(engine, {
+    maxConnectionsPerUser: securityConfig.maxStreamConnectionsPerUser,
+    maxTotalConnections: securityConfig.maxStreamConnectionsTotal,
+}));
 app.use("/api", (_req, res) => {
     res.status(404).json({
         ok: false,
@@ -99,7 +118,8 @@ if (isProductionRuntime) {
             return;
         }
         const acceptsHtml = typeof req.headers.accept === "string" && req.headers.accept.includes("text/html");
-        if (!acceptsHtml) {
+        const isLinkPreview = looksLikeLinkPreviewBot(typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : undefined);
+        if (!acceptsHtml && !isLinkPreview) {
             next();
             return;
         }
@@ -135,6 +155,11 @@ app.use((error, _req, res, next) => {
     });
 });
 const port = Number(getEnv("PORT", "8080"));
-app.listen(port, () => {
+const server = app.listen(port, () => {
     console.log(`UPuse server listening on http://localhost:${port}`);
+});
+attachDashboardWebSocketServer({
+    server,
+    engine,
+    securityConfig,
 });

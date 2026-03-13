@@ -6,6 +6,7 @@ const mockApi = vi.hoisted(() => ({
   dashboard: vi.fn(),
   getSettings: vi.fn(),
   listBranches: vi.fn(),
+  listBranchSource: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({
@@ -51,10 +52,10 @@ describe("ThresholdsPage", () => {
     mockApi.dashboard.mockReset();
     mockApi.getSettings.mockReset();
     mockApi.listBranches.mockReset();
+    mockApi.listBranchSource.mockReset();
     mockApi.getSettings.mockResolvedValue({
       ordersToken: "",
       availabilityToken: "",
-      globalEntityId: "HF_EG",
       chainNames: ["Chain A"],
       chains: [{ name: "Chain A", lateThreshold: 5, unassignedThreshold: 5 }],
       lateThreshold: 5,
@@ -66,6 +67,7 @@ describe("ThresholdsPage", () => {
       maxVendorsPerOrdersRequest: 50,
     });
     mockApi.listBranches.mockResolvedValue({ items: [] });
+    mockApi.listBranchSource.mockResolvedValue({ items: [] });
   });
 
   it("loads threshold data without fetching the full dashboard snapshot", async () => {
@@ -78,6 +80,7 @@ describe("ThresholdsPage", () => {
     await waitFor(() => {
       expect(mockApi.getSettings).toHaveBeenCalled();
       expect(mockApi.listBranches).toHaveBeenCalled();
+      expect(mockApi.listBranchSource).toHaveBeenCalled();
     });
 
     expect(mockApi.dashboard).not.toHaveBeenCalled();

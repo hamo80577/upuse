@@ -65,7 +65,8 @@ function isValidBranchSnapshot(branch: unknown) {
     typeof candidate.statusColor === "string" &&
     isValidOrdersMetrics(candidate.metrics) &&
     isFiniteNumber(candidate.preparingNow) &&
-    isFiniteNumber(candidate.preparingPickersNow)
+    isFiniteNumber(candidate.preparingPickersNow) &&
+    typeof candidate.ordersDataState === "string"
   );
 }
 
@@ -90,8 +91,20 @@ function normalizeDashboardSnapshot(snapshot: DashboardSnapshot | null | undefin
         }
       : emptySnap.totals;
 
-  const branches = Array.isArray(snapshot.branches) ? snapshot.branches : null;
-  if (!branches || !branches.every(isValidBranchSnapshot)) {
+  const rawBranches = Array.isArray(snapshot.branches) ? snapshot.branches : null;
+  if (!rawBranches) {
+    return null;
+  }
+
+  const branches = rawBranches.map((branch) => ({
+    ...branch,
+    ordersDataState:
+      branch && typeof branch === "object" && typeof (branch as { ordersDataState?: unknown }).ordersDataState === "string"
+        ? (branch as { ordersDataState: DashboardSnapshot["branches"][number]["ordersDataState"] }).ordersDataState
+        : "warming",
+  }));
+
+  if (!branches.every(isValidBranchSnapshot)) {
     return null;
   }
 

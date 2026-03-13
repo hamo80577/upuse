@@ -62,6 +62,8 @@ export function resolveDisplayedBranch(
     metrics: liveBranch.metrics,
     preparingNow: liveBranch.preparingNow,
     preparingPickersNow: liveBranch.preparingPickersNow,
+    ordersDataState: liveBranch.ordersDataState ?? detailBranch.ordersDataState ?? branchSnapshot.ordersDataState ?? "warming",
+    ordersLastSyncedAt: liveBranch.ordersLastSyncedAt ?? detailBranch.ordersLastSyncedAt ?? branchSnapshot.ordersLastSyncedAt,
     lastUpdatedAt: liveBranch.lastUpdatedAt ?? detailBranch.lastUpdatedAt ?? branchSnapshot.lastUpdatedAt,
   } satisfies BranchSnapshot;
 }

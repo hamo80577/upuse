@@ -143,6 +143,7 @@ describe("useDashboardLiveSync", () => {
           availabilityVendorId: "201",
           status: "OPEN",
           statusColor: "green",
+          ordersDataState: "warming",
           metrics: {
             totalToday: 8,
             cancelledToday: 1,

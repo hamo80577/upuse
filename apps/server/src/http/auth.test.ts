@@ -74,7 +74,8 @@ describe("authorization capabilities", () => {
   it("grants user access to monitor control and branch management, but not user management", () => {
     expect(hasCapability("user", "manage_monitor")).toBe(true);
     expect(hasCapability("user", "manage_branch_mappings")).toBe(true);
-    expect(hasCapability("user", "manage_settings_tokens")).toBe(true);
+    expect(hasCapability("user", "manage_settings_tokens")).toBe(false);
+    expect(hasCapability("user", "test_settings_tokens")).toBe(false);
     expect(hasCapability("user", "manage_users")).toBe(false);
     expect(hasCapability("user", "delete_branch_mappings")).toBe(false);
   });

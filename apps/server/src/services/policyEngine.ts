@@ -1,9 +1,9 @@
 import { DateTime } from "luxon";
-import type { BranchMapping, CloseReason, OrdersMetrics, AvailabilityRecord, Settings } from "../types/models.js";
+import type { CloseReason, OrdersMetrics, AvailabilityRecord, ResolvedBranchMapping, Settings } from "../types/models.js";
 import { resolveBranchThresholdProfile } from "./thresholds.js";
 
 export interface PolicyInput {
-  branch: BranchMapping;
+  branch: ResolvedBranchMapping;
   metrics: OrdersMetrics;
   availability?: AvailabilityRecord;
   runtime?: {

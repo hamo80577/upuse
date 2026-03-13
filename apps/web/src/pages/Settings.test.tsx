@@ -46,7 +46,6 @@ describe("SettingsPage", () => {
     mockApi.getSettings.mockResolvedValue({
       ordersToken: "",
       availabilityToken: "",
-      globalEntityId: "HF_EG",
       chainNames: ["Chain A"],
       chains: [{ name: "Chain A", lateThreshold: 5, unassignedThreshold: 5 }],
       lateThreshold: 5,

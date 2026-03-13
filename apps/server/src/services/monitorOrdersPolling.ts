@@ -1,4 +1,5 @@
-import type { AvailabilityRecord, BranchMapping, OrdersVendorId } from "../types/models.js";
+import { FIXED_GLOBAL_ENTITY_ID } from "../config/constants.js";
+import type { AvailabilityRecord, OrdersVendorId, ResolvedBranchMapping } from "../types/models.js";
 
 export interface OrdersPollingPlan {
   vendorIds: OrdersVendorId[];
@@ -12,7 +13,7 @@ export interface OrdersPollingRequest {
 }
 
 export function createOrdersPollingPlan(params: {
-  branches: BranchMapping[];
+  branches: ResolvedBranchMapping[];
   availabilityByVendor: ReadonlyMap<string, AvailabilityRecord>;
   closedSnapshotDayByBranch: ReadonlyMap<number, string>;
   cairoDayKey: string;
@@ -20,6 +21,7 @@ export function createOrdersPollingPlan(params: {
   void params.availabilityByVendor;
   void params.closedSnapshotDayByBranch;
   void params.cairoDayKey;
+
   const vendorIds = new Set<OrdersVendorId>();
   const resetBranchIds: number[] = [];
   const captureBranchIds: number[] = [];
@@ -39,34 +41,21 @@ export function createOrdersPollingPlan(params: {
   };
 }
 
-export function resolveOrdersGlobalEntityId(
-  branch: Pick<BranchMapping, "globalEntityId">,
-  fallbackGlobalEntityId: string,
-) {
-  const branchEntityId = branch.globalEntityId?.trim();
-  return branchEntityId && branchEntityId.length ? branchEntityId : fallbackGlobalEntityId;
-}
-
 export function createOrdersPollingRequests(params: {
-  branches: BranchMapping[];
+  branches: ResolvedBranchMapping[];
   vendorIds: OrdersVendorId[];
-  fallbackGlobalEntityId: string;
 }): OrdersPollingRequest[] {
   const selectedVendorIds = new Set(params.vendorIds);
-  const requestsByEntityId = new Map<string, OrdersPollingRequest>();
+  const resolvedVendorIds = Array.from(new Set(
+    params.branches
+      .filter((branch) => selectedVendorIds.has(branch.ordersVendorId))
+      .map((branch) => branch.ordersVendorId),
+  ));
 
-  for (const branch of params.branches) {
-    if (!selectedVendorIds.has(branch.ordersVendorId)) continue;
-
-    const globalEntityId = resolveOrdersGlobalEntityId(branch, params.fallbackGlobalEntityId);
-    let request = requestsByEntityId.get(globalEntityId);
-    if (!request) {
-      request = { globalEntityId, vendorIds: [] };
-      requestsByEntityId.set(globalEntityId, request);
-    }
-
-    request.vendorIds.push(branch.ordersVendorId);
-  }
-
-  return Array.from(requestsByEntityId.values());
+  return resolvedVendorIds.length
+    ? [{
+      globalEntityId: FIXED_GLOBAL_ENTITY_ID,
+      vendorIds: resolvedVendorIds,
+    }]
+    : [];
 }

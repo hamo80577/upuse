@@ -51,19 +51,19 @@ function formatPickerCount(count: number) {
 
 function LoadingLayout() {
   return (
-    <Stack spacing={1.3} sx={{ minHeight: 0 }}>
+    <Stack spacing={1.05} sx={{ minHeight: 0 }}>
       <Box
         sx={{
           display: "grid",
-          gap: 1.2,
+          gap: 1,
           gridTemplateColumns: { xs: "1fr", lg: "minmax(300px, 0.95fr) minmax(0, 1.25fr)" },
         }}
       >
-        <Skeleton variant="rounded" animation="wave" height={242} />
-        <Skeleton variant="rounded" animation="wave" height={242} />
+        <Skeleton variant="rounded" animation="wave" height={224} />
+        <Skeleton variant="rounded" animation="wave" height={224} />
       </Box>
-      <Skeleton variant="rounded" animation="wave" height={56} />
-      <Skeleton variant="rounded" animation="wave" height={280} />
+      <Skeleton variant="rounded" animation="wave" height={50} />
+      <Skeleton variant="rounded" animation="wave" height={252} />
     </Stack>
   );
 }
@@ -217,19 +217,19 @@ export function BranchDetailDialog(props: {
       maxWidth="lg"
       PaperProps={{
         sx: {
-          width: { xs: "100%", sm: "min(1120px, calc(100vw - 64px))" },
-          height: { xs: "100%", sm: "min(820px, calc(100vh - 64px))" },
-          maxHeight: { xs: "100%", sm: "calc(100vh - 64px)" },
-          m: { xs: 0, sm: 3 },
-          borderRadius: { xs: 0, sm: 4 },
+          width: { xs: "100%", sm: "min(1040px, calc(100vw - 56px))" },
+          height: { xs: "100%", sm: "min(760px, calc(100vh - 48px))" },
+          maxHeight: { xs: "100%", sm: "calc(100vh - 48px)" },
+          m: { xs: 0, sm: 2.5 },
+          borderRadius: { xs: 0, sm: 2.4 },
           display: "flex",
           flexDirection: "column",
         },
       }}
     >
-      <DialogTitle sx={{ pb: { xs: 1, sm: 1.2 }, px: { xs: 1.1, sm: 2 }, pt: { xs: 1, sm: 1.6 } }}>
+      <DialogTitle sx={{ pb: { xs: 0.9, sm: 1 }, px: { xs: 1, sm: 1.6 }, pt: { xs: 0.9, sm: 1.2 } }}>
         {showFullScreenLoading ? (
-          <Skeleton variant="rounded" animation="wave" height={136} />
+          <Skeleton variant="rounded" animation="wave" height={122} />
         ) : (
           <BranchDetailHeader
             branch={branch}
@@ -244,7 +244,7 @@ export function BranchDetailDialog(props: {
       <DialogContent
         dividers
         sx={{
-          p: { xs: 1.1, md: 1.7 },
+          p: { xs: 1, md: 1.35 },
           flex: 1,
           minHeight: 0,
           display: "flex",
@@ -268,7 +268,7 @@ export function BranchDetailDialog(props: {
               sx={{
                 width: "100%",
                 maxWidth: 460,
-                borderRadius: 3.5,
+                borderRadius: 2.5,
                 border: "1px solid rgba(220,38,38,0.16)",
                 bgcolor: "rgba(255,255,255,0.96)",
                 boxShadow: "0 18px 38px rgba(15,23,42,0.05)",
@@ -334,7 +334,7 @@ export function BranchDetailDialog(props: {
                   pb: { xs: 0.5, sm: 0 },
                   px: { xs: 0.25, sm: 0 },
                   mx: { xs: -0.25, sm: 0 },
-                  borderRadius: { xs: 3, sm: 0 },
+                  borderRadius: { xs: 2.25, sm: 0 },
                   border: { xs: "1px solid rgba(148,163,184,0.10)", sm: "none" },
                   bgcolor: { xs: "rgba(255,255,255,0.94)", sm: "transparent" },
                   backdropFilter: { xs: "blur(14px)", sm: "none" },

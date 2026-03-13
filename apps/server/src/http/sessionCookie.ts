@@ -1,9 +1,20 @@
 import type { CookieOptions, Request, Response } from "express";
 
 export const AUTH_SESSION_COOKIE_NAME = "upuse_session";
+export const PRODUCTION_AUTH_SESSION_COOKIE_NAME = "__Host-upuse_session";
 
 function isProduction() {
   return process.env.NODE_ENV?.trim().toLowerCase() === "production";
+}
+
+function getAuthSessionCookieNames() {
+  return isProduction()
+    ? [PRODUCTION_AUTH_SESSION_COOKIE_NAME, AUTH_SESSION_COOKIE_NAME]
+    : [AUTH_SESSION_COOKIE_NAME];
+}
+
+function getPrimaryAuthSessionCookieName() {
+  return getAuthSessionCookieNames()[0];
 }
 
 function createAuthSessionCookieOptions(): CookieOptions {
@@ -38,14 +49,25 @@ function parseCookieHeader(headerValue: string | undefined) {
   return cookies;
 }
 
+export function readAuthSessionTokenFromCookieHeader(headerValue: string | undefined) {
+  const cookies = parseCookieHeader(headerValue);
+
+  for (const cookieName of getAuthSessionCookieNames()) {
+    const value = cookies.get(cookieName);
+    if (value) return value;
+  }
+
+  return undefined;
+}
+
 export function readAuthSessionToken(req: Request) {
-  return parseCookieHeader(req.header("cookie")).get(AUTH_SESSION_COOKIE_NAME);
+  return readAuthSessionTokenFromCookieHeader(req.header("cookie"));
 }
 
 export function setAuthSessionCookie(res: Response, token: string, expiresAt: string) {
   const expiresAtMs = new Date(expiresAt).getTime();
 
-  res.cookie(AUTH_SESSION_COOKIE_NAME, token, {
+  res.cookie(getPrimaryAuthSessionCookieName(), token, {
     ...createAuthSessionCookieOptions(),
     expires: new Date(expiresAt),
     maxAge: Number.isFinite(expiresAtMs) ? Math.max(0, expiresAtMs - Date.now()) : undefined,
@@ -53,5 +75,7 @@ export function setAuthSessionCookie(res: Response, token: string, expiresAt: st
 }
 
 export function clearAuthSessionCookie(res: Response) {
-  res.clearCookie(AUTH_SESSION_COOKIE_NAME, createAuthSessionCookieOptions());
+  for (const cookieName of getAuthSessionCookieNames()) {
+    res.clearCookie(cookieName, createAuthSessionCookieOptions());
+  }
 }

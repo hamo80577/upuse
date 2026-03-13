@@ -3,7 +3,6 @@ import { z } from "zod";
 const SettingsSchema = z.object({
     ordersToken: z.string(),
     availabilityToken: z.string(),
-    globalEntityId: z.string().min(1),
     chainNames: z.array(z.string().trim().min(1).max(120)).max(200),
     chains: z.array(z.object({
         name: z.string().trim().min(1).max(120),
@@ -124,7 +123,6 @@ export function getSettings() {
     const settings = {
         ordersToken: cryptoBox.decrypt(row.ordersTokenEnc),
         availabilityToken: cryptoBox.decrypt(row.availabilityTokenEnc),
-        globalEntityId: row.globalEntityId,
         chainNames: chains.map((item) => item.name),
         chains,
         lateThreshold: row.lateThreshold,
@@ -151,7 +149,6 @@ export function updateSettings(patch) {
     UPDATE settings SET
       ordersTokenEnc = ?,
       availabilityTokenEnc = ?,
-      globalEntityId = ?,
       chainNamesJson = ?,
       chainThresholdsJson = ?,
       lateThreshold = ?,
@@ -162,6 +159,6 @@ export function updateSettings(patch) {
       availabilityRefreshSeconds = ?,
       maxVendorsPerOrdersRequest = ?
     WHERE id = 1
-  `).run(cryptoBox.encrypt(merged.ordersToken), cryptoBox.encrypt(merged.availabilityToken), merged.globalEntityId, JSON.stringify(merged.chainNames), JSON.stringify(merged.chains), merged.lateThreshold, merged.unassignedThreshold, merged.tempCloseMinutes, merged.graceMinutes, merged.ordersRefreshSeconds, merged.availabilityRefreshSeconds, merged.maxVendorsPerOrdersRequest);
+  `).run(cryptoBox.encrypt(merged.ordersToken), cryptoBox.encrypt(merged.availabilityToken), JSON.stringify(merged.chainNames), JSON.stringify(merged.chains), merged.lateThreshold, merged.unassignedThreshold, merged.tempCloseMinutes, merged.graceMinutes, merged.ordersRefreshSeconds, merged.availabilityRefreshSeconds, merged.maxVendorsPerOrdersRequest);
     return merged;
 }

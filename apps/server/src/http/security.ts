@@ -1,5 +1,5 @@
 import type { CorsOptionsDelegate } from "cors";
-import type { Request } from "express";
+import type { Request, RequestHandler } from "express";
 
 export function parseCorsOrigins(raw: string | undefined) {
   if (!raw) return [];
@@ -34,9 +34,16 @@ function normalizeOrigin(origin: string | undefined) {
 
 type RequestOriginLike = Pick<Request, "headers" | "protocol" | "get">;
 
-export function resolveRequestOrigin(req: RequestOriginLike) {
-  const forwardedProto = firstHeaderValue(req.headers["x-forwarded-proto"]);
-  const forwardedHost = firstHeaderValue(req.headers["x-forwarded-host"]);
+function hasTrustedProxy(req: RequestOriginLike & { app?: { get?: (name: string) => unknown } }) {
+  return Boolean(req.app?.get?.("trust proxy"));
+}
+
+type RequestSecurityLike = RequestOriginLike & { app?: { get?: (name: string) => unknown } };
+
+export function resolveRequestOrigin(req: RequestSecurityLike) {
+  const trustProxy = hasTrustedProxy(req);
+  const forwardedProto = trustProxy ? firstHeaderValue(req.headers["x-forwarded-proto"]) : undefined;
+  const forwardedHost = trustProxy ? firstHeaderValue(req.headers["x-forwarded-host"]) : undefined;
   const host = forwardedHost || firstHeaderValue(req.headers.host) || req.get?.("host");
   if (!host) return null;
 
@@ -44,7 +51,7 @@ export function resolveRequestOrigin(req: RequestOriginLike) {
   return normalizeOrigin(`${protocol}://${host}`);
 }
 
-export function isSameRequestOrigin(origin: string | undefined, req: RequestOriginLike) {
+export function isSameRequestOrigin(origin: string | undefined, req: RequestSecurityLike) {
   const normalizedOrigin = normalizeOrigin(origin);
   if (!normalizedOrigin) {
     return !origin;
@@ -63,16 +70,80 @@ export function isAllowedOrigin(origin: string | undefined, configuredOrigins: s
   return isDefaultLocalOrigin(origin);
 }
 
-export function createCorsOptions(): CorsOptionsDelegate<Request> {
-  const configuredOrigins = parseCorsOrigins(process.env.UPUSE_CORS_ORIGINS);
+export function isTrustedOrigin(origin: string | undefined, req: RequestSecurityLike, configuredOrigins: string[]) {
+  return isAllowedOrigin(origin, configuredOrigins) || isSameRequestOrigin(origin, req);
+}
+
+function resolveRequestInitiatorOrigin(req: RequestOriginLike) {
+  const requestOrigin = normalizeOrigin(firstHeaderValue(req.headers.origin));
+  if (requestOrigin) return requestOrigin;
+
+  const referer = firstHeaderValue(req.headers.referer);
+  if (!referer) return null;
+
+  try {
+    return new URL(referer).origin;
+  } catch {
+    return null;
+  }
+}
+
+function isSafeMethod(method: string) {
+  return method === "GET" || method === "HEAD" || method === "OPTIONS";
+}
+
+export function createCorsOptions(configuredOrigins = parseCorsOrigins(process.env.UPUSE_CORS_ORIGINS)): CorsOptionsDelegate<Request> {
+  const trustedOrigins = configuredOrigins;
 
   return (req, callback) => {
     const requestOrigin = firstHeaderValue(req.headers.origin);
-    const allow = isAllowedOrigin(requestOrigin, configuredOrigins) || isSameRequestOrigin(requestOrigin, req);
+    const allow = isTrustedOrigin(requestOrigin, req, trustedOrigins);
 
     callback(allow ? null : new Error("CORS origin not allowed"), {
       origin: allow,
       credentials: true,
+    });
+  };
+}
+
+export function createApiNoStoreMiddleware(): RequestHandler {
+  return (req, res, next) => {
+    if (req.path.startsWith("/api/")) {
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Pragma", "no-cache");
+    }
+
+    next();
+  };
+}
+
+export function createTrustedOriginMiddleware(configuredOrigins = parseCorsOrigins(process.env.UPUSE_CORS_ORIGINS)): RequestHandler {
+  const trustedOrigins = configuredOrigins;
+
+  return (req, res, next) => {
+    if (!req.path.startsWith("/api/") || isSafeMethod(req.method)) {
+      next();
+      return;
+    }
+
+    const fetchSite = firstHeaderValue(req.headers["sec-fetch-site"])?.toLowerCase();
+    if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "same-site" && fetchSite !== "none") {
+      res.status(403).json({
+        ok: false,
+        message: "Cross-site API request blocked",
+      });
+      return;
+    }
+
+    const initiatorOrigin = resolveRequestInitiatorOrigin(req);
+    if (!initiatorOrigin || isTrustedOrigin(initiatorOrigin, req, trustedOrigins)) {
+      next();
+      return;
+    }
+
+    res.status(403).json({
+      ok: false,
+      message: "Untrusted request origin",
     });
   };
 }

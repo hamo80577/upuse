@@ -84,6 +84,17 @@ function getOrdersIssueCopy(message: string) {
   };
 }
 
+function getOrdersStaleSummary(staleBranchCount: number) {
+  return {
+    title: "Orders data is catching up",
+    message:
+      staleBranchCount === 1
+        ? "1 branch is serving the latest cached orders snapshot."
+        : `${staleBranchCount} branches are serving the latest cached orders snapshot.`,
+    hint: "Live cards stay available while background sync retries the affected branches.",
+  };
+}
+
 export function DashboardPage() {
   const { canManageMonitor, canRefreshOrdersNow } = useAuth();
   const {
@@ -131,15 +142,23 @@ export function DashboardPage() {
     [groupBy, visibleBranchPool],
   );
 
-  const ordersError = snap.monitoring.errors?.orders;
+  const ordersSync = snap.monitoring.ordersSync;
+  const ordersError = ordersSync?.state === "degraded" ? snap.monitoring.errors?.orders : undefined;
   const ordersSyncState =
-    snap.monitoring.running && !snap.monitoring.lastOrdersFetchAt
+    ordersSync?.state === "warming"
       ? "syncing"
-      : ordersError && snap.monitoring.lastOrdersFetchAt
+      : ordersSync?.state === "degraded" || (ordersSync?.staleBranchCount ?? 0) > 0
         ? "stale"
         : "fresh";
   const syncIssue = syncError ? getSyncIssueCopy(syncError) : null;
   const ordersIssue = ordersError ? getOrdersIssueCopy(ordersError.message) : null;
+  const partialOrdersIssue =
+    snap.monitoring.running &&
+    ordersSync &&
+    ordersSync.state !== "degraded" &&
+    ordersSync.staleBranchCount > 0
+      ? getOrdersStaleSummary(ordersSync.staleBranchCount)
+      : null;
 
   useEffect(() => {
     if (!detailBranchId) return;
@@ -151,7 +170,7 @@ export function DashboardPage() {
       <TopBar
         running={snap.monitoring.running}
         degraded={snap.monitoring.degraded}
-        degradedLabel={ordersError ? "Orders API Error" : undefined}
+        degradedLabel={ordersError ? "Orders Sync Degraded" : undefined}
         degradedColor={ordersError ? "error" : "warning"}
         branchSummary={snap.branches}
         onStart={onStart}
@@ -196,6 +215,15 @@ export function DashboardPage() {
                 ) : "No Access"}
               </Button>
             )}
+          />
+        ) : null}
+        {partialOrdersIssue ? (
+          <DashboardIssueBanner
+            kind="sync"
+            title={partialOrdersIssue.title}
+            message={partialOrdersIssue.message}
+            hint={partialOrdersIssue.hint}
+            detectedLabel={ordersSync?.lastSuccessfulSyncAt ? `Last healthy sync ${fmtIssueAt(ordersSync.lastSuccessfulSyncAt)}` : undefined}
           />
         ) : null}
         <OperationsSummaryCard

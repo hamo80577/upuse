@@ -282,4 +282,24 @@ describe("BranchDetailDialog", () => {
     expect(screen.getByText("Live Operations")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Queue" })).toBeInTheDocument();
   });
+
+  it("keeps close state context inside the status window instead of the header chips", () => {
+    mockUseBranchDetailState.mockReturnValue(buildHookState({
+      kind: "ok",
+      branch: createBranchSnapshot(),
+      totals: createBranchSnapshot().metrics,
+      fetchedAt: "2026-03-08T14:10:00.000Z",
+      cacheState: "fresh",
+      unassignedOrders: [],
+      preparingOrders: [],
+      pickers: emptyPickers(),
+    }));
+
+    render(<BranchDetailDialog open branchId={7} branchSnapshot={createBranchSnapshot()} onClose={() => {}} />);
+
+    expect(screen.getAllByText("Temporary Close")).toHaveLength(1);
+    expect(screen.getByText("UPuse Control")).toBeInTheDocument();
+    expect(screen.getByLabelText("Unassigned Trigger")).toBeInTheDocument();
+    expect(screen.queryByText("Late Trigger")).not.toBeInTheDocument();
+  });
 });

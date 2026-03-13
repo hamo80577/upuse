@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
-import crypto from "node:crypto";
 import { resolveDataDir, resolveDbFilePath } from "./paths.js";
+import { createCryptoBox, createEncryptionKeyring, parseEncryptionSecretList } from "./encryption.js";
 import { resolveEncryptionSecret } from "./secret.js";
 import { hashPassword, normalizeEmail } from "../services/auth/passwords.js";
 function isProduction() {
@@ -58,31 +58,16 @@ export const dbFilePath = resolveDbFilePath({ env: process.env });
 export const db = new Database(dbFilePath);
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
+const existingEncryptedSettings = readExistingEncryptedSettings();
 const secret = resolveEncryptionSecret({
     env: process.env,
     dataDir,
-    existingEncryptedSettings: readExistingEncryptedSettings(),
+    existingEncryptedSettings,
 });
-const key = crypto.createHash("sha256").update(secret).digest(); // 32 bytes
-const ivLen = 12;
-function encrypt(plain) {
-    const iv = crypto.randomBytes(ivLen);
-    const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
-    const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
-    const tag = cipher.getAuthTag();
-    return Buffer.concat([iv, tag, enc]).toString("base64");
-}
-function decrypt(payload) {
-    const buf = Buffer.from(payload, "base64");
-    const iv = buf.subarray(0, ivLen);
-    const tag = buf.subarray(ivLen, ivLen + 16);
-    const enc = buf.subarray(ivLen + 16);
-    const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
-    decipher.setAuthTag(tag);
-    const dec = Buffer.concat([decipher.update(enc), decipher.final()]);
-    return dec.toString("utf8");
-}
-export const cryptoBox = { encrypt, decrypt };
+const previousSecrets = parseEncryptionSecretList(process.env.UPUSE_SECRET_PREVIOUS);
+const cryptoBox = createCryptoBox(createEncryptionKeyring(secret, previousSecrets));
+cryptoBox.assertCanDecryptAll(existingEncryptedSettings);
+export { cryptoBox };
 function readExistingEncryptedSettings() {
     const hasSettingsTable = db
         .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'settings' LIMIT 1")
@@ -93,6 +78,22 @@ function readExistingEncryptedSettings() {
     if (!row)
         return [];
     return [row.ordersTokenEnc, row.availabilityTokenEnc].filter((value) => typeof value === "string" && value.trim().length > 0);
+}
+function rotateStoredSettingsSecretsToPrimary() {
+    const row = db.prepare("SELECT ordersTokenEnc, availabilityTokenEnc FROM settings WHERE id = 1").get();
+    if (!row?.ordersTokenEnc || !row.availabilityTokenEnc)
+        return;
+    const orders = cryptoBox.decryptWithMetadata(row.ordersTokenEnc);
+    const availability = cryptoBox.decryptWithMetadata(row.availabilityTokenEnc);
+    if (!orders.needsReencrypt && !availability.needsReencrypt) {
+        return;
+    }
+    db.prepare(`
+    UPDATE settings
+    SET ordersTokenEnc = ?, availabilityTokenEnc = ?
+    WHERE id = 1
+  `).run(orders.needsReencrypt ? cryptoBox.encrypt(orders.value) : row.ordersTokenEnc, availability.needsReencrypt ? cryptoBox.encrypt(availability.value) : row.availabilityTokenEnc);
+    console.warn("Re-encrypted stored settings tokens with the current UPUSE_SECRET. After verifying startup, you can remove old secrets from UPUSE_SECRET_PREVIOUS.");
 }
 function migrateLegacyUserRoles() {
     const usersTable = db
@@ -144,6 +145,69 @@ function migrateLegacyUserRoles() {
         db.pragma("foreign_keys = ON");
     }
 }
+function migrateBranchesTableToLocalCatalogShape() {
+    const branchColumns = db.prepare("PRAGMA table_info(branches)").all();
+    const expectedColumns = new Set([
+        "id",
+        "availabilityVendorId",
+        "chainName",
+        "enabled",
+        "lateThresholdOverride",
+        "unassignedThresholdOverride",
+    ]);
+    const requiresRebuild = branchColumns.length !== expectedColumns.size ||
+        branchColumns.some((column) => !expectedColumns.has(column.name));
+    if (!requiresRebuild) {
+        db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_branches_availabilityVendorId ON branches(availabilityVendorId)");
+        db.exec("DROP INDEX IF EXISTS idx_branches_ordersVendorId");
+        return;
+    }
+    const runMigration = db.transaction(() => {
+        db.exec(`
+      DROP INDEX IF EXISTS idx_branches_ordersVendorId;
+      DROP INDEX IF EXISTS idx_branches_availabilityVendorId;
+      DROP TABLE IF EXISTS branches_next;
+
+      CREATE TABLE branches_next (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        availabilityVendorId TEXT NOT NULL,
+        chainName TEXT NOT NULL DEFAULT '',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        lateThresholdOverride INTEGER,
+        unassignedThresholdOverride INTEGER
+      );
+
+      INSERT INTO branches_next (
+        id,
+        availabilityVendorId,
+        chainName,
+        enabled,
+        lateThresholdOverride,
+        unassignedThresholdOverride
+      )
+      SELECT
+        id,
+        availabilityVendorId,
+        COALESCE(chainName, ''),
+        CASE WHEN enabled IS NULL THEN 1 ELSE enabled END,
+        lateThresholdOverride,
+        unassignedThresholdOverride
+      FROM branches;
+
+      DROP TABLE branches;
+      ALTER TABLE branches_next RENAME TO branches;
+
+      CREATE UNIQUE INDEX idx_branches_availabilityVendorId ON branches(availabilityVendorId);
+    `);
+    });
+    db.pragma("foreign_keys = OFF");
+    try {
+        runMigration();
+    }
+    finally {
+        db.pragma("foreign_keys = ON");
+    }
+}
 export function migrate() {
     db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
@@ -164,17 +228,13 @@ export function migrate() {
 
     CREATE TABLE IF NOT EXISTS branches (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      chainName TEXT NOT NULL DEFAULT '',
-      ordersVendorId INTEGER NOT NULL,
       availabilityVendorId TEXT NOT NULL,
-      globalEntityId TEXT NOT NULL,
+      chainName TEXT NOT NULL DEFAULT '',
       enabled INTEGER NOT NULL DEFAULT 1,
       lateThresholdOverride INTEGER,
       unassignedThresholdOverride INTEGER
     );
 
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_branches_ordersVendorId ON branches(ordersVendorId);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_branches_availabilityVendorId ON branches(availabilityVendorId);
 
     CREATE TABLE IF NOT EXISTS branch_runtime (
@@ -266,37 +326,69 @@ export function migrate() {
       lastActiveSyncAt TEXT,
       lastHistorySyncAt TEXT,
       lastFullHistorySweepAt TEXT,
+      lastSuccessfulSyncAt TEXT,
+      lastHistoryCursorAt TEXT,
+      consecutiveFailures INTEGER NOT NULL DEFAULT 0,
+      lastErrorAt TEXT,
+      lastErrorCode TEXT,
+      lastErrorMessage TEXT,
+      staleSince TEXT,
+      quarantinedUntil TEXT,
       PRIMARY KEY (dayKey, globalEntityId, vendorId)
     );
 
-    CREATE TABLE IF NOT EXISTS branch_catalog (
+    CREATE TABLE IF NOT EXISTS settings_token_test_jobs (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      startedAt TEXT,
+      completedAt TEXT,
+      availabilityConfigured INTEGER NOT NULL DEFAULT 0,
+      availabilityOk INTEGER NOT NULL DEFAULT 0,
+      availabilityStatus INTEGER,
+      availabilityMessage TEXT,
+      ordersConfigured INTEGER NOT NULL DEFAULT 0,
+      ordersConfigValid INTEGER NOT NULL DEFAULT 0,
+      ordersConfigMessage TEXT,
+      ordersProbeOk INTEGER NOT NULL DEFAULT 0,
+      ordersProbeStatus INTEGER,
+      ordersProbeMessage TEXT,
+      totalBranches INTEGER NOT NULL DEFAULT 0,
+      processedBranches INTEGER NOT NULL DEFAULT 0,
+      passedBranches INTEGER NOT NULL DEFAULT 0,
+      failedBranches INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_settings_token_test_jobs_created
+      ON settings_token_test_jobs(createdAt DESC);
+
+    CREATE TABLE IF NOT EXISTS settings_token_test_results (
+      jobId TEXT NOT NULL,
+      branchId INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      ordersVendorId INTEGER NOT NULL,
+      ok INTEGER NOT NULL DEFAULT 0,
+      status INTEGER,
+      message TEXT,
+      sampleVendorName TEXT,
+      processedAt TEXT NOT NULL,
+      PRIMARY KEY (jobId, branchId),
+      FOREIGN KEY (jobId) REFERENCES settings_token_test_jobs(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_settings_token_test_results_job
+      ON settings_token_test_results(jobId, processedAt DESC);
+
+    CREATE TABLE IF NOT EXISTS vendor_catalog (
       availabilityVendorId TEXT PRIMARY KEY,
-      ordersVendorId INTEGER,
-      name TEXT,
-      globalEntityId TEXT NOT NULL,
-      availabilityState TEXT NOT NULL DEFAULT 'CLOSED',
-      changeable INTEGER NOT NULL DEFAULT 0,
-      presentInSource INTEGER NOT NULL DEFAULT 1,
-      resolveStatus TEXT NOT NULL DEFAULT 'unresolved',
-      lastSeenAt TEXT,
-      resolvedAt TEXT,
-      lastError TEXT
+      ordersVendorId INTEGER NOT NULL UNIQUE,
+      name TEXT NOT NULL
     );
 
-    CREATE INDEX IF NOT EXISTS idx_branch_catalog_name
-      ON branch_catalog(name);
-    CREATE INDEX IF NOT EXISTS idx_branch_catalog_entity_present
-      ON branch_catalog(globalEntityId, presentInSource);
-    CREATE INDEX IF NOT EXISTS idx_branch_catalog_orders_vendor
-      ON branch_catalog(ordersVendorId);
-
-    CREATE TABLE IF NOT EXISTS branch_catalog_sync_state (
-      globalEntityId TEXT PRIMARY KEY,
-      syncState TEXT NOT NULL DEFAULT 'stale',
-      lastAttemptedAt TEXT,
-      lastSyncedAt TEXT,
-      lastError TEXT
-    );
+    CREATE INDEX IF NOT EXISTS idx_vendor_catalog_name
+      ON vendor_catalog(name);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_vendor_catalog_orders_vendor
+      ON vendor_catalog(ordersVendorId);
 
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -319,22 +411,17 @@ export function migrate() {
     CREATE INDEX IF NOT EXISTS idx_sessions_expiresAt ON sessions(expiresAt);
   `);
     migrateLegacyUserRoles();
+    migrateBranchesTableToLocalCatalogShape();
+    db.exec(`
+    DROP TABLE IF EXISTS branch_catalog;
+    DROP TABLE IF EXISTS branch_catalog_sync_state;
+  `);
     const settingsColumns = db.prepare("PRAGMA table_info(settings)").all();
     if (!settingsColumns.some((column) => column.name === "chainNamesJson")) {
         db.exec("ALTER TABLE settings ADD COLUMN chainNamesJson TEXT NOT NULL DEFAULT '[]'");
     }
     if (!settingsColumns.some((column) => column.name === "chainThresholdsJson")) {
         db.exec("ALTER TABLE settings ADD COLUMN chainThresholdsJson TEXT NOT NULL DEFAULT '[]'");
-    }
-    const branchColumns = db.prepare("PRAGMA table_info(branches)").all();
-    if (!branchColumns.some((column) => column.name === "chainName")) {
-        db.exec("ALTER TABLE branches ADD COLUMN chainName TEXT NOT NULL DEFAULT ''");
-    }
-    if (!branchColumns.some((column) => column.name === "lateThresholdOverride")) {
-        db.exec("ALTER TABLE branches ADD COLUMN lateThresholdOverride INTEGER");
-    }
-    if (!branchColumns.some((column) => column.name === "unassignedThresholdOverride")) {
-        db.exec("ALTER TABLE branches ADD COLUMN unassignedThresholdOverride INTEGER");
     }
     const branchRuntimeColumns = db.prepare("PRAGMA table_info(branch_runtime)").all();
     if (!branchRuntimeColumns.some((column) => column.name === "lastExternalCloseUntil")) {
@@ -345,6 +432,31 @@ export function migrate() {
     }
     if (!branchRuntimeColumns.some((column) => column.name === "lastUpuseCloseEventId")) {
         db.exec("ALTER TABLE branch_runtime ADD COLUMN lastUpuseCloseEventId INTEGER");
+    }
+    const ordersSyncStateColumns = db.prepare("PRAGMA table_info(orders_sync_state)").all();
+    if (!ordersSyncStateColumns.some((column) => column.name === "lastSuccessfulSyncAt")) {
+        db.exec("ALTER TABLE orders_sync_state ADD COLUMN lastSuccessfulSyncAt TEXT");
+    }
+    if (!ordersSyncStateColumns.some((column) => column.name === "lastHistoryCursorAt")) {
+        db.exec("ALTER TABLE orders_sync_state ADD COLUMN lastHistoryCursorAt TEXT");
+    }
+    if (!ordersSyncStateColumns.some((column) => column.name === "consecutiveFailures")) {
+        db.exec("ALTER TABLE orders_sync_state ADD COLUMN consecutiveFailures INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!ordersSyncStateColumns.some((column) => column.name === "lastErrorAt")) {
+        db.exec("ALTER TABLE orders_sync_state ADD COLUMN lastErrorAt TEXT");
+    }
+    if (!ordersSyncStateColumns.some((column) => column.name === "lastErrorCode")) {
+        db.exec("ALTER TABLE orders_sync_state ADD COLUMN lastErrorCode TEXT");
+    }
+    if (!ordersSyncStateColumns.some((column) => column.name === "lastErrorMessage")) {
+        db.exec("ALTER TABLE orders_sync_state ADD COLUMN lastErrorMessage TEXT");
+    }
+    if (!ordersSyncStateColumns.some((column) => column.name === "staleSince")) {
+        db.exec("ALTER TABLE orders_sync_state ADD COLUMN staleSince TEXT");
+    }
+    if (!ordersSyncStateColumns.some((column) => column.name === "quarantinedUntil")) {
+        db.exec("ALTER TABLE orders_sync_state ADD COLUMN quarantinedUntil TEXT");
     }
     const row = db.prepare("SELECT id FROM settings WHERE id=1").get();
     if (!row) {
@@ -376,6 +488,7 @@ export function migrate() {
       )
     `).run(defaultSettings);
     }
+    rotateStoredSettingsSecretsToPrimary();
     const settingsRow = db.prepare("SELECT chainNamesJson, chainThresholdsJson FROM settings WHERE id=1").get();
     if (settingsRow) {
         const rawThresholds = typeof settingsRow.chainThresholdsJson === "string" ? settingsRow.chainThresholdsJson.trim() : "";

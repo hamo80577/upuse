@@ -3,17 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   mockGetSettings,
   mockUpdateSettings,
-  mockFetchAvailabilities,
-  mockResolveOrdersGlobalEntityId,
-  mockLookupVendorName,
-  mockListBranches,
+  mockStartSettingsTokenTestJob,
+  mockGetSettingsTokenTestSnapshot,
 } = vi.hoisted(() => ({
   mockGetSettings: vi.fn(),
   mockUpdateSettings: vi.fn(),
-  mockFetchAvailabilities: vi.fn(),
-  mockResolveOrdersGlobalEntityId: vi.fn(),
-  mockLookupVendorName: vi.fn(),
-  mockListBranches: vi.fn(),
+  mockStartSettingsTokenTestJob: vi.fn(),
+  mockGetSettingsTokenTestSnapshot: vi.fn(),
 }));
 
 vi.mock("../services/settingsStore.js", () => ({
@@ -21,23 +17,12 @@ vi.mock("../services/settingsStore.js", () => ({
   updateSettings: mockUpdateSettings,
 }));
 
-vi.mock("../services/availabilityClient.js", () => ({
-  fetchAvailabilities: mockFetchAvailabilities,
+vi.mock("../services/settingsTokenTestStore.js", () => ({
+  startSettingsTokenTestJob: mockStartSettingsTokenTestJob,
+  getSettingsTokenTestSnapshot: mockGetSettingsTokenTestSnapshot,
 }));
 
-vi.mock("../services/monitorOrdersPolling.js", () => ({
-  resolveOrdersGlobalEntityId: mockResolveOrdersGlobalEntityId,
-}));
-
-vi.mock("../services/ordersClient.js", () => ({
-  lookupVendorName: mockLookupVendorName,
-}));
-
-vi.mock("../services/branchStore.js", () => ({
-  listBranches: mockListBranches,
-}));
-
-import { putSettingsRoute, testTokensRoute } from "./settings.js";
+import { getTokenTestRoute, putSettingsRoute, testTokensRoute } from "./settings.js";
 
 function createResponse() {
   const res: any = {
@@ -59,99 +44,111 @@ describe("testTokensRoute", () => {
   beforeEach(() => {
     mockGetSettings.mockReset();
     mockUpdateSettings.mockReset();
-    mockFetchAvailabilities.mockReset();
-    mockResolveOrdersGlobalEntityId.mockReset();
-    mockLookupVendorName.mockReset();
-    mockListBranches.mockReset();
-
-    mockGetSettings.mockReturnValue({
-      ordersToken: "orders-token",
-      availabilityToken: "availability-token",
-      globalEntityId: "HF_EG",
-    });
-    mockResolveOrdersGlobalEntityId.mockImplementation((branch: { globalEntityId?: string }, fallback: string) => {
-      const value = branch?.globalEntityId?.trim();
-      return value && value.length ? value : fallback;
-    });
-    mockFetchAvailabilities.mockResolvedValue([{ id: "ok" }]);
+    mockStartSettingsTokenTestJob.mockReset();
+    mockGetSettingsTokenTestSnapshot.mockReset();
   });
 
-  it("reports all enabled branches when token checks pass", async () => {
-    mockListBranches.mockReturnValue([
-      { id: 1, name: "A", ordersVendorId: 11, globalEntityId: "", enabled: true },
-      { id: 2, name: "B", ordersVendorId: 22, globalEntityId: "HF_SA", enabled: true },
-    ]);
-    mockLookupVendorName.mockResolvedValueOnce("Branch A").mockResolvedValueOnce("Branch B");
+  it("starts an async token test job and returns 202 with the initial snapshot", async () => {
+    mockStartSettingsTokenTestJob.mockReturnValue({
+      jobId: "job-123",
+      snapshot: {
+        jobId: "job-123",
+        status: "pending",
+        createdAt: "2026-03-13T00:00:00.000Z",
+        progress: {
+          totalBranches: 2,
+          processedBranches: 0,
+          passedBranches: 0,
+          failedBranches: 0,
+          percent: 0,
+        },
+        availability: { configured: true, ok: false, status: null },
+        orders: {
+          configValid: true,
+          ok: false,
+          probe: { configured: true, ok: false, status: null },
+          enabledBranchCount: 2,
+          passedBranchCount: 0,
+          failedBranchCount: 0,
+          branches: [],
+        },
+      },
+    });
 
     const res = createResponse();
     await testTokensRoute({} as any, res);
 
-    expect(res.body.orders).toMatchObject({
-      configValid: true,
+    expect(res.statusCode).toBe(202);
+    expect(res.body).toEqual({
       ok: true,
-      enabledBranchCount: 2,
-      passedBranchCount: 2,
-      failedBranchCount: 0,
+      jobId: "job-123",
+      snapshot: expect.objectContaining({
+        jobId: "job-123",
+        status: "pending",
+        progress: expect.objectContaining({
+          totalBranches: 2,
+          processedBranches: 0,
+        }),
+        orders: expect.objectContaining({
+          configValid: true,
+          enabledBranchCount: 2,
+        }),
+      }),
     });
-    expect(res.body.orders.branches).toEqual([
-      expect.objectContaining({
-        branchId: 1,
-        name: "A",
-        ordersVendorId: 11,
-        globalEntityId: "HF_EG",
-        ok: true,
-        sampleVendorName: "Branch A",
-      }),
-      expect.objectContaining({
-        branchId: 2,
-        name: "B",
-        ordersVendorId: 22,
-        globalEntityId: "HF_SA",
-        ok: true,
-        sampleVendorName: "Branch B",
-      }),
-    ]);
   });
 
-  it("reports partial branch failures without hiding the successful checks", async () => {
-    mockListBranches.mockReturnValue([
-      { id: 1, name: "A", ordersVendorId: 11, globalEntityId: "", enabled: true },
-      { id: 2, name: "B", ordersVendorId: 22, globalEntityId: "", enabled: true },
-    ]);
-    mockLookupVendorName.mockResolvedValueOnce("Branch A").mockRejectedValueOnce({
-      response: { status: 401, data: { message: "Unauthorized" } },
+  it("returns a stored token test snapshot by job id", () => {
+    mockGetSettingsTokenTestSnapshot.mockReturnValue({
+      jobId: "job-123",
+      status: "completed",
+      createdAt: "2026-03-13T00:00:00.000Z",
+      startedAt: "2026-03-13T00:00:01.000Z",
+      completedAt: "2026-03-13T00:00:05.000Z",
+      progress: {
+        totalBranches: 2,
+        processedBranches: 2,
+        passedBranches: 1,
+        failedBranches: 1,
+        percent: 100,
+      },
+      availability: { configured: true, ok: true, status: null },
+      orders: {
+        configValid: true,
+        ok: false,
+        probe: { configured: true, ok: true, status: null },
+        enabledBranchCount: 2,
+        passedBranchCount: 1,
+        failedBranchCount: 1,
+        branches: [
+          { branchId: 1, name: "A", ordersVendorId: 11, ok: true, status: null, sampleVendorName: "Branch A" },
+          { branchId: 2, name: "B", ordersVendorId: 22, ok: false, status: 401, message: "Unauthorized" },
+        ],
+      },
     });
 
     const res = createResponse();
-    await testTokensRoute({} as any, res);
+    getTokenTestRoute({ params: { jobId: "job-123" } } as any, res);
 
-    expect(res.body.orders).toMatchObject({
-      configValid: true,
-      ok: false,
-      enabledBranchCount: 2,
-      passedBranchCount: 1,
-      failedBranchCount: 1,
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      jobId: "job-123",
+      status: "completed",
+      orders: {
+        passedBranchCount: 1,
+        failedBranchCount: 1,
+      },
     });
-    expect(res.body.orders.branches).toEqual([
-      expect.objectContaining({ branchId: 1, ok: true, sampleVendorName: "Branch A" }),
-      expect.objectContaining({ branchId: 2, ok: false, status: 401, message: "Unauthorized" }),
-    ]);
   });
 
-  it("returns a config warning when there are no enabled branches", async () => {
-    mockListBranches.mockReturnValue([]);
-
+  it("returns 404 when the token test job is missing", () => {
+    mockGetSettingsTokenTestSnapshot.mockReturnValue(null);
     const res = createResponse();
-    await testTokensRoute({} as any, res);
+    getTokenTestRoute({ params: { jobId: "missing-job" } } as any, res);
 
-    expect(res.body.orders).toEqual({
-      configValid: false,
-      configMessage: "Enable at least one branch mapping to test Orders token.",
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toEqual({
       ok: false,
-      enabledBranchCount: 0,
-      passedBranchCount: 0,
-      failedBranchCount: 0,
-      branches: [],
+      message: "Token test job not found",
     });
   });
 });
@@ -162,24 +159,23 @@ describe("putSettingsRoute", () => {
     mockUpdateSettings.mockImplementation((patch: Record<string, unknown>) => ({
       ordersToken: patch.ordersToken ?? "orders-token",
       availabilityToken: patch.availabilityToken ?? "availability-token",
-      globalEntityId: "HF_EG",
       chainNames: [],
       chains: [],
-      lateThreshold: 5,
-      unassignedThreshold: 5,
-      tempCloseMinutes: 30,
-      graceMinutes: 5,
-      ordersRefreshSeconds: 30,
-      availabilityRefreshSeconds: 30,
-      maxVendorsPerOrdersRequest: 50,
+      lateThreshold: patch.lateThreshold ?? 5,
+      unassignedThreshold: patch.unassignedThreshold ?? 5,
+      tempCloseMinutes: patch.tempCloseMinutes ?? 30,
+      graceMinutes: patch.graceMinutes ?? 5,
+      ordersRefreshSeconds: patch.ordersRefreshSeconds ?? 30,
+      availabilityRefreshSeconds: patch.availabilityRefreshSeconds ?? 30,
+      maxVendorsPerOrdersRequest: patch.maxVendorsPerOrdersRequest ?? 50,
     }));
   });
 
-  it("allows user accounts to update API tokens", () => {
+  it("accepts admin settings updates and returns masked tokens", () => {
     const req: any = {
-      authUser: { role: "user" },
       body: {
-        ordersToken: "user-orders-token",
+        ordersToken: "updated-orders-token",
+        lateThreshold: 9,
       },
     };
     const res = createResponse();
@@ -187,29 +183,17 @@ describe("putSettingsRoute", () => {
     putSettingsRoute(req, res);
 
     expect(mockUpdateSettings).toHaveBeenCalledWith({
-      ordersToken: "user-orders-token",
+      ordersToken: "updated-orders-token",
+      lateThreshold: 9,
     });
     expect(res.statusCode).toBe(200);
-    expect(res.body).toMatchObject({ ok: true });
-  });
-
-  it("rejects non-token settings changes from user accounts", () => {
-    const req: any = {
-      authUser: { role: "user" },
-      body: {
-        ordersToken: "user-orders-token",
-        globalEntityId: "HF_SA",
+    expect(res.body).toMatchObject({
+      ok: true,
+      settings: {
+        ordersToken: "upda…oken",
+        availabilityToken: "avai…oken",
+        lateThreshold: 9,
       },
-    };
-    const res = createResponse();
-
-    putSettingsRoute(req, res);
-
-    expect(mockUpdateSettings).not.toHaveBeenCalled();
-    expect(res.statusCode).toBe(403);
-    expect(res.body).toEqual({
-      ok: false,
-      message: "User can update tokens only.",
     });
   });
 });

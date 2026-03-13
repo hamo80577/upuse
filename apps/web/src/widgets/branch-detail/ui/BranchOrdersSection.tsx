@@ -46,7 +46,7 @@ function OrderRow(props: { item: BranchLiveOrder; nowMs: number }) {
           </Stack>
 
           <Stack direction="row" spacing={0.7} sx={{ mt: 0.75, flexWrap: "wrap", rowGap: 0.7 }}>
-            <Box sx={{ px: 0.75, py: 0.45, borderRadius: 2, bgcolor: "rgba(248,250,252,0.95)", border: "1px solid rgba(148,163,184,0.10)" }}>
+            <Box sx={{ px: 0.75, py: 0.45, borderRadius: 1.5, bgcolor: "rgba(248,250,252,0.95)", border: "1px solid rgba(148,163,184,0.10)" }}>
               <Typography variant="caption" sx={{ color: "text.secondary", display: "block", lineHeight: 1 }}>
                 Placed
               </Typography>
@@ -54,7 +54,7 @@ function OrderRow(props: { item: BranchLiveOrder; nowMs: number }) {
                 {fmtPlacedAt(props.item.placedAt)}
               </Typography>
             </Box>
-            <Box sx={{ px: 0.75, py: 0.45, borderRadius: 2, bgcolor: "rgba(248,250,252,0.95)", border: "1px solid rgba(148,163,184,0.10)" }}>
+            <Box sx={{ px: 0.75, py: 0.45, borderRadius: 1.5, bgcolor: "rgba(248,250,252,0.95)", border: "1px solid rgba(148,163,184,0.10)" }}>
               <Typography variant="caption" sx={{ color: "text.secondary", display: "block", lineHeight: 1 }}>
                 Picker
               </Typography>
@@ -69,7 +69,7 @@ function OrderRow(props: { item: BranchLiveOrder; nowMs: number }) {
           sx={{
             minWidth: { xs: "auto", sm: 124 },
             textAlign: { xs: "left", sm: "right" },
-            borderRadius: 2.3,
+            borderRadius: 1.75,
             px: { xs: 0, sm: 0.85 },
             py: { xs: 0, sm: 0.7 },
             bgcolor: { xs: "transparent", sm: "rgba(248,250,252,0.92)" },
@@ -106,7 +106,7 @@ export function BranchOrdersSection(props: {
   return (
     <Box
       sx={{
-        borderRadius: 3.2,
+        borderRadius: 2.5,
         border: "1px solid rgba(148,163,184,0.14)",
         overflow: "hidden",
         bgcolor: "rgba(255,255,255,0.94)",

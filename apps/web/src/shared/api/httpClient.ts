@@ -71,6 +71,12 @@ export interface JsonEventStreamOptions {
   onMessage: (eventName: string, data: unknown) => void;
 }
 
+export interface JsonWebSocketOptions {
+  signal?: AbortSignal;
+  onOpen?: () => void;
+  onMessage: (eventName: string, data: unknown) => void;
+}
+
 export function describeApiError(error: unknown, fallback = "Request failed") {
   if (error instanceof Error && error.message.trim()) {
     if (error.message === "Unauthorized") {
@@ -166,6 +172,31 @@ async function fetchWithTimeout(url: string, init: RequestInit | undefined, time
       sourceSignal.removeEventListener("abort", onAbortFromSource);
     }
   }
+}
+
+function createAbortError() {
+  const error = new Error("Aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function resolveWebSocketUrl(url: string) {
+  if (/^wss?:\/\//i.test(url)) {
+    return url;
+  }
+
+  if (/^https?:\/\//i.test(url)) {
+    const resolved = new URL(url);
+    resolved.protocol = resolved.protocol === "https:" ? "wss:" : "ws:";
+    return resolved.toString();
+  }
+
+  if (typeof window === "undefined") {
+    throw new Error("WebSocket URLs require a browser context.");
+  }
+
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return new URL(url, `${protocol}//${window.location.host}`).toString();
 }
 
 export async function requestJson<T>(url: string, init?: RequestInit, options?: HttpRequestOptions): Promise<T> {
@@ -265,6 +296,118 @@ export async function requestJsonEventStream(url: string, options: JsonEventStre
   } finally {
     reader.releaseLock();
   }
+}
+
+export async function requestJsonWebSocket(url: string, options: JsonWebSocketOptions) {
+  return new Promise<void>((resolve, reject) => {
+    if (typeof WebSocket === "undefined") {
+      reject(new Error("Streaming is not supported in this browser."));
+      return;
+    }
+
+    const socket = new WebSocket(resolveWebSocketUrl(url));
+    let opened = false;
+    let settled = false;
+    let closingDueToAbort = false;
+    let socketError: Error | null = null;
+
+    const cleanup = () => {
+      if (options.signal) {
+        options.signal.removeEventListener("abort", onAbort);
+      }
+      socket.removeEventListener("open", onOpen);
+      socket.removeEventListener("message", onMessage);
+      socket.removeEventListener("error", onError);
+      socket.removeEventListener("close", onClose);
+    };
+
+    const finishResolve = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+
+    const finishReject = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+
+    const onAbort = () => {
+      closingDueToAbort = true;
+      try {
+        socket.close(1000, "Client aborted");
+      } catch {}
+      finishReject(createAbortError());
+    };
+
+    const onOpen = () => {
+      opened = true;
+      options.onOpen?.();
+    };
+
+    const onMessage = (event: MessageEvent<string>) => {
+      try {
+        const parsed = JSON.parse(event.data) as { type?: unknown; data?: unknown };
+        if (typeof parsed?.type !== "string") {
+          throw new Error("The server returned invalid live update data.");
+        }
+
+        options.onMessage(parsed.type, parsed.data);
+      } catch (error) {
+        socketError = error instanceof Error ? error : new Error("The server returned invalid live update data.");
+        try {
+          socket.close(1003, "Invalid message");
+        } catch {}
+      }
+    };
+
+    const onError = () => {
+      socketError = socketError ?? new Error("Live WebSocket connection failed.");
+    };
+
+    const onClose = (event: CloseEvent) => {
+      if (settled) return;
+      if (closingDueToAbort) {
+        finishReject(createAbortError());
+        return;
+      }
+
+      const reason = normalizeApiErrorMessage(event.reason, "");
+      if (reason) {
+        finishReject(new Error(reason));
+        return;
+      }
+
+      if (socketError) {
+        finishReject(socketError);
+        return;
+      }
+
+      if (!opened && event.code !== 1000) {
+        finishReject(new Error("Live WebSocket connection failed."));
+        return;
+      }
+
+      finishResolve();
+    };
+
+    if (options.signal) {
+      if (options.signal.aborted) {
+        finishReject(createAbortError());
+        return;
+      }
+
+      options.signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    socket.addEventListener("open", onOpen);
+    socket.addEventListener("message", onMessage as EventListener);
+    socket.addEventListener("error", onError);
+    socket.addEventListener("close", onClose as EventListener);
+  });
 }
 
 export async function requestCsvDownload(url: string, options?: HttpRequestOptions) {

@@ -1,17 +1,21 @@
-import { db } from "../config/db.js";
 import { z } from "zod";
-import type { BranchMapping } from "../types/models.js";
+import { db } from "../config/db.js";
+import { FIXED_GLOBAL_ENTITY_ID } from "../config/constants.js";
+import { getVendorCatalogItem } from "./vendorCatalogStore.js";
+import type { BranchMapping, ResolvedBranchMapping } from "../types/models.js";
 
 interface BranchRow {
   id: number;
-  name: string;
-  chainName: string | null;
-  ordersVendorId: number;
   availabilityVendorId: string;
-  globalEntityId: string;
+  chainName: string | null;
   enabled: number;
   lateThresholdOverride: number | null;
   unassignedThresholdOverride: number | null;
+}
+
+interface JoinedBranchRow extends BranchRow {
+  name: string | null;
+  ordersVendorId: number | null;
 }
 
 interface BranchRuntimeRow {
@@ -26,15 +30,15 @@ interface BranchRuntimeRow {
   lastActionAt?: string | null;
 }
 
-const BranchSchema = z.object({
-  name: z.string().min(1).max(120),
-  chainName: z.string().max(120),
-  ordersVendorId: z.number().int().positive(),
-  availabilityVendorId: z.string().min(1).max(30),
-  globalEntityId: z.string().max(20),
-  enabled: z.boolean(),
-  lateThresholdOverride: z.number().int().min(0).max(999).nullable().optional(),
-  unassignedThresholdOverride: z.number().int().min(0).max(999).nullable().optional(),
+const AddBranchSchema = z.object({
+  availabilityVendorId: z.string().trim().min(1).max(30),
+  chainName: z.string().trim().max(120).default(""),
+  enabled: z.boolean().default(true),
+});
+
+const ThresholdOverrideSchema = z.object({
+  lateThresholdOverride: z.number().int().min(0).max(999).nullable(),
+  unassignedThresholdOverride: z.number().int().min(0).max(999).nullable(),
 }).superRefine((value, ctx) => {
   const hasLate = value.lateThresholdOverride != null;
   const hasUnassigned = value.unassignedThresholdOverride != null;
@@ -48,126 +52,144 @@ const BranchSchema = z.object({
   });
 });
 
-export function listBranches(): BranchMapping[] {
-  const rows = db.prepare<[], BranchRow>("SELECT * FROM branches ORDER BY name ASC").all();
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    chainName: r.chainName ?? "",
-    ordersVendorId: r.ordersVendorId,
-    availabilityVendorId: r.availabilityVendorId,
-    globalEntityId: r.globalEntityId,
-    enabled: !!r.enabled,
-    lateThresholdOverride: r.lateThresholdOverride,
-    unassignedThresholdOverride: r.unassignedThresholdOverride,
-  }));
-}
-
-export function getBranchById(id: number): BranchMapping | null {
-  const row = db.prepare<[number], BranchRow>("SELECT * FROM branches WHERE id=?").get(id);
-  if (!row) return null;
+function mapBranchRow(row: JoinedBranchRow): BranchMapping {
   return {
     id: row.id,
     name: row.name,
     chainName: row.chainName ?? "",
-    ordersVendorId: row.ordersVendorId,
+    ordersVendorId: row.ordersVendorId ?? null,
     availabilityVendorId: row.availabilityVendorId,
-    globalEntityId: row.globalEntityId,
     enabled: !!row.enabled,
+    catalogState: row.name && row.ordersVendorId ? "available" : "missing",
     lateThresholdOverride: row.lateThresholdOverride,
     unassignedThresholdOverride: row.unassignedThresholdOverride,
   };
 }
 
-export function addBranch(input: Omit<BranchMapping, "id">) {
-  BranchSchema.parse(input);
+function buildResolvedBranch(branch: BranchMapping): ResolvedBranchMapping | null {
+  if (!branch.name || !branch.ordersVendorId || branch.catalogState !== "available") {
+    return null;
+  }
+
+  return {
+    ...branch,
+    name: branch.name,
+    ordersVendorId: branch.ordersVendorId,
+    globalEntityId: FIXED_GLOBAL_ENTITY_ID,
+    catalogState: "available",
+  };
+}
+
+function getJoinedBranchQuery(whereClause = "", orderClause = "ORDER BY LOWER(COALESCE(vendor_catalog.name, branches.availabilityVendorId)) ASC, branches.id ASC") {
+  return `
+    SELECT
+      branches.id,
+      branches.availabilityVendorId,
+      branches.chainName,
+      branches.enabled,
+      branches.lateThresholdOverride,
+      branches.unassignedThresholdOverride,
+      vendor_catalog.name,
+      vendor_catalog.ordersVendorId
+    FROM branches
+    LEFT JOIN vendor_catalog
+      ON vendor_catalog.availabilityVendorId = branches.availabilityVendorId
+    ${whereClause}
+    ${orderClause}
+  `;
+}
+
+export function listBranches(): BranchMapping[] {
+  const rows = db.prepare<[], JoinedBranchRow>(getJoinedBranchQuery()).all();
+  return rows.map(mapBranchRow);
+}
+
+export function listResolvedBranches(options?: { enabledOnly?: boolean }): ResolvedBranchMapping[] {
+  const whereClause = options?.enabledOnly ? "WHERE branches.enabled = 1" : "";
+  const rows = db.prepare<[], JoinedBranchRow>(getJoinedBranchQuery(whereClause)).all();
+  return rows
+    .map(mapBranchRow)
+    .map(buildResolvedBranch)
+    .filter((branch): branch is ResolvedBranchMapping => branch !== null);
+}
+
+export function getBranchById(id: number): BranchMapping | null {
+  const row = db.prepare<[number], JoinedBranchRow>(getJoinedBranchQuery("WHERE branches.id = ?", "")).get(id);
+  return row ? mapBranchRow(row) : null;
+}
+
+export function getResolvedBranchById(id: number): ResolvedBranchMapping | null {
+  const branch = getBranchById(id);
+  return branch ? buildResolvedBranch(branch) : null;
+}
+
+export function addBranch(input: { availabilityVendorId: string; chainName?: string; enabled?: boolean }) {
+  const parsed = AddBranchSchema.parse(input);
+  const catalogItem = getVendorCatalogItem(parsed.availabilityVendorId);
+  if (!catalogItem) {
+    throw new Error("Vendor catalog item not found");
+  }
+
   const info = db.prepare(`
     INSERT INTO branches (
-      name,
-      chainName,
-      ordersVendorId,
       availabilityVendorId,
-      globalEntityId,
+      chainName,
       enabled,
       lateThresholdOverride,
       unassignedThresholdOverride
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, NULL, NULL)
   `).run(
-    input.name,
-    input.chainName,
-    input.ordersVendorId,
-    input.availabilityVendorId,
-    input.globalEntityId,
-    input.enabled ? 1 : 0,
-    input.lateThresholdOverride ?? null,
-    input.unassignedThresholdOverride ?? null,
+    catalogItem.availabilityVendorId,
+    parsed.chainName,
+    parsed.enabled ? 1 : 0,
   );
 
-  // Ensure runtime row exists
   db.prepare("INSERT OR IGNORE INTO branch_runtime (branchId) VALUES (?)").run(info.lastInsertRowid as number);
-
   return info.lastInsertRowid as number;
 }
 
-export function updateBranch(id: number, patch: Partial<Omit<BranchMapping, "id">>) {
-  const current = db.prepare<[number], BranchRow>("SELECT * FROM branches WHERE id=?").get(id);
-  if (!current) throw new Error("Branch not found");
+function ensureBranchExists(id: number) {
+  const row = db.prepare<[number], BranchRow>("SELECT * FROM branches WHERE id = ?").get(id);
+  if (!row) throw new Error("Branch not found");
+  return row;
+}
 
-  const merged = {
-    name: patch.name ?? current.name,
-    chainName: patch.chainName ?? current.chainName ?? "",
-    ordersVendorId: patch.ordersVendorId ?? current.ordersVendorId,
-    availabilityVendorId: patch.availabilityVendorId ?? current.availabilityVendorId,
-    globalEntityId: patch.globalEntityId ?? current.globalEntityId,
-    enabled: patch.enabled ?? !!current.enabled,
-    lateThresholdOverride:
-      patch.lateThresholdOverride !== undefined
-        ? patch.lateThresholdOverride
-        : current.lateThresholdOverride,
-    unassignedThresholdOverride:
-      patch.unassignedThresholdOverride !== undefined
-        ? patch.unassignedThresholdOverride
-        : current.unassignedThresholdOverride,
-  };
+export function setBranchMonitoringEnabled(id: number, enabled: boolean) {
+  ensureBranchExists(id);
+  db.prepare("UPDATE branches SET enabled = ? WHERE id = ?").run(enabled ? 1 : 0, id);
+  return getBranchById(id);
+}
 
-  BranchSchema.parse(merged);
-
+export function setBranchThresholdOverrides(
+  id: number,
+  overrides: {
+    lateThresholdOverride: number | null;
+    unassignedThresholdOverride: number | null;
+  },
+) {
+  ensureBranchExists(id);
+  const parsed = ThresholdOverrideSchema.parse(overrides);
   db.prepare(`
-    UPDATE branches SET
-      name=?,
-      chainName=?,
-      ordersVendorId=?,
-      availabilityVendorId=?,
-      globalEntityId=?,
-      enabled=?,
-      lateThresholdOverride=?,
-      unassignedThresholdOverride=?
-    WHERE id=?
+    UPDATE branches
+    SET lateThresholdOverride = ?,
+        unassignedThresholdOverride = ?
+    WHERE id = ?
   `).run(
-    merged.name,
-    merged.chainName,
-    merged.ordersVendorId,
-    merged.availabilityVendorId,
-    merged.globalEntityId,
-    merged.enabled ? 1 : 0,
-    merged.lateThresholdOverride ?? null,
-    merged.unassignedThresholdOverride ?? null,
+    parsed.lateThresholdOverride,
+    parsed.unassignedThresholdOverride,
     id,
   );
-
-  db.prepare("INSERT OR IGNORE INTO branch_runtime (branchId) VALUES (?)").run(id);
-
-  return merged as Omit<BranchMapping, "id">;
+  return getBranchById(id);
 }
 
 export function deleteBranch(id: number) {
-  const result = db.prepare("DELETE FROM branches WHERE id=?").run(id);
+  const result = db.prepare("DELETE FROM branches WHERE id = ?").run(id);
   return result.changes;
 }
 
 export function getRuntime(branchId: number) {
-  return db.prepare<[number], BranchRuntimeRow>("SELECT * FROM branch_runtime WHERE branchId=?").get(branchId) ?? null;
+  return db.prepare<[number], BranchRuntimeRow>("SELECT * FROM branch_runtime WHERE branchId = ?").get(branchId) ?? null;
 }
 
 export function setRuntime(branchId: number, patch: Partial<BranchRuntimeRow>) {
@@ -197,14 +219,14 @@ export function setRuntime(branchId: number, patch: Partial<BranchRuntimeRow>) {
       @lastActionAt
     )
     ON CONFLICT(branchId) DO UPDATE SET
-      lastUpuseCloseUntil=excluded.lastUpuseCloseUntil,
-      lastUpuseCloseReason=excluded.lastUpuseCloseReason,
-      lastUpuseCloseAt=excluded.lastUpuseCloseAt,
-      lastUpuseCloseEventId=excluded.lastUpuseCloseEventId,
-      lastExternalCloseUntil=excluded.lastExternalCloseUntil,
-      lastExternalCloseAt=excluded.lastExternalCloseAt,
-      externalOpenDetectedAt=excluded.externalOpenDetectedAt,
-      lastActionAt=excluded.lastActionAt
+      lastUpuseCloseUntil = excluded.lastUpuseCloseUntil,
+      lastUpuseCloseReason = excluded.lastUpuseCloseReason,
+      lastUpuseCloseAt = excluded.lastUpuseCloseAt,
+      lastUpuseCloseEventId = excluded.lastUpuseCloseEventId,
+      lastExternalCloseUntil = excluded.lastExternalCloseUntil,
+      lastExternalCloseAt = excluded.lastExternalCloseAt,
+      externalOpenDetectedAt = excluded.externalOpenDetectedAt,
+      lastActionAt = excluded.lastActionAt
   `).run(merged);
   return merged;
 }

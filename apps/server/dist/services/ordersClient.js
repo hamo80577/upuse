@@ -1,1 +1,1 @@
-export { fetchOrdersAggregates, fetchVendorOrdersDetail, fetchVendorPickersSummary, lookupVendorName } from "./orders/index.js";
+export { fetchOrdersAggregates, fetchVendorOrdersDetail, fetchVendorPickersSummary, lookupVendorName, probeOrdersVendorAccess } from "./orders/index.js";

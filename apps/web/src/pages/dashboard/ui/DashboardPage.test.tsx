@@ -55,6 +55,13 @@ const baseSnapshot: DashboardSnapshot = {
     lastAvailabilityFetchAt: "2026-03-10T12:00:00.000Z",
     lastHealthyAt: "2026-03-10T12:00:00.000Z",
     degraded: false,
+    ordersSync: {
+      mode: "mirror",
+      state: "healthy",
+      lastSuccessfulSyncAt: "2026-03-10T12:00:00.000Z",
+      staleBranchCount: 0,
+      consecutiveSourceFailures: 0,
+    },
     errors: {},
   },
   totals: {
@@ -80,6 +87,7 @@ const baseSnapshot: DashboardSnapshot = {
       availabilityVendorId: "201",
       status: "OPEN",
       statusColor: "green",
+      ordersDataState: "fresh",
       metrics: {
         totalToday: 10,
         cancelledToday: 1,
@@ -173,6 +181,13 @@ describe("DashboardPage", () => {
         monitoring: {
           ...baseSnapshot.monitoring,
           degraded: true,
+          ordersSync: {
+            mode: "mirror",
+            state: "degraded",
+            lastSuccessfulSyncAt: "2026-03-10T12:00:00.000Z",
+            staleBranchCount: 1,
+            consecutiveSourceFailures: 2,
+          },
           errors: {
             orders: {
               source: "orders",

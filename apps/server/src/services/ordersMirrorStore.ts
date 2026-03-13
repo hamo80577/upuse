@@ -1,20 +1,28 @@
 import { DateTime } from "luxon";
 import { db } from "../config/db.js";
-import type { BranchLiveOrder, BranchPickersSummary, BranchSnapshot, BranchPickerSummaryItem, OrdersMetrics, OrdersVendorId, BranchMapping } from "../types/models.js";
+import { FIXED_GLOBAL_ENTITY_ID } from "../config/constants.js";
+import type { BranchLiveOrder, BranchPickersSummary, BranchSnapshot, BranchPickerSummaryItem, OrdersMetrics, OrdersVendorId, ResolvedBranchMapping } from "../types/models.js";
 import { cairoDayWindowUtc, isPastPickup, nowUtcIso } from "../utils/time.js";
-import { createOrdersPollingRequests, resolveOrdersGlobalEntityId } from "./monitorOrdersPolling.js";
-import { getWithRetry } from "./orders/httpClient.js";
-import { createPageLimitError } from "./orders/paginationGuards.js";
-import { splitUtcWindow, resolveOrdersWindowSplitMaxDepth, resolveOrdersWindowSplitMinSpanMs, type UtcWindow } from "./orders/shared.js";
+import { createOrdersPollingRequests } from "./monitorOrdersPolling.js";
+import { getWithRetry, isRetryableOrdersRequestError } from "./orders/httpClient.js";
+import { createPageLimitError, isVendorIdValidationError } from "./orders/paginationGuards.js";
+import {
+  splitUtcWindow,
+  resolveOrdersHistorySyncSeconds,
+  resolveOrdersRepairSweepSeconds,
+  resolveOrdersWindowSplitMaxDepth,
+  resolveOrdersWindowSplitMinSpanMs,
+  type UtcWindow,
+} from "./orders/shared.js";
 import { BASE, BRANCH_DETAIL_MAX_PAGES, ORDERS_API_SAFE_VENDOR_BATCH_LIMIT, chunk } from "./orders/types.js";
 
 const ACTIVE_SYNC_PAGE_SIZE = 500;
 const HISTORY_SYNC_PAGE_SIZE = 500;
 const BOOTSTRAP_SYNC_PAGE_SIZE = 500;
 const HISTORY_OVERLAP_MS = 10 * 60 * 1000;
-const FULL_HISTORY_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 
 export type BranchDetailCacheState = "fresh" | "warming" | "stale";
+export type MirrorSyncPhase = "bootstrap" | "active" | "history" | "repair";
 
 interface OrdersMirrorRow {
   dayKey: string;
@@ -44,6 +52,14 @@ interface OrdersSyncStateRow {
   lastActiveSyncAt: string | null;
   lastHistorySyncAt: string | null;
   lastFullHistorySweepAt: string | null;
+  lastSuccessfulSyncAt: string | null;
+  lastHistoryCursorAt: string | null;
+  consecutiveFailures: number;
+  lastErrorAt: string | null;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
+  staleSince: string | null;
+  quarantinedUntil: string | null;
 }
 
 interface MirrorSyncVendor {
@@ -58,6 +74,39 @@ interface MirrorOrdersDetail {
   preparingOrders: BranchLiveOrder[];
   pickers: BranchPickersSummary;
   cacheState: BranchDetailCacheState;
+}
+
+export interface OrdersMirrorVendorSyncStatus {
+  vendorId: OrdersVendorId;
+  cacheState: BranchDetailCacheState;
+  fetchedAt: string | null;
+  consecutiveFailures: number;
+}
+
+export interface OrdersMirrorSyncSummary {
+  dayKey: string;
+  totalVendors: number;
+  successfulVendors: number;
+  failedVendors: number;
+  updatedVendors: number;
+  staleVendorCount: number;
+  lastSuccessfulSyncAt: string | null;
+  errors: Array<{
+    vendorIds: OrdersVendorId[];
+    statusCode?: number;
+    message: string;
+  }>;
+  statusesByVendor: Map<OrdersVendorId, OrdersMirrorVendorSyncStatus>;
+}
+
+interface MirrorPhaseResult {
+  successfulVendorIds: Set<OrdersVendorId>;
+  updatedVendorIds: Set<OrdersVendorId>;
+  failures: Array<{
+    vendorIds: OrdersVendorId[];
+    statusCode?: number;
+    message: string;
+  }>;
 }
 
 function getCairoDayKey(date = DateTime.utc()) {
@@ -78,6 +127,19 @@ function getDayWindow(dayKey = getCairoDayKey()) {
   return {
     startUtcIso: cairoStart.toUTC().toISO({ suppressMilliseconds: false })!,
     endUtcIso: cairoStart.endOf("day").toUTC().toISO({ suppressMilliseconds: false })!,
+  };
+}
+
+function getSyncWindow(dayKey = getCairoDayKey(), endIso = nowUtcIso()) {
+  const fullDay = getDayWindow(dayKey);
+  const end = DateTime.fromISO(endIso, { zone: "utc" });
+  const boundedEnd = end.isValid
+    ? Math.min(end.toMillis(), DateTime.fromISO(fullDay.endUtcIso, { zone: "utc" }).toMillis())
+    : DateTime.fromISO(fullDay.endUtcIso, { zone: "utc" }).toMillis();
+
+  return {
+    startUtcIso: fullDay.startUtcIso,
+    endUtcIso: new Date(boundedEnd).toISOString(),
   };
 }
 
@@ -157,6 +219,7 @@ function toMillis(iso?: string | null) {
 function resolveFetchedAt(state: OrdersSyncStateRow | null) {
   if (!state) return null;
   const candidates = [
+    state.lastSuccessfulSyncAt,
     state.lastBootstrapSyncAt,
     state.lastActiveSyncAt,
     state.lastHistorySyncAt,
@@ -176,7 +239,7 @@ function resolveCacheState(state: OrdersSyncStateRow | null, ordersRefreshSecond
     return "warming";
   }
 
-  const staleAfterMs = Math.max(60_000, ordersRefreshSeconds * 3_000);
+  const staleAfterMs = Math.max(60_000, ordersRefreshSeconds * 2_000);
   return nowMs - toMillis(fetchedAt) > staleAfterMs ? "stale" : "fresh";
 }
 
@@ -189,7 +252,15 @@ function getMirrorState(dayKey: string, globalEntityId: string, vendorId: Orders
       lastBootstrapSyncAt,
       lastActiveSyncAt,
       lastHistorySyncAt,
-      lastFullHistorySweepAt
+      lastFullHistorySweepAt,
+      lastSuccessfulSyncAt,
+      lastHistoryCursorAt,
+      consecutiveFailures,
+      lastErrorAt,
+      lastErrorCode,
+      lastErrorMessage,
+      staleSince,
+      quarantinedUntil
     FROM orders_sync_state
     WHERE dayKey = ? AND globalEntityId = ? AND vendorId = ?
   `).get(dayKey, globalEntityId, vendorId) ?? null;
@@ -204,6 +275,14 @@ function upsertMirrorState(dayKey: string, globalEntityId: string, vendorId: Ord
     lastActiveSyncAt: null,
     lastHistorySyncAt: null,
     lastFullHistorySweepAt: null,
+    lastSuccessfulSyncAt: null,
+    lastHistoryCursorAt: null,
+    consecutiveFailures: 0,
+    lastErrorAt: null,
+    lastErrorCode: null,
+    lastErrorMessage: null,
+    staleSince: null,
+    quarantinedUntil: null,
   };
 
   const next = {
@@ -222,7 +301,15 @@ function upsertMirrorState(dayKey: string, globalEntityId: string, vendorId: Ord
       lastBootstrapSyncAt,
       lastActiveSyncAt,
       lastHistorySyncAt,
-      lastFullHistorySweepAt
+      lastFullHistorySweepAt,
+      lastSuccessfulSyncAt,
+      lastHistoryCursorAt,
+      consecutiveFailures,
+      lastErrorAt,
+      lastErrorCode,
+      lastErrorMessage,
+      staleSince,
+      quarantinedUntil
     ) VALUES (
       @dayKey,
       @globalEntityId,
@@ -230,13 +317,29 @@ function upsertMirrorState(dayKey: string, globalEntityId: string, vendorId: Ord
       @lastBootstrapSyncAt,
       @lastActiveSyncAt,
       @lastHistorySyncAt,
-      @lastFullHistorySweepAt
+      @lastFullHistorySweepAt,
+      @lastSuccessfulSyncAt,
+      @lastHistoryCursorAt,
+      @consecutiveFailures,
+      @lastErrorAt,
+      @lastErrorCode,
+      @lastErrorMessage,
+      @staleSince,
+      @quarantinedUntil
     )
     ON CONFLICT(dayKey, globalEntityId, vendorId) DO UPDATE SET
       lastBootstrapSyncAt = excluded.lastBootstrapSyncAt,
       lastActiveSyncAt = excluded.lastActiveSyncAt,
       lastHistorySyncAt = excluded.lastHistorySyncAt,
-      lastFullHistorySweepAt = excluded.lastFullHistorySweepAt
+      lastFullHistorySweepAt = excluded.lastFullHistorySweepAt,
+      lastSuccessfulSyncAt = excluded.lastSuccessfulSyncAt,
+      lastHistoryCursorAt = excluded.lastHistoryCursorAt,
+      consecutiveFailures = excluded.consecutiveFailures,
+      lastErrorAt = excluded.lastErrorAt,
+      lastErrorCode = excluded.lastErrorCode,
+      lastErrorMessage = excluded.lastErrorMessage,
+      staleSince = excluded.staleSince,
+      quarantinedUntil = excluded.quarantinedUntil
   `).run(next);
 }
 
@@ -246,14 +349,59 @@ function pruneMirrorDays(dayKeysToKeep: string[]) {
   db.prepare(`DELETE FROM orders_sync_state WHERE dayKey NOT IN (${placeholders})`).run(...dayKeysToKeep);
 }
 
-function toVendorGroups(branches: BranchMapping[], fallbackGlobalEntityId: string, vendorIds?: OrdersVendorId[]) {
+function summarizeMirrorSyncError(error: any) {
+  const statusCode = typeof error?.response?.status === "number" ? error.response.status : undefined;
+  const code = typeof error?.code === "string" ? error.code : undefined;
+  const responseMessage =
+    error?.response?.data?.message ||
+    error?.response?.data?.error ||
+    error?.message ||
+    "Orders API request failed";
+
+  return {
+    statusCode,
+    code,
+    message: String(responseMessage),
+  };
+}
+
+function markVendorSyncSuccess(dayKey: string, globalEntityId: string, vendorId: OrdersVendorId, fetchedAt: string, historyCursorAt?: string | null) {
+  const current = getMirrorState(dayKey, globalEntityId, vendorId);
+  upsertMirrorState(dayKey, globalEntityId, vendorId, {
+    ...current,
+    lastSuccessfulSyncAt: fetchedAt,
+    lastHistoryCursorAt: historyCursorAt ?? current?.lastHistoryCursorAt ?? null,
+    consecutiveFailures: 0,
+    lastErrorAt: null,
+    lastErrorCode: null,
+    lastErrorMessage: null,
+    staleSince: null,
+    quarantinedUntil: null,
+  });
+}
+
+function markVendorSyncFailure(dayKey: string, globalEntityId: string, vendorId: OrdersVendorId, error: any) {
+  const current = getMirrorState(dayKey, globalEntityId, vendorId);
+  const nowIso = nowUtcIso();
+  const normalized = summarizeMirrorSyncError(error);
+  upsertMirrorState(dayKey, globalEntityId, vendorId, {
+    ...current,
+    consecutiveFailures: (current?.consecutiveFailures ?? 0) + 1,
+    lastErrorAt: nowIso,
+    lastErrorCode: normalized.code ?? (normalized.statusCode != null ? String(normalized.statusCode) : null),
+    lastErrorMessage: normalized.message,
+    staleSince: current?.staleSince ?? nowIso,
+  });
+  return normalized;
+}
+
+function toVendorGroups(branches: ResolvedBranchMapping[], vendorIds?: OrdersVendorId[]) {
   const sourceBranches = vendorIds
     ? branches.filter((branch) => vendorIds.includes(branch.ordersVendorId))
     : branches;
   const requests = createOrdersPollingRequests({
     branches: sourceBranches,
     vendorIds: sourceBranches.map((branch) => branch.ordersVendorId),
-    fallbackGlobalEntityId,
   });
 
   return requests.flatMap((request) =>
@@ -450,19 +598,10 @@ function markMissingActiveOrdersInactive(params: {
   `).run(params.dayKey, params.globalEntityId, params.vendorId, ...params.activeOrderIds);
 }
 
-function normalizeSyncBranches(branches: BranchMapping[]) {
-  return branches
-    .filter((branch) => branch.enabled)
-    .map((branch) => ({
-      branch,
-      globalEntityId: resolveOrdersGlobalEntityId(branch, ""),
-    }));
-}
-
-function buildMirrorVendors(branches: BranchMapping[], fallbackGlobalEntityId: string): MirrorSyncVendor[] {
+function buildMirrorVendors(branches: ResolvedBranchMapping[]): MirrorSyncVendor[] {
   const byKey = new Map<string, MirrorSyncVendor>();
   for (const branch of branches.filter((item) => item.enabled)) {
-    const globalEntityId = resolveOrdersGlobalEntityId(branch, fallbackGlobalEntityId);
+    const globalEntityId = FIXED_GLOBAL_ENTITY_ID;
     const key = `${globalEntityId}::${branch.ordersVendorId}`;
     if (!byKey.has(key)) {
       byKey.set(key, {
@@ -474,182 +613,418 @@ function buildMirrorVendors(branches: BranchMapping[], fallbackGlobalEntityId: s
   return Array.from(byKey.values());
 }
 
+function shouldSplitVendorGroupOnError(error: any) {
+  return isRetryableOrdersRequestError(error) || isVendorIdValidationError(error);
+}
+
+async function runVendorGroupsIsolated(
+  groups: Array<{ globalEntityId: string; vendorIds: OrdersVendorId[] }>,
+  worker: (group: { globalEntityId: string; vendorIds: OrdersVendorId[] }) => Promise<void>,
+  onFailure: (group: { globalEntityId: string; vendorIds: OrdersVendorId[] }, error: any) => void | Promise<void>,
+): Promise<void> {
+  const consume = async (group: { globalEntityId: string; vendorIds: OrdersVendorId[] }) => {
+    try {
+      await worker(group);
+    } catch (error: any) {
+      if (group.vendorIds.length > 1 && shouldSplitVendorGroupOnError(error)) {
+        const midpoint = Math.ceil(group.vendorIds.length / 2);
+        await consume({
+          globalEntityId: group.globalEntityId,
+          vendorIds: group.vendorIds.slice(0, midpoint),
+        });
+        await consume({
+          globalEntityId: group.globalEntityId,
+          vendorIds: group.vendorIds.slice(midpoint),
+        });
+        return;
+      }
+
+      await onFailure(group, error);
+    }
+  };
+
+  for (const group of groups) {
+    await consume(group);
+  }
+}
+
 export async function ensureOrdersMirrorBootstrap(params: {
   token: string;
-  branches: BranchMapping[];
-  fallbackGlobalEntityId: string;
+  branches: ResolvedBranchMapping[];
   dayKey?: string;
-}) {
+}): Promise<MirrorPhaseResult> {
+  const result: MirrorPhaseResult = {
+    successfulVendorIds: new Set<OrdersVendorId>(),
+    updatedVendorIds: new Set<OrdersVendorId>(),
+    failures: [],
+  };
   const dayKey = params.dayKey ?? getCairoDayKey();
   pruneMirrorDays([dayKey, getPreviousCairoDayKey(dayKey)]);
 
-  const mirrorVendors = buildMirrorVendors(params.branches, params.fallbackGlobalEntityId);
+  const mirrorVendors = buildMirrorVendors(params.branches);
   const missingVendors = mirrorVendors.filter((vendor) => !getMirrorState(dayKey, vendor.globalEntityId, vendor.vendorId)?.lastBootstrapSyncAt);
-  if (!missingVendors.length) return;
+  if (!missingVendors.length) return result;
 
   const vendorIdSet = new Set(missingVendors.map((item) => item.vendorId));
-  const vendorGroups = toVendorGroups(params.branches, params.fallbackGlobalEntityId, Array.from(vendorIdSet));
-  const window = getDayWindow(dayKey);
+  const vendorGroups = toVendorGroups(params.branches, Array.from(vendorIdSet));
   const nowIso = nowUtcIso();
+  const window = getSyncWindow(dayKey, nowIso);
 
-  for (const group of vendorGroups) {
-    const res = await fetchOrdersWindow({
-      token: params.token,
-      globalEntityId: group.globalEntityId,
-      vendorIds: group.vendorIds,
-      pageSize: BOOTSTRAP_SYNC_PAGE_SIZE,
-      window,
-      nowIso,
-    });
-
-    upsertMirrorOrders({
-      dayKey,
-      globalEntityId: group.globalEntityId,
-      rows: res.items.map((order) => ({
-        ...normalizeMirrorOrder(order, nowIso),
-        vendorId: Number(order?.vendor?.id ?? 0),
-      })).filter(Boolean) as Array<ReturnType<typeof normalizeMirrorOrder>>,
-      activeOverwrite: true,
-    });
-
-    for (const vendorId of group.vendorIds) {
-      upsertMirrorState(dayKey, group.globalEntityId, vendorId, {
-        lastBootstrapSyncAt: res.fetchedAt,
-        lastHistorySyncAt: res.fetchedAt,
-        lastFullHistorySweepAt: res.fetchedAt,
+  await runVendorGroupsIsolated(
+    vendorGroups,
+    async (group) => {
+      const res = await fetchOrdersWindow({
+        token: params.token,
+        globalEntityId: group.globalEntityId,
+        vendorIds: group.vendorIds,
+        pageSize: BOOTSTRAP_SYNC_PAGE_SIZE,
+        window,
+        nowIso,
       });
-    }
-  }
+
+      upsertMirrorOrders({
+        dayKey,
+        globalEntityId: group.globalEntityId,
+        rows: res.items.map((order) => ({
+          ...normalizeMirrorOrder(order, nowIso),
+          vendorId: Number(order?.vendor?.id ?? 0),
+        })).filter(Boolean) as Array<ReturnType<typeof normalizeMirrorOrder>>,
+        activeOverwrite: true,
+      });
+
+      for (const vendorId of group.vendorIds) {
+        upsertMirrorState(dayKey, group.globalEntityId, vendorId, {
+          lastBootstrapSyncAt: res.fetchedAt,
+          lastHistorySyncAt: res.fetchedAt,
+          lastFullHistorySweepAt: res.fetchedAt,
+          lastSuccessfulSyncAt: res.fetchedAt,
+          lastHistoryCursorAt: window.endUtcIso,
+          consecutiveFailures: 0,
+          lastErrorAt: null,
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          staleSince: null,
+          quarantinedUntil: null,
+        });
+        result.successfulVendorIds.add(vendorId);
+        result.updatedVendorIds.add(vendorId);
+      }
+    },
+    async (group, error) => {
+      const normalized = summarizeMirrorSyncError(error);
+      result.failures.push({
+        vendorIds: [...group.vendorIds],
+        statusCode: normalized.statusCode,
+        message: normalized.message,
+      });
+      for (const vendorId of group.vendorIds) {
+        markVendorSyncFailure(dayKey, group.globalEntityId, vendorId, error);
+      }
+    },
+  );
+
+  return result;
 }
 
 export async function syncOrdersMirrorActive(params: {
   token: string;
-  branches: BranchMapping[];
-  fallbackGlobalEntityId: string;
+  branches: ResolvedBranchMapping[];
   dayKey?: string;
-}) {
+}): Promise<MirrorPhaseResult> {
+  const result: MirrorPhaseResult = {
+    successfulVendorIds: new Set<OrdersVendorId>(),
+    updatedVendorIds: new Set<OrdersVendorId>(),
+    failures: [],
+  };
   const dayKey = params.dayKey ?? getCairoDayKey();
   const branches = params.branches.filter((branch) => branch.enabled);
-  if (!branches.length) return;
+  if (!branches.length) return result;
 
   pruneMirrorDays([dayKey, getPreviousCairoDayKey(dayKey)]);
 
-  const vendorGroups = toVendorGroups(branches, params.fallbackGlobalEntityId);
-  const window = getDayWindow(dayKey);
+  const vendorGroups = toVendorGroups(branches);
   const nowIso = nowUtcIso();
+  const window = getSyncWindow(dayKey, nowIso);
 
-  for (const group of vendorGroups) {
-    const res = await fetchOrdersWindow({
-      token: params.token,
-      globalEntityId: group.globalEntityId,
-      vendorIds: group.vendorIds,
-      pageSize: ACTIVE_SYNC_PAGE_SIZE,
-      window,
-      nowIso,
-      isCompleted: false,
-    });
+  await runVendorGroupsIsolated(
+    vendorGroups,
+    async (group) => {
+      const res = await fetchOrdersWindow({
+        token: params.token,
+        globalEntityId: group.globalEntityId,
+        vendorIds: group.vendorIds,
+        pageSize: ACTIVE_SYNC_PAGE_SIZE,
+        window,
+        nowIso,
+        isCompleted: false,
+      });
 
-    upsertMirrorOrders({
-      dayKey,
-      globalEntityId: group.globalEntityId,
-      rows: res.items.map((order) => ({
-        ...normalizeMirrorOrder(order, nowIso),
-        vendorId: Number(order?.vendor?.id ?? 0),
-      })).filter(Boolean) as Array<ReturnType<typeof normalizeMirrorOrder>>,
-      activeOverwrite: true,
-    });
-
-    const activeOrderIdsByVendor = new Map<number, string[]>();
-    for (const order of res.items) {
-      const vendorId = Number(order?.vendor?.id ?? 0);
-      const orderId = stableOrderKey(order);
-      if (!vendorId || !orderId) continue;
-      const items = activeOrderIdsByVendor.get(vendorId) ?? [];
-      items.push(orderId);
-      activeOrderIdsByVendor.set(vendorId, items);
-    }
-
-    for (const vendorId of group.vendorIds) {
-      markMissingActiveOrdersInactive({
+      upsertMirrorOrders({
         dayKey,
         globalEntityId: group.globalEntityId,
-        vendorId,
-        activeOrderIds: activeOrderIdsByVendor.get(vendorId) ?? [],
+        rows: res.items.map((order) => ({
+          ...normalizeMirrorOrder(order, nowIso),
+          vendorId: Number(order?.vendor?.id ?? 0),
+        })).filter(Boolean) as Array<ReturnType<typeof normalizeMirrorOrder>>,
+        activeOverwrite: true,
       });
-      upsertMirrorState(dayKey, group.globalEntityId, vendorId, {
-        lastActiveSyncAt: res.fetchedAt,
+
+      const activeOrderIdsByVendor = new Map<number, string[]>();
+      for (const order of res.items) {
+        const vendorId = Number(order?.vendor?.id ?? 0);
+        const orderId = stableOrderKey(order);
+        if (!vendorId || !orderId) continue;
+        const items = activeOrderIdsByVendor.get(vendorId) ?? [];
+        items.push(orderId);
+        activeOrderIdsByVendor.set(vendorId, items);
+      }
+
+      for (const vendorId of group.vendorIds) {
+        markMissingActiveOrdersInactive({
+          dayKey,
+          globalEntityId: group.globalEntityId,
+          vendorId,
+          activeOrderIds: activeOrderIdsByVendor.get(vendorId) ?? [],
+        });
+        upsertMirrorState(dayKey, group.globalEntityId, vendorId, {
+          lastActiveSyncAt: res.fetchedAt,
+          lastSuccessfulSyncAt: res.fetchedAt,
+          consecutiveFailures: 0,
+          lastErrorAt: null,
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          staleSince: null,
+          quarantinedUntil: null,
+        });
+        result.successfulVendorIds.add(vendorId);
+        result.updatedVendorIds.add(vendorId);
+      }
+    },
+    async (group, error) => {
+      const normalized = summarizeMirrorSyncError(error);
+      result.failures.push({
+        vendorIds: [...group.vendorIds],
+        statusCode: normalized.statusCode,
+        message: normalized.message,
       });
-    }
-  }
+      for (const vendorId of group.vendorIds) {
+        markVendorSyncFailure(dayKey, group.globalEntityId, vendorId, error);
+      }
+    },
+  );
+
+  return result;
 }
 
 export async function syncOrdersMirrorHistory(params: {
   token: string;
-  branches: BranchMapping[];
-  fallbackGlobalEntityId: string;
+  branches: ResolvedBranchMapping[];
   dayKey?: string;
-}) {
+}): Promise<MirrorPhaseResult> {
+  const result: MirrorPhaseResult = {
+    successfulVendorIds: new Set<OrdersVendorId>(),
+    updatedVendorIds: new Set<OrdersVendorId>(),
+    failures: [],
+  };
   const dayKey = params.dayKey ?? getCairoDayKey();
   const branches = params.branches.filter((branch) => branch.enabled);
-  if (!branches.length) return;
+  if (!branches.length) return result;
 
   pruneMirrorDays([dayKey, getPreviousCairoDayKey(dayKey)]);
 
-  const vendorGroups = toVendorGroups(branches, params.fallbackGlobalEntityId);
-  const fullDayWindow = getDayWindow(dayKey);
+  const vendorGroups = toVendorGroups(branches);
   const nowIso = nowUtcIso();
+  const historyIntervalMs = resolveOrdersHistorySyncSeconds() * 1000;
+  const repairSweepIntervalMs = resolveOrdersRepairSweepSeconds() * 1000;
+  const liveDayWindow = getSyncWindow(dayKey, nowIso);
   const nowMs = Date.now();
 
-  for (const group of vendorGroups) {
-    const states = group.vendorIds.map((vendorId) => getMirrorState(dayKey, group.globalEntityId, vendorId));
-    const needsFullSweep = states.some((state) => {
-      if (!state?.lastFullHistorySweepAt) return true;
-      return nowMs - toMillis(state.lastFullHistorySweepAt) >= FULL_HISTORY_SWEEP_INTERVAL_MS;
-    });
-
-    let window = fullDayWindow;
-    if (!needsFullSweep) {
-      const minLastHistorySyncMs = states
-        .map((state) => toMillis(state?.lastHistorySyncAt))
-        .filter(Number.isFinite)
-        .reduce((min, current) => Math.min(min, current), Number.POSITIVE_INFINITY);
-
-      const overlapStartMs = Number.isFinite(minLastHistorySyncMs)
-        ? Math.max(toMillis(fullDayWindow.startUtcIso), minLastHistorySyncMs - HISTORY_OVERLAP_MS)
-        : toMillis(fullDayWindow.startUtcIso);
-
-      window = {
-        startUtcIso: new Date(overlapStartMs).toISOString(),
-        endUtcIso: fullDayWindow.endUtcIso,
-      };
-    }
-
-    const res = await fetchOrdersWindow({
-      token: params.token,
-      globalEntityId: group.globalEntityId,
-      vendorIds: group.vendorIds,
-      pageSize: HISTORY_SYNC_PAGE_SIZE,
-      window,
-      nowIso,
-    });
-
-    upsertMirrorOrders({
-      dayKey,
-      globalEntityId: group.globalEntityId,
-      rows: res.items.map((order) => ({
-        ...normalizeMirrorOrder(order, nowIso),
-        vendorId: Number(order?.vendor?.id ?? 0),
-      })).filter(Boolean) as Array<ReturnType<typeof normalizeMirrorOrder>>,
-      activeOverwrite: false,
-    });
-
-    for (const vendorId of group.vendorIds) {
-      upsertMirrorState(dayKey, group.globalEntityId, vendorId, {
-        lastHistorySyncAt: res.fetchedAt,
-        ...(needsFullSweep ? { lastFullHistorySweepAt: res.fetchedAt } : {}),
+  await runVendorGroupsIsolated(
+    vendorGroups.filter((group) => {
+      const states = group.vendorIds.map((vendorId) => getMirrorState(dayKey, group.globalEntityId, vendorId));
+      const needsHistory = states.some((state) => {
+        if (!state?.lastHistorySyncAt) return true;
+        return nowMs - toMillis(state.lastHistorySyncAt) >= historyIntervalMs;
       });
-    }
+      const needsRepair = states.some((state) => {
+        if (!state?.lastFullHistorySweepAt) return true;
+        return nowMs - toMillis(state.lastFullHistorySweepAt) >= repairSweepIntervalMs;
+      });
+      return needsHistory || needsRepair;
+    }),
+    async (group) => {
+      const states = group.vendorIds.map((vendorId) => getMirrorState(dayKey, group.globalEntityId, vendorId));
+      const needsRepair = states.some((state) => {
+        if (!state?.lastFullHistorySweepAt) return true;
+        return nowMs - toMillis(state.lastFullHistorySweepAt) >= repairSweepIntervalMs;
+      });
+
+      let window = liveDayWindow;
+      if (!needsRepair) {
+        const minCursorMs = states
+          .map((state) => toMillis(state?.lastHistoryCursorAt ?? state?.lastHistorySyncAt))
+          .filter(Number.isFinite)
+          .reduce((min, current) => Math.min(min, current), Number.POSITIVE_INFINITY);
+
+        const overlapStartMs = Number.isFinite(minCursorMs)
+          ? Math.max(toMillis(liveDayWindow.startUtcIso), minCursorMs - HISTORY_OVERLAP_MS)
+          : toMillis(liveDayWindow.startUtcIso);
+
+        window = {
+          startUtcIso: new Date(overlapStartMs).toISOString(),
+          endUtcIso: liveDayWindow.endUtcIso,
+        };
+      }
+
+      const res = await fetchOrdersWindow({
+        token: params.token,
+        globalEntityId: group.globalEntityId,
+        vendorIds: group.vendorIds,
+        pageSize: HISTORY_SYNC_PAGE_SIZE,
+        window,
+        nowIso,
+      });
+
+      upsertMirrorOrders({
+        dayKey,
+        globalEntityId: group.globalEntityId,
+        rows: res.items.map((order) => ({
+          ...normalizeMirrorOrder(order, nowIso),
+          vendorId: Number(order?.vendor?.id ?? 0),
+        })).filter(Boolean) as Array<ReturnType<typeof normalizeMirrorOrder>>,
+        activeOverwrite: false,
+      });
+
+      for (const vendorId of group.vendorIds) {
+        upsertMirrorState(dayKey, group.globalEntityId, vendorId, {
+          lastHistorySyncAt: res.fetchedAt,
+          lastFullHistorySweepAt: needsRepair ? res.fetchedAt : getMirrorState(dayKey, group.globalEntityId, vendorId)?.lastFullHistorySweepAt ?? null,
+          lastHistoryCursorAt: window.endUtcIso,
+          lastSuccessfulSyncAt: res.fetchedAt,
+          consecutiveFailures: 0,
+          lastErrorAt: null,
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          staleSince: null,
+          quarantinedUntil: null,
+        });
+        result.successfulVendorIds.add(vendorId);
+        result.updatedVendorIds.add(vendorId);
+      }
+    },
+    async (group, error) => {
+      const normalized = summarizeMirrorSyncError(error);
+      result.failures.push({
+        vendorIds: [...group.vendorIds],
+        statusCode: normalized.statusCode,
+        message: normalized.message,
+      });
+      for (const vendorId of group.vendorIds) {
+        markVendorSyncFailure(dayKey, group.globalEntityId, vendorId, error);
+      }
+    },
+  );
+
+  return result;
+}
+
+export function getMirrorVendorSyncStatus(params: {
+  globalEntityId: string;
+  vendorId: OrdersVendorId;
+  ordersRefreshSeconds: number;
+  dayKey?: string;
+}): OrdersMirrorVendorSyncStatus {
+  const dayKey = params.dayKey ?? getCairoDayKey();
+  const state = getMirrorState(dayKey, params.globalEntityId, params.vendorId);
+  return {
+    vendorId: params.vendorId,
+    cacheState: resolveCacheState(state, params.ordersRefreshSeconds),
+    fetchedAt: resolveFetchedAt(state),
+    consecutiveFailures: state?.consecutiveFailures ?? 0,
+  };
+}
+
+export async function syncOrdersMirror(params: {
+  token: string;
+  branches: ResolvedBranchMapping[];
+  ordersRefreshSeconds: number;
+  dayKey?: string;
+}): Promise<OrdersMirrorSyncSummary> {
+  const dayKey = params.dayKey ?? getCairoDayKey();
+  const enabledBranches = params.branches.filter((branch) => branch.enabled);
+  const vendorIds = Array.from(new Set(enabledBranches.map((branch) => branch.ordersVendorId)));
+  const statusesByVendor = new Map<OrdersVendorId, OrdersMirrorVendorSyncStatus>();
+
+  if (!vendorIds.length) {
+    return {
+      dayKey,
+      totalVendors: 0,
+      successfulVendors: 0,
+      failedVendors: 0,
+      updatedVendors: 0,
+      staleVendorCount: 0,
+      lastSuccessfulSyncAt: null,
+      errors: [],
+      statusesByVendor,
+    };
   }
+
+  const bootstrap = await ensureOrdersMirrorBootstrap({
+    token: params.token,
+    branches: enabledBranches,
+    dayKey,
+  });
+  const active = await syncOrdersMirrorActive({
+    token: params.token,
+    branches: enabledBranches,
+    dayKey,
+  });
+  const history = await syncOrdersMirrorHistory({
+    token: params.token,
+    branches: enabledBranches,
+    dayKey,
+  });
+
+  const successfulVendorIds = new Set<OrdersVendorId>([
+    ...bootstrap.successfulVendorIds,
+    ...active.successfulVendorIds,
+    ...history.successfulVendorIds,
+  ]);
+  const updatedVendorIds = new Set<OrdersVendorId>([
+    ...bootstrap.updatedVendorIds,
+    ...active.updatedVendorIds,
+    ...history.updatedVendorIds,
+  ]);
+  const errors = [...bootstrap.failures, ...active.failures, ...history.failures];
+  const failedVendorIds = new Set<OrdersVendorId>(errors.flatMap((error) => error.vendorIds));
+
+  for (const vendorId of vendorIds) {
+    statusesByVendor.set(vendorId, getMirrorVendorSyncStatus({
+      globalEntityId: FIXED_GLOBAL_ENTITY_ID,
+      vendorId,
+      ordersRefreshSeconds: params.ordersRefreshSeconds,
+      dayKey,
+    }));
+  }
+
+  const lastSuccessfulSyncAt = Array.from(statusesByVendor.values())
+    .map((status) => status.fetchedAt)
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .sort()
+    .at(-1) ?? null;
+  const staleVendorCount = Array.from(statusesByVendor.values()).filter((status) => status.cacheState === "stale").length;
+
+  return {
+    dayKey,
+    totalVendors: vendorIds.length,
+    successfulVendors: successfulVendorIds.size,
+    failedVendors: failedVendorIds.size,
+    updatedVendors: updatedVendorIds.size,
+    staleVendorCount,
+    lastSuccessfulSyncAt,
+    errors,
+    statusesByVendor,
+  };
 }
 
 function emptyMetrics(): OrdersMetrics {

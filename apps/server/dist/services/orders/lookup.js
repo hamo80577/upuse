@@ -20,8 +20,29 @@ export async function lookupVendorName(params) {
     });
     qs.append("vendor_id[0]", String(params.ordersVendorId));
     const url = `${BASE}/orders?${qs.toString()}`;
-    const res = await getWithRetry(url, headers, 1);
+    const res = await getWithRetry(url, headers, 2);
     const item = res.data?.items?.[0];
     const name = item?.vendor?.name;
     return typeof name === "string" && name.length ? name : null;
+}
+export async function probeOrdersVendorAccess(params) {
+    const cairoNow = DateTime.utc().setZone("Africa/Cairo");
+    const startUtcIso = cairoNow.startOf("day").toUTC().toISO({ suppressMilliseconds: false });
+    const endUtcIso = cairoNow.toUTC().toISO({ suppressMilliseconds: false });
+    const headers = { Authorization: `Bearer ${params.token}`, Accept: "application/json" };
+    const qs = new URLSearchParams({
+        global_entity_id: params.globalEntityId,
+        page: "0",
+        pageSize: "1",
+        startDate: startUtcIso,
+        endDate: endUtcIso,
+    });
+    qs.append("vendor_id[0]", String(params.ordersVendorId));
+    const url = `${BASE}/orders?${qs.toString()}`;
+    const res = await getWithRetry(url, headers, 2);
+    const item = res.data?.items?.[0];
+    const name = item?.vendor?.name;
+    return {
+        sampleVendorName: typeof name === "string" && name.trim().length ? name.trim() : null,
+    };
 }

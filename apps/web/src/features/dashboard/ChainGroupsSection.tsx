@@ -10,7 +10,7 @@ export function ChainGroupsSection(props: {
   expandedGroups: Record<string, boolean>;
   onToggleGroup: (groupKey: string) => void;
   onOpenBranchDetail: (branchId: number) => void;
-  ordersSyncState: "fresh" | "syncing" | "stale";
+  ordersSyncState?: "fresh" | "syncing" | "stale";
 }) {
   if (!props.groups.length) {
     return (

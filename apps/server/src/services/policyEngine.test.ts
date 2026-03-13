@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { decide } from "./policyEngine.js";
-import type { AvailabilityRecord, BranchMapping, OrdersMetrics, Settings } from "../types/models.js";
+import type { AvailabilityRecord, OrdersMetrics, ResolvedBranchMapping, Settings } from "../types/models.js";
 
 function baseSettings(): Settings {
   return {
     ordersToken: "",
     availabilityToken: "",
-    globalEntityId: "HF_EG",
     chainNames: [],
     chains: [],
     lateThreshold: 5,
@@ -19,13 +18,14 @@ function baseSettings(): Settings {
   };
 }
 
-function baseBranch(): BranchMapping {
+function baseBranch(): ResolvedBranchMapping {
   return {
     id: 1,
     name: "Test Branch",
     chainName: "",
     ordersVendorId: 101,
     availabilityVendorId: "202",
+    catalogState: "available",
     globalEntityId: "HF_EG",
     enabled: true,
     lateThresholdOverride: null,

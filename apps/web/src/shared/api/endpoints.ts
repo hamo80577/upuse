@@ -3,16 +3,73 @@ import type {
   AuthUsersResponse,
   LoginResponse,
   AppUserRole,
-  BranchCatalogResponse,
   BranchDetailResult,
   BranchMappingItem,
   BranchPickersSummary,
   DashboardSnapshot,
-  LookupVendorNameResponse,
+  LocalVendorCatalogItem,
   SettingsMasked,
-  SettingsTokenTestResponse,
+  SettingsTokenTestSnapshot,
+  SettingsTokenTestStartResponse,
 } from "../../api/types";
-import { AUTH_UNAUTHORIZED_EVENT, describeApiError, requestCsvDownload, requestJson, requestJsonEventStream } from "./httpClient";
+import { AUTH_UNAUTHORIZED_EVENT, describeApiError, requestCsvDownload, requestJson, requestJsonWebSocket } from "./httpClient";
+
+type LegacyBranchMappingItem = Omit<BranchMappingItem, "chainName" | "catalogState"> & {
+  chainName?: string | null;
+  catalogState?: BranchMappingItem["catalogState"];
+  globalEntityId?: string;
+};
+
+type LegacyBranchCatalogItem = LocalVendorCatalogItem & {
+  globalEntityId?: string;
+  availabilityState?: string;
+  changeable?: boolean;
+  presentInSource?: boolean;
+  resolveStatus?: string;
+  lastSeenAt?: string | null;
+  resolvedAt?: string | null;
+  lastError?: string | null;
+};
+
+type StaticVendorCatalogItem = Pick<LocalVendorCatalogItem, "availabilityVendorId" | "ordersVendorId" | "name">;
+
+function isEndpointMissing(error: unknown) {
+  const message = describeApiError(error, "").trim().toLowerCase();
+  return message === "not found" || message === "http 404" || message.includes("404");
+}
+
+function shouldTryLegacyBranchAdd(error: unknown) {
+  const message = describeApiError(error, "").trim().toLowerCase();
+  if (!message) return false;
+
+  return !message.includes("already exists")
+    && !message.includes("unauthorized")
+    && !message.includes("sign in again");
+}
+
+function normalizeBranchItem(item: BranchMappingItem | LegacyBranchMappingItem): BranchMappingItem {
+  const name = typeof item.name === "string" ? item.name : null;
+  const ordersVendorId = typeof item.ordersVendorId === "number" && Number.isFinite(item.ordersVendorId)
+    ? item.ordersVendorId
+    : null;
+  const catalogState = item.catalogState === "available" || item.catalogState === "missing"
+    ? item.catalogState
+    : (name && ordersVendorId ? "available" : "missing");
+
+  return {
+    ...item,
+    name,
+    chainName: typeof item.chainName === "string" ? item.chainName : "",
+    ordersVendorId,
+    catalogState,
+  };
+}
+
+function normalizeBranchItemsResponse(response: { items: Array<BranchMappingItem | LegacyBranchMappingItem> }) {
+  return {
+    items: response.items.map(normalizeBranchItem),
+  };
+}
 
 export const api = {
   health: () => requestJson<{ ok: boolean }>("/api/health", undefined, { timeoutMs: 10_000 }),
@@ -38,7 +95,7 @@ export const api = {
     onSnapshot: (snapshot: DashboardSnapshot) => void;
     onPing?: (payload: { at: string }) => void;
   }) =>
-    requestJsonEventStream("/api/stream", {
+    requestJsonWebSocket("/api/ws/dashboard", {
       signal: options.signal,
       onOpen: options.onOpen,
       onMessage: (eventName, data) => {
@@ -94,40 +151,123 @@ export const api = {
 
   getSettings: () => requestJson<SettingsMasked>("/api/settings"),
   putSettings: (payload: any) => requestJson<{ ok: boolean }>("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
-  testTokens: () => requestJson<SettingsTokenTestResponse>("/api/settings/test", { method: "POST" }),
+  startTokenTest: () => requestJson<SettingsTokenTestStartResponse>("/api/settings/test", { method: "POST" }),
+  getTokenTest: (jobId: string) => requestJson<SettingsTokenTestSnapshot>(`/api/settings/test/${encodeURIComponent(jobId)}`),
 
-  listBranches: () => requestJson<{ items: BranchMappingItem[] }>("/api/branches"),
-  branchCatalog: () => requestJson<BranchCatalogResponse>("/api/branches/catalog"),
-  refreshBranchCatalog: () =>
-    requestJson<BranchCatalogResponse>("/api/branches/catalog/refresh", {
+  listBranches: async () =>
+    normalizeBranchItemsResponse(await requestJson<{ items: Array<BranchMappingItem | LegacyBranchMappingItem> }>("/api/branches")),
+  listBranchSource: async () => {
+    try {
+      return await requestJson<{ items: LocalVendorCatalogItem[] }>("/api/branches/source");
+    } catch (error) {
+      if (!isEndpointMissing(error)) throw error;
+
+      try {
+        const staticResponse = await requestJson<StaticVendorCatalogItem[]>("/vendor-catalog.json");
+        return {
+          items: staticResponse.map((item) => ({
+            availabilityVendorId: item.availabilityVendorId,
+            ordersVendorId: item.ordersVendorId,
+            name: item.name,
+            alreadyAdded: false,
+            branchId: null,
+            chainName: null,
+            enabled: null,
+          })),
+        };
+      } catch (staticError) {
+        if (!isEndpointMissing(staticError)) throw staticError;
+
+        const legacyResponse = await requestJson<{ items: LegacyBranchCatalogItem[] }>("/api/branches/catalog");
+        return {
+          items: legacyResponse.items.map((item) => ({
+            availabilityVendorId: item.availabilityVendorId,
+            ordersVendorId: item.ordersVendorId,
+            name: item.name,
+            alreadyAdded: item.alreadyAdded,
+            branchId: item.branchId,
+            chainName: item.chainName,
+            enabled: item.enabled,
+          })),
+        };
+      }
+    }
+  },
+  addBranch: async (payload: {
+    availabilityVendorId: string;
+    chainName: string;
+    name?: string;
+    ordersVendorId?: number;
+  }) => {
+    const narrowPayload = {
+      availabilityVendorId: payload.availabilityVendorId,
+      chainName: payload.chainName,
+    };
+
+    const submitNarrowPayload = () => requestJson<{ ok: boolean; id: number }>("/api/branches", {
       method: "POST",
-    }),
-  addBranch: (payload: { availabilityVendorId: string; chainName: string; enabled?: boolean }) =>
-    requestJson<{ ok: boolean; id: number }>("/api/branches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
-  updateBranch: (id: number, payload: any) =>
-    requestJson<{ ok: boolean; item: BranchMappingItem }>(`/api/branches/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(narrowPayload),
+    });
+
+    try {
+      return await submitNarrowPayload();
+    } catch (firstError) {
+      if (!shouldTryLegacyBranchAdd(firstError)) {
+        throw firstError;
+      }
+
+      try {
+        await requestJson<{ items?: unknown[]; syncState?: string }>("/api/branches/catalog/refresh", {
+          method: "POST",
+        });
+        return await submitNarrowPayload();
+      } catch {}
+
+      if (!payload.name || typeof payload.ordersVendorId !== "number") {
+        throw firstError;
+      }
+
+      try {
+        return await requestJson<{ ok: boolean; id: number }>("/api/branches", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: payload.name,
+            chainName: payload.chainName,
+            ordersVendorId: payload.ordersVendorId,
+            availabilityVendorId: payload.availabilityVendorId,
+            globalEntityId: "HF_EG",
+            enabled: true,
+          }),
+        });
+      } catch {
+        throw firstError;
+      }
+    }
+  },
+  setBranchThresholdOverrides: (
+    id: number,
+    payload: { lateThresholdOverride: number | null; unassignedThresholdOverride: number | null },
+  ) =>
+    requestJson<{ ok: boolean; item: BranchMappingItem | LegacyBranchMappingItem }>(`/api/branches/${id}/threshold-overrides`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then((response) => ({
+      ...response,
+      item: normalizeBranchItem(response.item),
+    })),
   setBranchMonitoring: (id: number, enabled: boolean) =>
-    requestJson<{ ok: boolean; item: BranchMappingItem }>(`/api/branches/${id}/monitoring`, {
+    requestJson<{ ok: boolean; item: BranchMappingItem | LegacyBranchMappingItem }>(`/api/branches/${id}/monitoring`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled }),
-    }),
+    }).then((response) => ({
+      ...response,
+      item: normalizeBranchItem(response.item),
+    })),
   deleteBranch: (id: number) => requestJson<{ ok: boolean }>(`/api/branches/${id}`, { method: "DELETE" }),
-
-  lookupVendorName: (ordersVendorId: number, globalEntityId?: string) => {
-    const query = new URLSearchParams({ ordersVendorId: String(ordersVendorId) });
-    if (globalEntityId?.trim()) {
-      query.set("globalEntityId", globalEntityId.trim());
-    }
-    return requestJson<LookupVendorNameResponse>(`/api/branches/lookup-vendor-name?${query.toString()}`);
-  },
-
-  parseMapping: (text: string) =>
-    requestJson<{ ok: boolean; ordersVendorId: number | null; availabilityVendorId: string | null }>(`/api/branches/parse-mapping`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    }),
 };
 
 export {

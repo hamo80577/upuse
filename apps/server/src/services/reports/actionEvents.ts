@@ -1,12 +1,12 @@
 import { db } from "../../config/db.js";
-import type { BranchMapping, CloseReason, OrdersMetrics } from "../../types/models.js";
+import type { CloseReason, OrdersMetrics, ResolvedBranchMapping } from "../../types/models.js";
 import { buildActionEventsCsvContent, type ActionEventRow } from "./actionsCsv.js";
 import { resolveReportRange } from "./range.js";
 
 type ReopenMode = "MONITOR_RECOVERED" | "EXTERNAL_OPEN" | "SOURCE_TIMER";
 
 export function recordMonitorCloseAction(params: {
-  branch: BranchMapping;
+  branch: ResolvedBranchMapping;
   at: string;
   reason: CloseReason;
   metrics: OrdersMetrics;

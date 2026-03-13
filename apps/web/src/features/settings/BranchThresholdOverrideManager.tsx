@@ -105,7 +105,7 @@ function buildThresholdGroups(
   return [...groups.values()]
     .map((group) => ({
       ...group,
-      branches: [...group.branches].sort((a, b) => a.name.localeCompare(b.name)),
+      branches: [...group.branches].sort((a, b) => safeText(a.name || a.availabilityVendorId).localeCompare(safeText(b.name || b.availabilityVendorId))),
     }))
     .sort((a, b) => {
       if (a.key === "__no_chain__") return 1;
@@ -254,10 +254,10 @@ export function BranchThresholdOverrideManager(props: {
                             <Stack direction={{ xs: "column", md: "row" }} spacing={1.2} alignItems={{ xs: "flex-start", md: "center" }}>
                               <Box sx={{ flex: 1, minWidth: 0 }}>
                                 <Typography sx={{ fontWeight: 900, color: "#0f172a" }} noWrap>
-                                  {branch.name}
+                                  {branch.name || `Availability ${branch.availabilityVendorId}`}
                                 </Typography>
                                 <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
-                                  {branchSourceLabel(branch, effective)} • Orders {branch.ordersVendorId} • Availability {branch.availabilityVendorId}
+                                  {branchSourceLabel(branch, effective)} • {branch.ordersVendorId ? `Orders ${branch.ordersVendorId} • ` : ""}Availability {branch.availabilityVendorId}
                                 </Typography>
                                 <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "block", sm: "none" } }}>
                                   {branchSourceLabel(branch, effective)}

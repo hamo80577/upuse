@@ -7,7 +7,6 @@ const roleCapabilities = {
         "refresh_monitor_orders",
         "manage_branch_mappings",
         "delete_branch_mappings",
-        "lookup_branch_vendors",
         "manage_settings",
         "manage_settings_tokens",
         "test_settings_tokens",
@@ -16,9 +15,6 @@ const roleCapabilities = {
     user: new Set([
         "manage_monitor",
         "manage_branch_mappings",
-        "lookup_branch_vendors",
-        "manage_settings_tokens",
-        "test_settings_tokens",
     ]),
 };
 function isPublicApiPath(path) {

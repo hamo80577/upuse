@@ -3,6 +3,24 @@ import { cairoDayWindowUtc, isPastPickup, nowUtcIso } from "../../utils/time.js"
 export function resolveOrdersMode() {
     return process.env.UPUSE_ORDERS_MODE === "incremental" ? "incremental" : "fullday";
 }
+export function resolveOrdersHistorySyncSeconds() {
+    const raw = Number(process.env.UPUSE_ORDERS_HISTORY_SYNC_SECONDS ?? "120");
+    if (!Number.isFinite(raw))
+        return 120;
+    return Math.max(30, Math.min(3600, Math.floor(raw)));
+}
+export function resolveOrdersRepairSweepSeconds() {
+    const raw = Number(process.env.UPUSE_ORDERS_REPAIR_SWEEP_SECONDS ?? "1800");
+    if (!Number.isFinite(raw))
+        return 1800;
+    return Math.max(120, Math.min(86_400, Math.floor(raw)));
+}
+export function resolveOrdersStaleMultiplier() {
+    const raw = Number(process.env.UPUSE_ORDERS_STALE_MULTIPLIER ?? "2");
+    if (!Number.isFinite(raw))
+        return 2;
+    return Math.max(1, Math.min(10, Math.floor(raw)));
+}
 export function resolveBranchDetailCacheTtlSeconds() {
     const raw = Number(process.env.UPUSE_BRANCH_DETAIL_CACHE_TTL_SECONDS ?? "15");
     if (!Number.isFinite(raw) || raw <= 0)
@@ -28,7 +46,8 @@ export function resolveOrdersWindowSplitMinSpanMs() {
     return Math.max(1000, Math.min(12 * 60 * 60 * 1000, Math.floor(raw)));
 }
 export function resolveOrdersWindowUtc(mode) {
-    // `incremental` remains behavior-compatible with full-day until a safe incremental strategy ships.
+    // The monitor sync now uses local mirror incremental scheduling directly.
+    // Keep the legacy window helper stable for detail and compatibility paths.
     void mode;
     return cairoDayWindowUtc(DateTime.utc());
 }

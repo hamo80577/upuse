@@ -1,3 +1,4 @@
+import { FIXED_GLOBAL_ENTITY_ID } from "../config/constants.js";
 export function createOrdersPollingPlan(params) {
     void params.availabilityByVendor;
     void params.closedSnapshotDayByBranch;
@@ -18,23 +19,15 @@ export function createOrdersPollingPlan(params) {
         captureBranchIds,
     };
 }
-export function resolveOrdersGlobalEntityId(branch, fallbackGlobalEntityId) {
-    const branchEntityId = branch.globalEntityId?.trim();
-    return branchEntityId && branchEntityId.length ? branchEntityId : fallbackGlobalEntityId;
-}
 export function createOrdersPollingRequests(params) {
     const selectedVendorIds = new Set(params.vendorIds);
-    const requestsByEntityId = new Map();
-    for (const branch of params.branches) {
-        if (!selectedVendorIds.has(branch.ordersVendorId))
-            continue;
-        const globalEntityId = resolveOrdersGlobalEntityId(branch, params.fallbackGlobalEntityId);
-        let request = requestsByEntityId.get(globalEntityId);
-        if (!request) {
-            request = { globalEntityId, vendorIds: [] };
-            requestsByEntityId.set(globalEntityId, request);
-        }
-        request.vendorIds.push(branch.ordersVendorId);
-    }
-    return Array.from(requestsByEntityId.values());
+    const resolvedVendorIds = Array.from(new Set(params.branches
+        .filter((branch) => selectedVendorIds.has(branch.ordersVendorId))
+        .map((branch) => branch.ordersVendorId)));
+    return resolvedVendorIds.length
+        ? [{
+                globalEntityId: FIXED_GLOBAL_ENTITY_ID,
+                vendorIds: resolvedVendorIds,
+            }]
+        : [];
 }

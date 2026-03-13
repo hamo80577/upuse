@@ -9,9 +9,9 @@ function PrepAndPickersStat(props: { preparingNow: number; pickerCount: number }
   return (
     <Box
       sx={{
-        borderRadius: 2.8,
-        p: 1.15,
-        minHeight: { xs: 110, sm: 116 },
+        borderRadius: 1.8,
+        p: 0.95,
+        minHeight: { xs: 96, sm: 102 },
         bgcolor: "rgba(248,250,252,0.98)",
         border: "1px solid rgba(148,163,184,0.12)",
         display: "flex",
@@ -30,20 +30,20 @@ function PrepAndPickersStat(props: { preparingNow: number; pickerCount: number }
           fontWeight: 900,
           color: "#0f172a",
           lineHeight: 1.02,
-          fontSize: { xs: 28, sm: 30 },
+          fontSize: { xs: 24, sm: 26 },
         }}
       >
         {fmtInt(props.preparingNow)}
       </Typography>
       <Box
         sx={{
-          mt: 0.75,
-          px: 0.9,
-          py: 0.34,
+          mt: 0.6,
+          px: 0.78,
+          py: 0.28,
           borderRadius: 999,
           bgcolor: "rgba(14,165,233,0.08)",
           color: "#0f766e",
-          fontSize: 11,
+          fontSize: 10.5,
           fontWeight: 900,
           lineHeight: 1,
           border: "1px solid rgba(14,165,233,0.14)",
@@ -84,8 +84,8 @@ function SummaryStat(props: {
   return (
     <Box
       sx={{
-        borderRadius: props.prominence === "primary" ? 2.8 : 2.4,
-        p: props.prominence === "primary" ? 1.15 : 1,
+        borderRadius: props.prominence === "primary" ? 1.8 : 1.65,
+        p: props.prominence === "primary" ? 0.95 : 0.85,
         bgcolor: accent.bg,
         border: "1px solid rgba(148,163,184,0.12)",
         textAlign: "left",
@@ -96,11 +96,11 @@ function SummaryStat(props: {
       </Typography>
       <Typography
         sx={{
-          mt: 0.3,
+          mt: 0.22,
           fontWeight: 900,
           color: accent.color,
           lineHeight: 1.05,
-          fontSize: props.prominence === "primary" ? { xs: 22, sm: 24 } : { xs: 18, sm: 20 },
+          fontSize: props.prominence === "primary" ? { xs: 20, sm: 22 } : { xs: 16.5, sm: 18 },
         }}
       >
         {fmtInt(props.value)}
@@ -122,11 +122,11 @@ export function BranchSummaryStats(props: {
   pickerCount: number;
 }) {
   return (
-    <Box sx={{ display: "grid", gap: 0.95 }}>
+    <Box sx={{ display: "grid", gap: 0.8 }}>
       <Box
         sx={{
           display: "grid",
-          gap: 0.95,
+          gap: 0.8,
           gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(3, minmax(0, 1fr))" },
         }}
       >
@@ -150,7 +150,7 @@ export function BranchSummaryStats(props: {
       <Box
         sx={{
           display: "grid",
-          gap: 0.95,
+          gap: 0.8,
           gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(3, minmax(0, 1fr))" },
         }}
       >

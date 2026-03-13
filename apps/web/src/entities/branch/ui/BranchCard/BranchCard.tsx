@@ -10,10 +10,13 @@ function BranchCardBase(props: {
   b: BranchSnapshot;
   rank?: number;
   onOpenDetail: (branchId: number) => void;
-  ordersSyncState: "fresh" | "syncing" | "stale";
+  ordersSyncState?: "fresh" | "syncing" | "stale";
 }) {
   const { b } = props;
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const effectiveOrdersSyncState: "fresh" | "syncing" | "stale" =
+    props.ordersSyncState ??
+    (b.ordersDataState === "warming" ? "syncing" : b.ordersDataState ?? "syncing");
 
   useEffect(() => {
     if (!(b.status === "TEMP_CLOSE" && b.closedUntil)) return;
@@ -186,7 +189,7 @@ function BranchCardBase(props: {
               metrics={b.metrics}
               preparingNow={b.preparingNow}
               preparingPickersNow={b.preparingPickersNow}
-              pickerBadgeState={props.ordersSyncState}
+              pickerBadgeState={effectiveOrdersSyncState}
             />
 
             <BranchCardStatus

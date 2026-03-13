@@ -1,5 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { isAllowedOrigin, isSameRequestOrigin, parseCorsOrigins, resolveRequestOrigin } from "./security.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  createApiNoStoreMiddleware,
+  createTrustedOriginMiddleware,
+  isAllowedOrigin,
+  isSameRequestOrigin,
+  parseCorsOrigins,
+  resolveRequestOrigin,
+} from "./security.js";
 
 describe("security helpers", () => {
   it("parses unique configured CORS origins", () => {
@@ -25,6 +32,9 @@ describe("security helpers", () => {
 
   it("resolves the request origin from forwarded production headers", () => {
     expect(resolveRequestOrigin({
+      app: {
+        get: () => true,
+      },
       headers: {
         host: "localhost:8080",
         "x-forwarded-host": "upuse.example.com",
@@ -35,8 +45,26 @@ describe("security helpers", () => {
     })).toBe("https://upuse.example.com");
   });
 
+  it("ignores spoofed forwarded headers when trust proxy is disabled", () => {
+    expect(resolveRequestOrigin({
+      app: {
+        get: () => false,
+      },
+      headers: {
+        host: "localhost:8080",
+        "x-forwarded-host": "upuse.example.com",
+        "x-forwarded-proto": "https",
+      },
+      protocol: "http",
+      get: () => undefined,
+    })).toBe("http://localhost:8080");
+  });
+
   it("allows the real same-origin production request even without an explicit CORS allowlist", () => {
     const request = {
+      app: {
+        get: () => true,
+      },
       headers: {
         origin: "https://upuse.example.com",
         host: "upuse.example.com",
@@ -49,5 +77,114 @@ describe("security helpers", () => {
     expect(isAllowedOrigin("https://upuse.example.com", [])).toBe(false);
     expect(isSameRequestOrigin("https://upuse.example.com", request)).toBe(true);
     expect(isSameRequestOrigin("https://other.example.com", request)).toBe(false);
+  });
+
+  it("blocks unsafe browser requests from an untrusted origin", () => {
+    const middleware = createTrustedOriginMiddleware();
+    const req: any = {
+      path: "/api/auth/logout",
+      method: "POST",
+      headers: {
+        origin: "https://evil.example.com",
+        host: "upuse.example.com",
+        "sec-fetch-site": "cross-site",
+      },
+      protocol: "https",
+      get: (name: string) => (name.toLowerCase() === "host" ? "upuse.example.com" : undefined),
+      app: {
+        get: () => false,
+      },
+    };
+    const res: any = {
+      statusCode: 200,
+      body: undefined,
+      status: vi.fn((statusCode: number) => {
+        res.statusCode = statusCode;
+        return res;
+      }),
+      json: vi.fn((body: unknown) => {
+        res.body = body;
+        return res;
+      }),
+    };
+    const next = vi.fn();
+
+    middleware(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toEqual({
+      ok: false,
+      message: "Cross-site API request blocked",
+    });
+  });
+
+  it("allows unsafe API requests from the trusted same origin", () => {
+    const middleware = createTrustedOriginMiddleware();
+    const req: any = {
+      path: "/api/auth/logout",
+      method: "POST",
+      headers: {
+        origin: "https://upuse.example.com",
+        host: "upuse.example.com",
+        "sec-fetch-site": "same-origin",
+      },
+      protocol: "https",
+      get: (name: string) => (name.toLowerCase() === "host" ? "upuse.example.com" : undefined),
+      app: {
+        get: () => false,
+      },
+    };
+    const res: any = {
+      status: vi.fn(),
+      json: vi.fn(),
+    };
+    const next = vi.fn();
+
+    middleware(req, res, next);
+
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("allows non-browser unsafe API clients that do not send initiator headers", () => {
+    const middleware = createTrustedOriginMiddleware();
+    const req: any = {
+      path: "/api/auth/logout",
+      method: "POST",
+      headers: {
+        host: "upuse.example.com",
+      },
+      protocol: "https",
+      get: (name: string) => (name.toLowerCase() === "host" ? "upuse.example.com" : undefined),
+      app: {
+        get: () => false,
+      },
+    };
+    const res: any = {
+      status: vi.fn(),
+      json: vi.fn(),
+    };
+    const next = vi.fn();
+
+    middleware(req, res, next);
+
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("marks API responses as non-cacheable", () => {
+    const middleware = createApiNoStoreMiddleware();
+    const req: any = {
+      path: "/api/dashboard",
+    };
+    const res: any = {
+      setHeader: vi.fn(),
+    };
+    const next = vi.fn();
+
+    middleware(req, res, next);
+
+    expect(res.setHeader).toHaveBeenCalledWith("Cache-Control", "no-store");
+    expect(res.setHeader).toHaveBeenCalledWith("Pragma", "no-cache");
+    expect(next).toHaveBeenCalledOnce();
   });
 });

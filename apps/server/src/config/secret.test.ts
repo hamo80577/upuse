@@ -61,6 +61,16 @@ describe("secret.resolveEncryptionSecret", () => {
     ).toThrow(/UPUSE_SECRET is required in production/i);
   });
 
+  it("rejects the legacy development secret in production even when explicitly configured", () => {
+    expect(() =>
+      resolveEncryptionSecret({
+        env: { NODE_ENV: "production", UPUSE_SECRET: LEGACY_DEV_SECRET },
+        dataDir: "/tmp/upuse",
+        fileSystem: createMemoryFs(),
+      }),
+    ).toThrow(/must not use the legacy development secret in production/i);
+  });
+
   it("reuses the persisted development secret and warns in non-production", () => {
     const dataDir = "/tmp/upuse";
     const secretFilePath = resolveDevSecretFilePath(dataDir);

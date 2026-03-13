@@ -9,7 +9,6 @@ export type AppCapability =
   | "refresh_monitor_orders"
   | "manage_branch_mappings"
   | "delete_branch_mappings"
-  | "lookup_branch_vendors"
   | "manage_settings"
   | "manage_settings_tokens"
   | "test_settings_tokens"
@@ -22,7 +21,6 @@ const roleCapabilities: Record<AppUserRole, ReadonlySet<AppCapability>> = {
     "refresh_monitor_orders",
     "manage_branch_mappings",
     "delete_branch_mappings",
-    "lookup_branch_vendors",
     "manage_settings",
     "manage_settings_tokens",
     "test_settings_tokens",
@@ -31,9 +29,6 @@ const roleCapabilities: Record<AppUserRole, ReadonlySet<AppCapability>> = {
   user: new Set<AppCapability>([
     "manage_monitor",
     "manage_branch_mappings",
-    "lookup_branch_vendors",
-    "manage_settings_tokens",
-    "test_settings_tokens",
   ]),
 };
 

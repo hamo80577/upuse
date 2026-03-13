@@ -7,7 +7,7 @@ function PickerMetricTile(props: { label: string; value: number; tone?: "neutral
   return (
     <Box
       sx={{
-        borderRadius: 2.5,
+        borderRadius: 1.75,
         p: 1,
         bgcolor: props.tone === "accent" ? "rgba(236,253,245,0.95)" : "rgba(248,250,252,0.92)",
         border: props.tone === "accent" ? "1px solid rgba(16,185,129,0.14)" : "1px solid rgba(148,163,184,0.12)",
@@ -48,7 +48,7 @@ export function BranchPickersPanel(props: {
 
       <Box
         sx={{
-          borderRadius: 3.2,
+          borderRadius: 2.5,
           border: "1px solid rgba(148,163,184,0.14)",
           overflow: "hidden",
           bgcolor: "rgba(255,255,255,0.94)",

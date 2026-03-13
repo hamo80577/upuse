@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { createCryptoBox, createEncryptionKeyring } from "./encryption.js";
 export const DEV_SECRET_FILE_NAME = ".dev-secret";
 export const LEGACY_DEV_SECRET = "dev-secret";
 export function resolveDevSecretFilePath(dataDir) {
@@ -10,9 +11,12 @@ export function resolveEncryptionSecret(options) {
     const env = options.env ?? process.env;
     const explicitSecret = env.UPUSE_SECRET?.trim();
     if (explicitSecret) {
+        if (env.NODE_ENV?.trim().toLowerCase() === "production" && explicitSecret === LEGACY_DEV_SECRET) {
+            throw new Error("UPUSE_SECRET must not use the legacy development secret in production.");
+        }
         return explicitSecret;
     }
-    if (env.NODE_ENV === "production") {
+    if (env.NODE_ENV?.trim().toLowerCase() === "production") {
         throw new Error("UPUSE_SECRET is required in production. Refusing to start without an explicit encryption key.");
     }
     const fileSystem = options.fileSystem ?? fs;
@@ -47,7 +51,8 @@ function readPersistedDevSecret(secretFilePath, fileSystem) {
     return persisted;
 }
 function canDecryptAllWithSecret(payloads, secret) {
-    return payloads.every((payload) => canDecryptWithSecret(payload, secret));
+    const cryptoBox = createCryptoBox(createEncryptionKeyring(secret));
+    return payloads.every((payload) => cryptoBox.canDecrypt(payload));
 }
 function canDecryptWithSecret(payload, secret) {
     try {

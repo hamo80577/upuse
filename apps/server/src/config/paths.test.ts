@@ -1,6 +1,13 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { resolveDataDir, resolveDbFilePath, resolveServerRootDir, resolveWebDistDir, resolveWorkspaceRootDir } from "./paths.js";
+import {
+  resolveDataDir,
+  resolveDbFilePath,
+  resolveServerRootDir,
+  resolveVendorCatalogCsvPath,
+  resolveWebDistDir,
+  resolveWorkspaceRootDir,
+} from "./paths.js";
 
 describe("config paths", () => {
   it("resolves the default data directory relative to the server root, not cwd", () => {
@@ -53,5 +60,22 @@ describe("config paths", () => {
     } finally {
       process.chdir(originalCwd);
     }
+  });
+
+  it("resolves the vendor catalog CSV relative to the workspace root by default", () => {
+    const serverRootDir = resolveServerRootDir();
+    const workspaceRootDir = resolveWorkspaceRootDir(serverRootDir);
+
+    expect(resolveVendorCatalogCsvPath({ env: {}, serverRootDir })).toBe(path.join(workspaceRootDir, "vendors.csv"));
+  });
+
+  it("resolves relative UPUSE_VENDOR_CATALOG_CSV_PATH values from the workspace root", () => {
+    const serverRootDir = resolveServerRootDir();
+    const workspaceRootDir = resolveWorkspaceRootDir(serverRootDir);
+
+    expect(resolveVendorCatalogCsvPath({
+      env: { UPUSE_VENDOR_CATALOG_CSV_PATH: "config/vendors/prod.csv" },
+      serverRootDir,
+    })).toBe(path.join(workspaceRootDir, "config", "vendors", "prod.csv"));
   });
 });

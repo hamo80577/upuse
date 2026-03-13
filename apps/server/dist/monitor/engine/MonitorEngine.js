@@ -1,16 +1,16 @@
 import { DateTime } from "luxon";
+import { FIXED_GLOBAL_ENTITY_ID } from "../../config/constants.js";
 import { getSettings } from "../../services/settingsStore.js";
-import { listBranches, getRuntime, setRuntime } from "../../services/branchStore.js";
-import { fetchOrdersAggregates } from "../../services/ordersClient.js";
+import { listResolvedBranches, getRuntime, setRuntime } from "../../services/branchStore.js";
 import { fetchAvailabilities, setAvailability } from "../../services/availabilityClient.js";
 import { log } from "../../services/logger.js";
 import { markCloseEventReopened, recordMonitorCloseAction } from "../../services/actionReportStore.js";
-import { createOrdersPollingPlan, createOrdersPollingRequests, resolveOrdersGlobalEntityId } from "../../services/monitorOrdersPolling.js";
-import { ensureOrdersMirrorBootstrap, syncOrdersMirrorActive, syncOrdersMirrorHistory } from "../../services/ordersMirrorStore.js";
+import { getMirrorBranchDetail, syncOrdersMirror } from "../../services/ordersMirrorStore.js";
 import { decide } from "../../services/policyEngine.js";
 import { resolveBranchThresholdProfile } from "../../services/thresholds.js";
 import { Mutex } from "../../utils/mutex.js";
 import { nowUtcIso } from "../../utils/time.js";
+import { resolveOrdersStaleMultiplier } from "../../services/orders/shared.js";
 function collapseWhitespace(value) {
     return value.replace(/\s+/g, " ").trim();
 }
@@ -61,6 +61,8 @@ function summarizeUpstreamErrorDetail(rawDetail) {
 export class MonitorEngine {
     ordersByVendor = new Map();
     preparationByVendor = new Map();
+    ordersDataStateByVendor = new Map();
+    ordersLastSyncedAtByVendor = new Map();
     availabilityByVendor = new Map();
     running = false;
     degraded = false;
@@ -69,15 +71,15 @@ export class MonitorEngine {
     lastOrdersFetchAt;
     lastAvailabilityFetchAt;
     lastHealthyAt;
+    ordersLastSuccessfulSyncAt;
+    staleOrdersBranchCount = 0;
+    consecutiveOrdersSourceFailures = 0;
     ordersTimer = null;
     availabilityTimer = null;
     availabilityStartTimeout = null;
     immediateAvailabilityTimeout = null;
     lifecycleId = 0;
-    closedOrdersSnapshotDayByBranch = new Map();
     manualOrdersRefreshPromise = null;
-    ordersMirrorRefreshPromise = null;
-    ordersMirrorRefreshPending = false;
     jobMutex = new Mutex();
     actionMutex = new Mutex();
     subscribers = new Set();
@@ -90,8 +92,10 @@ export class MonitorEngine {
         this.publish();
     }
     resetBranchTransientState(branch) {
-        this.ordersByVendor.delete(branch.ordersVendorId);
-        this.preparationByVendor.delete(branch.ordersVendorId);
+        if (typeof branch.ordersVendorId === "number") {
+            this.ordersByVendor.delete(branch.ordersVendorId);
+            this.preparationByVendor.delete(branch.ordersVendorId);
+        }
         this.availabilityByVendor.delete(branch.availabilityVendorId);
         setRuntime(branch.id, {
             lastUpuseCloseUntil: null,
@@ -109,50 +113,6 @@ export class MonitorEngine {
         const snap = this.getSnapshot();
         for (const fn of this.subscribers)
             fn(snap);
-    }
-    enqueueOrdersMirrorRefresh(branches, settings) {
-        const enabledBranches = branches.filter((branch) => branch.enabled);
-        if (!enabledBranches.length)
-            return;
-        if (this.ordersMirrorRefreshPromise) {
-            this.ordersMirrorRefreshPending = true;
-            return;
-        }
-        const promise = (async () => {
-            do {
-                this.ordersMirrorRefreshPending = false;
-                try {
-                    await ensureOrdersMirrorBootstrap({
-                        token: settings.ordersToken,
-                        branches: enabledBranches,
-                        fallbackGlobalEntityId: settings.globalEntityId,
-                    });
-                    await syncOrdersMirrorActive({
-                        token: settings.ordersToken,
-                        branches: enabledBranches,
-                        fallbackGlobalEntityId: settings.globalEntityId,
-                    });
-                    await syncOrdersMirrorHistory({
-                        token: settings.ordersToken,
-                        branches: enabledBranches,
-                        fallbackGlobalEntityId: settings.globalEntityId,
-                    });
-                }
-                catch (error) {
-                    const { statusCode, detail } = this.getErrorDetail(error);
-                    const baseMessage = statusCode
-                        ? `Local orders cache sync failed (HTTP ${statusCode})`
-                        : "Local orders cache sync failed";
-                    log(null, "WARN", detail && detail !== baseMessage ? `${baseMessage}: ${detail}` : baseMessage);
-                }
-            } while (this.ordersMirrorRefreshPending && this.running);
-        })()
-            .finally(() => {
-            if (this.ordersMirrorRefreshPromise === promise) {
-                this.ordersMirrorRefreshPromise = null;
-            }
-        });
-        this.ordersMirrorRefreshPromise = promise;
     }
     nextLifecycleId() {
         this.lifecycleId += 1;
@@ -443,7 +403,7 @@ export class MonitorEngine {
     }
     syncExternalClosureState(nowIso) {
         const settings = getSettings();
-        const branches = listBranches().filter((branch) => branch.enabled);
+        const branches = listResolvedBranches({ enabledOnly: true });
         for (const branch of branches) {
             const availability = this.availabilityByVendor.get(branch.availabilityVendorId);
             let runtime = getRuntime(branch.id);
@@ -522,7 +482,7 @@ export class MonitorEngine {
     }
     getSnapshot() {
         const settings = getSettings();
-        const branches = listBranches();
+        const branches = listResolvedBranches();
         const monitoredBranches = branches.filter((branch) => branch.enabled);
         const totals = {
             branchesMonitored: monitoredBranches.length,
@@ -551,6 +511,8 @@ export class MonitorEngine {
                 preparingNow: Math.max(0, rawMetrics.activeNow - rawMetrics.unassignedNow),
                 preparingPickersNow: 0,
             });
+            const ordersDataState = this.ordersDataStateByVendor.get(b.ordersVendorId) ?? "warming";
+            const ordersLastSyncedAt = this.ordersLastSyncedAtByVendor.get(b.ordersVendorId);
             const metrics = this.currentMetrics(rawMetrics);
             totals.ordersToday += metrics.totalToday;
             totals.cancelledToday += metrics.cancelledToday;
@@ -623,6 +585,8 @@ export class MonitorEngine {
                 metrics,
                 preparingNow: preparation.preparingNow,
                 preparingPickersNow: preparation.preparingPickersNow,
+                ordersDataState,
+                ordersLastSyncedAt,
                 lastUpdatedAt: this.lastHealthyAt,
             };
         });
@@ -633,6 +597,18 @@ export class MonitorEngine {
                 lastAvailabilityFetchAt: this.lastAvailabilityFetchAt,
                 lastHealthyAt: this.lastHealthyAt,
                 degraded: this.degraded,
+                ordersSync: {
+                    mode: "mirror",
+                    state: !this.lastOrdersFetchAt
+                        ? "warming"
+                        : this.consecutiveOrdersSourceFailures >= resolveOrdersStaleMultiplier() ||
+                            (totals.branchesMonitored > 0 && this.staleOrdersBranchCount / totals.branchesMonitored > 0.25)
+                            ? "degraded"
+                            : "healthy",
+                    lastSuccessfulSyncAt: this.ordersLastSuccessfulSyncAt,
+                    staleBranchCount: this.staleOrdersBranchCount,
+                    consecutiveSourceFailures: this.consecutiveOrdersSourceFailures,
+                },
                 errors: { ...this.errors },
             },
             totals,
@@ -645,7 +621,6 @@ export class MonitorEngine {
         const lifecycleId = this.nextLifecycleId();
         this.running = true;
         this.errors = {};
-        this.closedOrdersSnapshotDayByBranch.clear();
         this.syncDegraded();
         log(null, "INFO", "Monitoring started");
         await this.prime(lifecycleId);
@@ -665,9 +640,11 @@ export class MonitorEngine {
         this.lastOrdersFetchAt = undefined;
         this.lastAvailabilityFetchAt = undefined;
         this.lastHealthyAt = undefined;
-        this.closedOrdersSnapshotDayByBranch.clear();
-        this.ordersMirrorRefreshPending = false;
-        this.ordersMirrorRefreshPromise = null;
+        this.ordersDataStateByVendor.clear();
+        this.ordersLastSyncedAtByVendor.clear();
+        this.ordersLastSuccessfulSyncAt = undefined;
+        this.staleOrdersBranchCount = 0;
+        this.consecutiveOrdersSourceFailures = 0;
         this.syncDegraded();
         this.clearScheduleHandles();
         log(null, "INFO", "Monitoring stopped");
@@ -715,73 +692,92 @@ export class MonitorEngine {
             if (!this.isLifecycleActive(expectedLifecycleId))
                 return;
             const settings = getSettings();
-            const branches = listBranches();
-            const cairoDayKey = DateTime.utc().setZone("Africa/Cairo").toFormat("yyyy-LL-dd");
-            const pollingPlan = createOrdersPollingPlan({
-                branches,
-                availabilityByVendor: this.availabilityByVendor,
-                closedSnapshotDayByBranch: this.closedOrdersSnapshotDayByBranch,
-                cairoDayKey,
-            });
-            pollingPlan.resetBranchIds.forEach((branchId) => {
-                this.closedOrdersSnapshotDayByBranch.delete(branchId);
-            });
-            if (!pollingPlan.vendorIds.length) {
+            const branches = listResolvedBranches({ enabledOnly: true });
+            if (!branches.length) {
                 if (!this.isLifecycleCurrent(expectedLifecycleId))
                     return;
+                this.ordersByVendor.clear();
+                this.preparationByVendor.clear();
+                this.ordersDataStateByVendor.clear();
+                this.ordersLastSyncedAtByVendor.clear();
+                this.staleOrdersBranchCount = 0;
+                this.ordersLastSuccessfulSyncAt = undefined;
+                this.consecutiveOrdersSourceFailures = 0;
                 this.clearSourceError("orders");
                 if (!options?.suppressPublish && this.isLifecycleCurrent(expectedLifecycleId)) {
                     this.publish();
                 }
                 return;
             }
-            const pollingRequests = createOrdersPollingRequests({
-                branches,
-                vendorIds: pollingPlan.vendorIds,
-                fallbackGlobalEntityId: settings.globalEntityId,
-            });
             try {
-                const mergedOrdersByVendor = new Map(this.ordersByVendor);
-                const mergedPreparationByVendor = new Map(this.preparationByVendor);
-                let lastFetchedAt = this.lastOrdersFetchAt ?? nowUtcIso();
-                for (const request of pollingRequests) {
-                    if (!this.isLifecycleActive(expectedLifecycleId))
-                        return;
-                    const res = await fetchOrdersAggregates({
-                        token: settings.ordersToken,
-                        globalEntityId: request.globalEntityId,
-                        vendorIds: request.vendorIds,
-                        pageSize: 500,
-                        maxVendorsPerRequest: settings.maxVendorsPerOrdersRequest,
+                const summary = await syncOrdersMirror({
+                    token: settings.ordersToken,
+                    branches,
+                    ordersRefreshSeconds: settings.ordersRefreshSeconds,
+                });
+                if (!this.isLifecycleActive(expectedLifecycleId))
+                    return;
+                const mergedOrdersByVendor = new Map();
+                const mergedPreparationByVendor = new Map();
+                const mergedDataStateByVendor = new Map();
+                const mergedLastSyncedAtByVendor = new Map();
+                for (const branch of branches) {
+                    const detail = getMirrorBranchDetail({
+                        globalEntityId: branch.globalEntityId,
+                        vendorId: branch.ordersVendorId,
+                        ordersRefreshSeconds: settings.ordersRefreshSeconds,
+                        includePickerItems: false,
+                        dayKey: summary.dayKey,
                     });
-                    if (!this.isLifecycleActive(expectedLifecycleId))
-                        return;
-                    lastFetchedAt = res.fetchedAt;
-                    for (const [vendorId, metrics] of res.byVendor) {
-                        mergedOrdersByVendor.set(vendorId, metrics);
-                    }
-                    for (const [vendorId, preparation] of res.preparingByVendor) {
-                        mergedPreparationByVendor.set(vendorId, preparation);
-                    }
+                    mergedOrdersByVendor.set(branch.ordersVendorId, detail.metrics);
+                    mergedPreparationByVendor.set(branch.ordersVendorId, {
+                        preparingNow: detail.preparingOrders.length,
+                        preparingPickersNow: detail.pickers.activePreparingCount,
+                    });
+                    mergedDataStateByVendor.set(branch.ordersVendorId, detail.cacheState);
+                    mergedLastSyncedAtByVendor.set(branch.ordersVendorId, detail.fetchedAt ?? undefined);
                 }
                 if (!this.isLifecycleActive(expectedLifecycleId))
                     return;
                 this.ordersByVendor = mergedOrdersByVendor;
                 this.preparationByVendor = mergedPreparationByVendor;
-                pollingPlan.captureBranchIds.forEach((branchId) => {
-                    this.closedOrdersSnapshotDayByBranch.set(branchId, cairoDayKey);
-                });
+                this.ordersDataStateByVendor = mergedDataStateByVendor;
+                this.ordersLastSyncedAtByVendor = mergedLastSyncedAtByVendor;
                 this.ordersFresh = true;
-                this.clearSourceError("orders");
-                this.lastOrdersFetchAt = lastFetchedAt;
+                this.ordersLastSuccessfulSyncAt = summary.lastSuccessfulSyncAt ?? this.ordersLastSuccessfulSyncAt;
+                this.lastOrdersFetchAt = summary.lastSuccessfulSyncAt ?? this.lastOrdersFetchAt;
+                this.staleOrdersBranchCount = branches.filter((branch) => mergedDataStateByVendor.get(branch.ordersVendorId) === "stale").length;
+                const staleMultiplier = resolveOrdersStaleMultiplier();
+                const staleRatio = branches.length ? this.staleOrdersBranchCount / branches.length : 0;
+                const hardFailure = summary.updatedVendors === 0 && summary.failedVendors > 0;
+                this.consecutiveOrdersSourceFailures = hardFailure ? this.consecutiveOrdersSourceFailures + 1 : 0;
+                const shouldExposeOrdersError = this.consecutiveOrdersSourceFailures >= staleMultiplier ||
+                    (this.staleOrdersBranchCount > 0 && staleRatio > 0.25);
+                if (shouldExposeOrdersError) {
+                    const primaryError = summary.errors[0];
+                    this.errors.orders = {
+                        source: "orders",
+                        message: primaryError
+                            ? primaryError.statusCode
+                                ? `Orders API request failed (HTTP ${primaryError.statusCode}): ${primaryError.message}`
+                                : `Orders API request failed: ${primaryError.message}`
+                            : "Orders data is stale across multiple branches.",
+                        at: nowUtcIso(),
+                        statusCode: primaryError?.statusCode,
+                    };
+                    this.syncDegraded();
+                }
+                else {
+                    this.clearSourceError("orders");
+                }
                 this.markHealthy();
-                this.enqueueOrdersMirrorRefresh(branches, settings);
                 await this.reconcile("orders", expectedLifecycleId);
             }
             catch (e) {
                 if (!this.isLifecycleCurrent(expectedLifecycleId))
                     return;
                 this.ordersFresh = false;
+                this.consecutiveOrdersSourceFailures += 1;
                 this.setSourceError("orders", "Orders API request failed", e);
             }
             finally {
@@ -829,11 +825,15 @@ export class MonitorEngine {
         if (!this.ordersFresh || !this.isLifecycleActive(expectedLifecycleId))
             return;
         const settings = getSettings();
-        const branches = listBranches().filter((b) => b.enabled);
+        const branches = listResolvedBranches({ enabledOnly: true });
         const nowIso = nowUtcIso();
         for (const branch of branches) {
             if (!this.isLifecycleActive(expectedLifecycleId))
                 return;
+            const ordersDataState = this.ordersDataStateByVendor.get(branch.ordersVendorId) ?? "warming";
+            if (ordersDataState !== "fresh") {
+                continue;
+            }
             const metrics = this.ordersByVendor.get(branch.ordersVendorId) ?? {
                 totalToday: 0,
                 cancelledToday: 0,
@@ -941,7 +941,7 @@ export class MonitorEngine {
                         return;
                     const actionRuntime = getRuntime(branch.id);
                     const isReappliedAfterExternalOpen = Boolean(actionRuntime?.externalOpenDetectedAt);
-                    const availabilityGlobalEntityId = resolveOrdersGlobalEntityId(branch, settings.globalEntityId);
+                    const availabilityGlobalEntityId = FIXED_GLOBAL_ENTITY_ID;
                     if (!this.isLifecycleActive(expectedLifecycleId))
                         return;
                     const mutationResult = await setAvailability({
@@ -1019,7 +1019,7 @@ export class MonitorEngine {
                     const ownsClosure = this.isMonitorOwnedClosure(rt, current);
                     if (!ownsClosure)
                         return;
-                    const availabilityGlobalEntityId = resolveOrdersGlobalEntityId(branch, settings.globalEntityId);
+                    const availabilityGlobalEntityId = FIXED_GLOBAL_ENTITY_ID;
                     if (current.modifiedBy === "log_vendor_monitor" && current.closedUntil) {
                         rt = this.syncTrackedMonitorRuntime(branch, metrics, rt, current.closedUntil, settings);
                     }

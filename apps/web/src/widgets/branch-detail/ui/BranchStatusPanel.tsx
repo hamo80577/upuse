@@ -1,12 +1,49 @@
-import { Box, Chip, Divider, LinearProgress, Stack, Typography } from "@mui/material";
+import AccessTimeFilledRoundedIcon from "@mui/icons-material/AccessTimeFilledRounded";
+import PersonOffRoundedIcon from "@mui/icons-material/PersonOffRounded";
+import SettingsSuggestRoundedIcon from "@mui/icons-material/SettingsSuggestRounded";
+import StorefrontRoundedIcon from "@mui/icons-material/StorefrontRounded";
+import { Box, Chip, Divider, LinearProgress, Stack, Tooltip, Typography } from "@mui/material";
 import type { BranchSnapshot } from "../../../api/types";
 import { closureProgress, hasDeadlinePassed } from "../../../shared/lib/progress/closureProgress";
 import { fmtCountdown, fmtTimeCairo } from "../../../utils/format";
-import { statusChip, statusPanelMeta } from "../lib/statusMeta";
+import { closeReasonMeta, statusChip, statusPanelMeta } from "../lib/statusMeta";
+
+function sourceWindowMeta(branch: BranchSnapshot, sourceLabel: string | null) {
+  if (!sourceLabel) return null;
+
+  if (branch.closureSource === "UPUSE" || branch.closedByUpuse) {
+    return {
+      label: sourceLabel,
+      title: "Control Source",
+      tone: "#155e75",
+      background: "rgba(236,254,255,0.96)",
+      border: "rgba(34,211,238,0.18)",
+      icon: <SettingsSuggestRoundedIcon sx={{ fontSize: 18 }} />,
+    };
+  }
+
+  return {
+    label: sourceLabel,
+    title: branch.status === "CLOSED" ? "Current State" : "Source State",
+    tone: "#334155",
+    background: "rgba(248,250,252,0.98)",
+    border: "rgba(148,163,184,0.16)",
+    icon: <StorefrontRoundedIcon sx={{ fontSize: 18 }} />,
+  };
+}
+
+function triggerIcon(reason?: BranchSnapshot["closeReason"]) {
+  if (reason === "LATE") return <AccessTimeFilledRoundedIcon sx={{ fontSize: 18 }} />;
+  if (reason === "UNASSIGNED") return <PersonOffRoundedIcon sx={{ fontSize: 18 }} />;
+  return null;
+}
 
 export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number }) {
   const chip = statusChip(props.branch);
   const panel = statusPanelMeta(props.branch);
+  const source = sourceWindowMeta(props.branch, panel.sourceLabel);
+  const reason = closeReasonMeta(props.branch.closeReason);
+  const reasonIcon = triggerIcon(props.branch.closeReason);
   const progressValue = closureProgress(props.branch.closeStartedAt, props.branch.closedUntil, props.nowMs);
   const canTrackProgress = Boolean(
     props.branch.status === "TEMP_CLOSE" &&
@@ -18,14 +55,14 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
   return (
     <Box
       sx={{
-        borderRadius: 3,
+        borderRadius: 2.25,
         border: props.branch.status === "TEMP_CLOSE" ? "1px solid rgba(220,38,38,0.16)" : "1px solid rgba(148,163,184,0.14)",
-        p: { xs: 1.3, sm: 1.45 },
+        p: { xs: 1.1, sm: 1.2 },
         background:
           props.branch.status === "TEMP_CLOSE"
             ? "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(255,247,247,0.92) 100%)"
             : "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.92) 100%)",
-        boxShadow: "0 14px 30px rgba(15,23,42,0.05)",
+        boxShadow: "0 12px 26px rgba(15,23,42,0.05)",
       }}
     >
       <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1}>
@@ -33,7 +70,7 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
           <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 800 }}>
             Status Window
           </Typography>
-          <Typography sx={{ mt: 0.35, fontWeight: 900, color: panel.tone, lineHeight: 1.15 }}>
+          <Typography sx={{ mt: 0.25, fontWeight: 900, color: panel.tone, lineHeight: 1.15, fontSize: { xs: 18, sm: 20 } }}>
             {panel.title}
           </Typography>
         </Box>
@@ -48,20 +85,105 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
         />
       </Stack>
 
-      <Typography variant="body2" sx={{ mt: 0.9, color: "text.secondary", lineHeight: 1.55 }}>
+      <Typography variant="body2" sx={{ mt: 0.75, color: "text.secondary", lineHeight: 1.5, fontSize: { xs: 13, sm: 13.5 } }}>
         {panel.caption}
       </Typography>
 
-      <Divider sx={{ my: 1.15 }} />
+      {source || (reason && reasonIcon) ? (
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={0.8}
+          sx={{ mt: 0.9, alignItems: { sm: "stretch" } }}
+        >
+          {source ? (
+            <Box
+              sx={{
+                flex: 1,
+                minWidth: 0,
+                borderRadius: 2,
+                px: 0.95,
+                py: 0.8,
+                bgcolor: source.background,
+                border: `1px solid ${source.border}`,
+              }}
+            >
+              <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 800 }}>
+                {source.title}
+              </Typography>
+              <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 0.45 }}>
+                <Box
+                  sx={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: "9px",
+                    display: "grid",
+                    placeItems: "center",
+                    bgcolor: "rgba(255,255,255,0.68)",
+                    color: source.tone,
+                    border: "1px solid rgba(255,255,255,0.7)",
+                    flexShrink: 0,
+                  }}
+                >
+                  {source.icon}
+                </Box>
+                <Typography sx={{ fontWeight: 800, color: source.tone, lineHeight: 1.2, fontSize: 13 }}>
+                  {source.label}
+                </Typography>
+              </Stack>
+            </Box>
+          ) : null}
+
+          {reason && reasonIcon ? (
+            <Tooltip title={reason.label}>
+              <Box
+                aria-label={reason.label}
+                sx={{
+                  width: { xs: "100%", sm: 92 },
+                  borderRadius: 2,
+                  px: 0.95,
+                  py: 0.8,
+                  bgcolor: reason.background,
+                  border: `1px solid ${reason.border}`,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 800 }}>
+                  Trigger
+                </Typography>
+                <Box
+                  sx={{
+                    mt: 0.45,
+                    width: 30,
+                    height: 30,
+                    borderRadius: "10px",
+                    display: "grid",
+                    placeItems: "center",
+                    bgcolor: "rgba(255,255,255,0.66)",
+                    color: reason.tone,
+                    border: "1px solid rgba(255,255,255,0.72)",
+                  }}
+                >
+                  {reasonIcon}
+                </Box>
+              </Box>
+            </Tooltip>
+          ) : null}
+        </Stack>
+      ) : null}
+
+      <Divider sx={{ my: 1 }} />
 
       {panel.showTimer && props.branch.status === "TEMP_CLOSE" && props.branch.closedUntil ? (
         <Stack spacing={0.9} sx={{ mt: 1.2 }}>
-          <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" gap={1.1} alignItems={{ xs: "flex-start", sm: "flex-end" }}>
+          <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" gap={0.95} alignItems={{ xs: "flex-start", sm: "flex-end" }}>
             <Box>
               <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 800 }}>
                 Countdown
               </Typography>
-              <Typography variant="h4" sx={{ mt: 0.2, fontWeight: 900, color: "#166534", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
+              <Typography sx={{ mt: 0.16, fontWeight: 900, color: "#166534", fontVariantNumeric: "tabular-nums", lineHeight: 1, fontSize: { xs: 34, sm: 38 } }}>
                 {fmtCountdown(props.branch.closedUntil, props.nowMs)}
               </Typography>
             </Box>
@@ -78,7 +200,7 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
             variant={canTrackProgress ? "determinate" : "indeterminate"}
             value={canTrackProgress ? progressValue : undefined}
             sx={{
-              height: 12,
+              height: 10,
               borderRadius: 999,
               bgcolor: "rgba(15,23,42,0.08)",
               boxShadow: "inset 0 1px 3px rgba(15,23,42,0.12)",
@@ -102,9 +224,9 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
       ) : (
         <Box
           sx={{
-            borderRadius: 2.6,
-            px: 1.05,
-            py: 0.95,
+            borderRadius: 2,
+            px: 0.95,
+            py: 0.82,
             bgcolor: "rgba(248,250,252,0.92)",
             border: "1px solid rgba(148,163,184,0.10)",
           }}
