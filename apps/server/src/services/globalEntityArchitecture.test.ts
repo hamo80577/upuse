@@ -2,15 +2,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { getDefaultGlobalEntityId } from "../config/globalEntityId.js";
 
 const serverSrcDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repoRootDir = path.resolve(serverSrcDir, "..", "..", "..");
 const webSrcDir = path.join(repoRootDir, "apps", "web", "src");
+const removedConstantNames = [
+  ["FIXED", "GLOBAL", "ENTITY", "ID"].join("_"),
+  ["DEFAULT", "GLOBAL", "ENTITY", "ID"].join("_"),
+].join("|");
 const fixedEntityPattern = new RegExp(
-  String.raw`\b(FIXED_GLOBAL_ENTITY_ID)\b|["']${getDefaultGlobalEntityId()}["']`,
+  String.raw`\b(${removedConstantNames})\b|["']HF_[A-Z0-9_]+["']`,
 );
-const allowedDefaultSourcePath = fileURLToPath(new URL("../config/globalEntityId.ts", import.meta.url));
 
 function collectRuntimeSourceFiles(dir: string): string[] {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -38,14 +40,13 @@ describe("globalEntityId runtime architecture", () => {
     expect(source).not.toMatch(fixedEntityPattern);
   });
 
-  it("runtime server and web sources do not retain the fixed default entity outside the config module", () => {
+  it("runtime server and web sources do not retain fixed global entity constants or literals", () => {
     const runtimeFiles = [
       ...collectRuntimeSourceFiles(serverSrcDir),
       ...collectRuntimeSourceFiles(webSrcDir),
     ];
 
     for (const filePath of runtimeFiles) {
-      if (filePath === allowedDefaultSourcePath) continue;
       const source = fs.readFileSync(filePath, "utf8");
       expect(source, path.relative(repoRootDir, filePath)).not.toMatch(fixedEntityPattern);
     }

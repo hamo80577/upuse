@@ -8,7 +8,6 @@ export interface AppPermissions {
   canRefreshOrdersNow: boolean;
   canManageBranches: boolean;
   canDeleteBranches: boolean;
-  canLookupBranchVendors: boolean;
   canManageSettings: boolean;
   canManageTokens: boolean;
   canTestTokens: boolean;
@@ -23,7 +22,6 @@ const anonymousPermissions: AppPermissions = {
   canRefreshOrdersNow: false,
   canManageBranches: false,
   canDeleteBranches: false,
-  canLookupBranchVendors: false,
   canManageSettings: false,
   canManageTokens: false,
   canTestTokens: false,
@@ -39,8 +37,7 @@ type UiCapability =
   | "manage_settings"
   | "manage_settings_tokens"
   | "test_settings_tokens"
-  | "clear_logs"
-  | "lookup_branch_vendors";
+  | "clear_logs";
 
 const roleCapabilities: Record<AppUserRole, ReadonlySet<UiCapability>> = {
   admin: new Set<UiCapability>([
@@ -53,12 +50,10 @@ const roleCapabilities: Record<AppUserRole, ReadonlySet<UiCapability>> = {
     "manage_settings_tokens",
     "test_settings_tokens",
     "clear_logs",
-    "lookup_branch_vendors",
   ]),
   user: new Set<UiCapability>([
     "manage_monitor",
     "manage_branch_mappings",
-    "lookup_branch_vendors",
   ]),
 };
 
@@ -77,7 +72,6 @@ export function getAppPermissions(role?: AppUserRole | null): AppPermissions {
     canRefreshOrdersNow: hasUiCapability(role, "refresh_monitor_orders"),
     canManageBranches: hasUiCapability(role, "manage_branch_mappings"),
     canDeleteBranches: hasUiCapability(role, "delete_branch_mappings"),
-    canLookupBranchVendors: hasUiCapability(role, "lookup_branch_vendors"),
     canManageSettings: hasUiCapability(role, "manage_settings"),
     canManageTokens: hasUiCapability(role, "manage_settings_tokens"),
     canTestTokens: hasUiCapability(role, "test_settings_tokens"),

@@ -27,6 +27,14 @@ type RuntimePatch = Partial<NonNullable<RuntimeRow>>;
 type CycleOptions = {
   suppressPublish?: boolean;
 };
+type ScheduledSource = "orders" | "availability";
+type ScheduledCycleState = {
+  timer: NodeJS.Timeout | null;
+  inFlight: Promise<void> | null;
+  pending: boolean;
+  completedRuns: number;
+  waiters: Array<{ targetRun: number; resolve: () => void }>;
+};
 
 function collapseWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
@@ -108,8 +116,23 @@ export class MonitorEngine {
   private staleOrdersBranchCount = 0;
   private consecutiveOrdersSourceFailures = 0;
 
-  private ordersTimer: NodeJS.Timeout | null = null;
-  private availabilityTimer: NodeJS.Timeout | null = null;
+  // Each source is single-flight with at most one coalesced rerun request.
+  private cycleStates: Record<ScheduledSource, ScheduledCycleState> = {
+    orders: {
+      timer: null,
+      inFlight: null,
+      pending: false,
+      completedRuns: 0,
+      waiters: [],
+    },
+    availability: {
+      timer: null,
+      inFlight: null,
+      pending: false,
+      completedRuns: 0,
+      waiters: [],
+    },
+  };
   private lifecycleId = 0;
   private manualOrdersRefreshPromise: Promise<void> | null = null;
 
@@ -165,11 +188,131 @@ export class MonitorEngine {
     return this.running && this.isLifecycleCurrent(expectedLifecycleId);
   }
 
+  private getCycleState(source: ScheduledSource) {
+    return this.cycleStates[source];
+  }
+
+  private getCycleIntervalMs(source: ScheduledSource) {
+    const settings = getSettings();
+    return source === "orders"
+      ? settings.ordersRefreshSeconds * 1000
+      : settings.availabilityRefreshSeconds * 1000;
+  }
+
+  private getAvailabilityOffsetMs() {
+    const availabilityMs = this.getCycleIntervalMs("availability");
+    return Math.min(15000, Math.floor(availabilityMs / 2));
+  }
+
+  private clearCycleTimer(source: ScheduledSource) {
+    const state = this.getCycleState(source);
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = null;
+  }
+
+  private resolveCycleWaiters(source: ScheduledSource) {
+    const state = this.getCycleState(source);
+    const remaining: ScheduledCycleState["waiters"] = [];
+
+    for (const waiter of state.waiters) {
+      if (state.completedRuns >= waiter.targetRun || !this.running) {
+        waiter.resolve();
+        continue;
+      }
+      remaining.push(waiter);
+    }
+
+    state.waiters = remaining;
+  }
+
+  private resetCycleState(source: ScheduledSource) {
+    const state = this.getCycleState(source);
+    this.clearCycleTimer(source);
+    state.inFlight = null;
+    state.pending = false;
+    state.completedRuns = 0;
+    for (const waiter of state.waiters) waiter.resolve();
+    state.waiters = [];
+  }
+
   private clearScheduleHandles() {
-    if (this.ordersTimer) clearTimeout(this.ordersTimer);
-    if (this.availabilityTimer) clearTimeout(this.availabilityTimer);
-    this.ordersTimer = null;
-    this.availabilityTimer = null;
+    this.resetCycleState("orders");
+    this.resetCycleState("availability");
+  }
+
+  private armCycleTimer(source: ScheduledSource, delayMs: number, expectedLifecycleId?: number) {
+    if (!this.isLifecycleActive(expectedLifecycleId)) return;
+
+    const state = this.getCycleState(source);
+    this.clearCycleTimer(source);
+    state.timer = setTimeout(() => {
+      state.timer = null;
+      void this.requestScheduledCycle(source, expectedLifecycleId);
+    }, delayMs);
+  }
+
+  private startScheduledCycle(source: ScheduledSource, options?: CycleOptions, expectedLifecycleId?: number) {
+    if (!this.isLifecycleActive(expectedLifecycleId)) return;
+
+    const state = this.getCycleState(source);
+    if (state.inFlight) return;
+
+    this.clearCycleTimer(source);
+
+    const runCycle = source === "orders"
+      ? this.runOrdersCycle.bind(this)
+      : this.runAvailabilityCycle.bind(this);
+
+    const cyclePromise = Promise.resolve()
+      .then(() => runCycle(options, expectedLifecycleId))
+      .catch(() => {})
+      .finally(() => {
+        if (state.inFlight === cyclePromise) {
+          state.inFlight = null;
+        }
+
+        state.completedRuns += 1;
+        this.resolveCycleWaiters(source);
+
+        if (!this.isLifecycleActive(expectedLifecycleId)) {
+          state.pending = false;
+          return;
+        }
+
+        if (state.pending) {
+          state.pending = false;
+          this.startScheduledCycle(source, undefined, expectedLifecycleId);
+          return;
+        }
+
+        this.armCycleTimer(source, this.getCycleIntervalMs(source), expectedLifecycleId);
+      });
+
+    state.inFlight = cyclePromise;
+  }
+
+  private requestScheduledCycle(source: ScheduledSource, expectedLifecycleId?: number, options?: CycleOptions) {
+    if (!this.isLifecycleActive(expectedLifecycleId)) {
+      return Promise.resolve();
+    }
+
+    const state = this.getCycleState(source);
+    const targetRun = state.completedRuns + (state.inFlight ? 2 : 1);
+
+    if (state.inFlight) {
+      state.pending = true;
+    } else {
+      this.startScheduledCycle(source, options, expectedLifecycleId);
+    }
+
+    return new Promise<void>((resolve) => {
+      if (state.completedRuns >= targetRun || !this.isLifecycleActive(expectedLifecycleId)) {
+        resolve();
+        return;
+      }
+
+      state.waiters.push({ targetRun, resolve });
+    });
   }
 
   isRunning() {
@@ -197,8 +340,7 @@ export class MonitorEngine {
     }
 
     const expectedLifecycleId = this.lifecycleId;
-    const cyclePromise = this.runOrdersCycle(undefined, expectedLifecycleId)
-      .catch(() => {})
+    const cyclePromise = this.requestScheduledCycle("orders", expectedLifecycleId)
       .finally(() => {
         if (this.manualOrdersRefreshPromise === cyclePromise) {
           this.manualOrdersRefreshPromise = null;
@@ -739,40 +881,12 @@ export class MonitorEngine {
 
   private schedule(runImmediately = true, lifecycleId?: number) {
     this.clearScheduleHandles();
-    const settings = getSettings();
-
-    const ordersMs = settings.ordersRefreshSeconds * 1000;
-    const availMs = settings.availabilityRefreshSeconds * 1000;
-    const offsetMs = Math.min(15000, Math.floor(availMs / 2));
-
-    const scheduleOrders = (delayMs: number) => {
-      this.ordersTimer = setTimeout(() => {
-        if (!this.isLifecycleActive(lifecycleId)) return;
-        void this.runOrdersCycle(undefined, lifecycleId)
-          .catch(() => {})
-          .finally(() => {
-            if (this.isLifecycleActive(lifecycleId)) {
-              scheduleOrders(ordersMs);
-            }
-          });
-      }, delayMs);
-    };
-
-    const scheduleAvailability = (delayMs: number) => {
-      this.availabilityTimer = setTimeout(() => {
-        if (!this.isLifecycleActive(lifecycleId)) return;
-        void this.runAvailabilityCycle(undefined, lifecycleId)
-          .catch(() => {})
-          .finally(() => {
-            if (this.isLifecycleActive(lifecycleId)) {
-              scheduleAvailability(availMs);
-            }
-          });
-      }, delayMs);
-    };
-
-    scheduleOrders(runImmediately ? 0 : ordersMs);
-    scheduleAvailability(runImmediately ? offsetMs : offsetMs + availMs);
+    this.armCycleTimer("orders", runImmediately ? 0 : this.getCycleIntervalMs("orders"), lifecycleId);
+    this.armCycleTimer(
+      "availability",
+      runImmediately ? this.getAvailabilityOffsetMs() : this.getAvailabilityOffsetMs() + this.getCycleIntervalMs("availability"),
+      lifecycleId,
+    );
   }
 
   private async prime(lifecycleId?: number) {

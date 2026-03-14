@@ -124,11 +124,9 @@ describe("authorization capabilities", () => {
       expect(permissions.canManageTokens).toBe(hasCapability(role, "manage_settings_tokens"));
       expect(permissions.canTestTokens).toBe(hasCapability(role, "test_settings_tokens"));
       expect(permissions.canClearLogs).toBe(hasCapability(role, "clear_logs"));
-      expect(permissions.canLookupBranchVendors).toBe(true);
     }
 
     const anonymousPermissions = getAppPermissions(null);
-    expect(anonymousPermissions.canLookupBranchVendors).toBe(false);
     expect(anonymousPermissions.canManageTokens).toBe(false);
     expect(anonymousPermissions.canTestTokens).toBe(false);
   });

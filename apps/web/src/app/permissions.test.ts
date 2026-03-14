@@ -11,7 +11,6 @@ describe("getAppPermissions", () => {
       canRefreshOrdersNow: false,
       canManageBranches: true,
       canDeleteBranches: false,
-      canLookupBranchVendors: true,
       canManageSettings: false,
       canManageTokens: false,
       canTestTokens: false,

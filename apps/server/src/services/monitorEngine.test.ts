@@ -776,6 +776,33 @@ describe("monitorEngine.reconcile", () => {
     }
   });
 
+  it("coalesces overlapping orders triggers into a single queued rerun", async () => {
+    const resolvers: Array<() => void> = [];
+    const engine = new MonitorEngine() as any;
+    engine.running = true;
+    engine.lifecycleId = 1;
+    engine.runOrdersCycle = vi.fn(() => new Promise<void>((resolve) => {
+      resolvers.push(resolve);
+    }));
+
+    const first = engine.requestScheduledCycle("orders", 1);
+    const second = engine.requestScheduledCycle("orders", 1);
+    const third = engine.requestScheduledCycle("orders", 1);
+
+    await Promise.resolve();
+    expect(engine.runOrdersCycle).toHaveBeenCalledTimes(1);
+
+    resolvers.shift()?.();
+    await first;
+    await Promise.resolve();
+    expect(engine.runOrdersCycle).toHaveBeenCalledTimes(2);
+
+    engine.running = false;
+    resolvers.shift()?.();
+    await Promise.all([second, third]);
+    expect(engine.runOrdersCycle).toHaveBeenCalledTimes(2);
+  });
+
   it("does not reconstruct a UPuse runtime from modifiedBy alone", async () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",
