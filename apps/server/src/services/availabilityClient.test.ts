@@ -58,10 +58,49 @@ describe("availabilityClient", () => {
     await expect(promise).resolves.toEqual([
       expect.objectContaining({
         platformRestaurantId: "vendor-1",
-        globalEntityId: TEST_GLOBAL_ENTITY_ID,
       }),
     ]);
     expect(mockAxiosGet).toHaveBeenCalledTimes(2);
+  });
+
+  it("accepts payload items that omit globalEntityId", async () => {
+    mockAxiosGet.mockResolvedValue({
+      data: [
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "OPEN",
+          platformRestaurantId: "vendor-no-entity",
+        },
+      ],
+    });
+
+    await expect(fetchAvailabilities("token")).resolves.toEqual([
+      expect.objectContaining({
+        platformRestaurantId: "vendor-no-entity",
+        availabilityState: "OPEN",
+      }),
+    ]);
+  });
+
+  it("accepts upstream UNKNOWN availability states without treating the payload as malformed", async () => {
+    mockAxiosGet.mockResolvedValue({
+      data: [
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "UNKNOWN",
+          platformRestaurantId: "vendor-unknown",
+        },
+      ],
+    });
+
+    await expect(fetchAvailabilities("token")).resolves.toEqual([
+      expect.objectContaining({
+        platformRestaurantId: "vendor-unknown",
+        availabilityState: "UNKNOWN",
+      }),
+    ]);
   });
 
   it("detects retryable transient availability failures", () => {

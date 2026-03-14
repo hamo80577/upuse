@@ -51,7 +51,15 @@ function openAvailability(): AvailabilityRecord {
     changeable: true,
     availabilityState: "OPEN",
     platformRestaurantId: "202",
-    globalEntityId: TEST_GLOBAL_ENTITY_ID,
+  };
+}
+
+function unknownAvailability(): AvailabilityRecord {
+  return {
+    platformKey: "test",
+    changeable: true,
+    availabilityState: "UNKNOWN",
+    platformRestaurantId: "202",
   };
 }
 
@@ -61,7 +69,6 @@ function tempCloseAvailability(params: Partial<AvailabilityRecord> = {}): Availa
     changeable: true,
     availabilityState: "CLOSED_UNTIL",
     platformRestaurantId: "202",
-    globalEntityId: TEST_GLOBAL_ENTITY_ID,
     closedUntil: "2026-03-03T10:30:00.000Z",
     modifiedBy: "log_vendor_monitor",
     ...params,
@@ -247,5 +254,21 @@ describe("policyEngine.decide", () => {
     });
 
     expect(decision).toEqual({ type: "CLOSE", reason: "UNASSIGNED" });
+  });
+
+  it("treats UNKNOWN upstream availability state as a safe no-op", () => {
+    const decision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        lateNow: 7,
+        unassignedNow: 7,
+      },
+      availability: unknownAvailability(),
+      nowUtcIso: "2026-03-03T10:08:00.000Z",
+      settings: baseSettings(),
+    });
+
+    expect(decision).toEqual({ type: "NOOP" });
   });
 });

@@ -1,14 +1,12 @@
 import axios from "axios";
 import { z } from "zod";
-import { GlobalEntityIdSchema } from "../config/globalEntityId.js";
 const READ_BASE = "https://vendor-api-eg.me.restaurant-partners.com";
 const WRITE_BASE = "https://vss.me.restaurant-partners.com";
 const AvailabilityRecordSchema = z.object({
     platformKey: z.string().min(1),
     changeable: z.boolean(),
-    availabilityState: z.enum(["OPEN", "CLOSED_UNTIL", "CLOSED"]),
+    availabilityState: z.enum(["OPEN", "CLOSED_UNTIL", "CLOSED", "UNKNOWN"]),
     platformRestaurantId: z.string().min(1),
-    globalEntityId: GlobalEntityIdSchema,
 }).passthrough();
 function createMalformedAvailabilityPayloadError(message) {
     const error = new Error(`Availability API returned malformed payload: ${message}`);
@@ -21,7 +19,6 @@ function normalizeAvailabilityRecord(value) {
         changeable: value.changeable,
         availabilityState: value.availabilityState,
         platformRestaurantId: value.platformRestaurantId,
-        globalEntityId: value.globalEntityId,
         currentSlotEndAt: typeof value.currentSlotEndAt === "string" ? value.currentSlotEndAt : undefined,
         closedUntil: typeof value.closedUntil === "string" ? value.closedUntil : undefined,
         closedReason: typeof value.closedReason === "string" ? value.closedReason : undefined,

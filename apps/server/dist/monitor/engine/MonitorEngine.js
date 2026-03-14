@@ -1037,7 +1037,6 @@ export class MonitorEngine {
                         ...current,
                         availabilityState: "CLOSED_UNTIL",
                         platformRestaurantId: branch.availabilityVendorId,
-                        globalEntityId: branch.globalEntityId,
                         closedUntil: actualUntil,
                         modifiedBy: "log_vendor_monitor",
                     };
@@ -1109,7 +1108,6 @@ export class MonitorEngine {
                         ...current,
                         availabilityState: "OPEN",
                         platformRestaurantId: branch.availabilityVendorId,
-                        globalEntityId: branch.globalEntityId,
                         closedUntil: undefined,
                         modifiedBy: "log_vendor_monitor",
                     };

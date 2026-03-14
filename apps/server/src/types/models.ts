@@ -1,4 +1,4 @@
-export type AvailabilityState = "OPEN" | "CLOSED_UNTIL" | "CLOSED";
+export type AvailabilityState = "OPEN" | "CLOSED_UNTIL" | "CLOSED" | "UNKNOWN";
 
 export type OrdersVendorId = number;
 export type AvailabilityVendorId = string;
@@ -124,7 +124,6 @@ export interface AvailabilityRecord {
   availabilityState: AvailabilityState;
   platformRestaurantId: string;
   currentSlotEndAt?: string;
-  globalEntityId: string;
   closedUntil?: string;
   closedReason?: string;
   modifiedBy?: string;
