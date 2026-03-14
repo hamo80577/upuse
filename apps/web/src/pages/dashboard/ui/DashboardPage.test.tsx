@@ -42,7 +42,7 @@ vi.mock("../../../widgets/branch-detail/ui/BranchDetailDialog", () => ({
   BranchDetailDialog: () => null,
 }));
 
-vi.mock("../../../components/ReportDownloadDialog", () => ({
+vi.mock("../../../features/reports/ui/ReportDownloadDialog", () => ({
   ReportDownloadDialog: () => null,
 }));
 

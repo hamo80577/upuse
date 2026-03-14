@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { resolveSecurityConfig } from "../config/security.js";
-import { createAuthSession, createUser, deleteAuthSession, listUsers, verifyUserCredentials } from "../services/authStore.js";
+import { createAuthSession, createUser, deleteAuthSession, deleteUserById, listUsers, updateUser, verifyUserCredentials } from "../services/authStore.js";
 import { clearAuthSessionCookie, setAuthSessionCookie } from "../http/sessionCookie.js";
 import { normalizeEmail } from "../services/auth/passwords.js";
 import type { AppUserRole, AuthMeResponse, AuthUsersResponse, LoginResponse } from "../types/models.js";
@@ -16,6 +16,17 @@ const CreateUserBody = z.object({
   password: z.string().min(8).max(120),
   name: z.string().trim().min(1).max(120),
   role: z.enum(["admin", "user"] satisfies [AppUserRole, AppUserRole]),
+});
+
+const UpdateUserBody = z.object({
+  email: z.string().email(),
+  password: z.string().min(8).max(120).optional().or(z.literal("")),
+  name: z.string().trim().min(1).max(120),
+  role: z.enum(["admin", "user"] satisfies [AppUserRole, AppUserRole]),
+});
+
+const UserIdParam = z.object({
+  id: z.coerce.number().int().positive(),
 });
 
 function isUniqueEmailError(error: unknown) {
@@ -207,4 +218,46 @@ export function createUserRoute(req: Request, res: Response) {
 
     throw error;
   }
+}
+
+export function updateUserRoute(req: Request, res: Response) {
+  const { id } = UserIdParam.parse(req.params);
+  const input = UpdateUserBody.parse(req.body);
+
+  try {
+    const user = updateUser({
+      id,
+      email: input.email,
+      name: input.name,
+      role: input.role,
+      password: typeof input.password === "string" && input.password.trim() ? input.password : undefined,
+      actorUserId: req.authUser?.id,
+    });
+    res.json({
+      ok: true,
+      user,
+    });
+  } catch (error) {
+    if (isUniqueEmailError(error)) {
+      return res.status(409).json({
+        ok: false,
+        message: "Email already exists",
+      });
+    }
+
+    throw error;
+  }
+}
+
+export function deleteUserRoute(req: Request, res: Response) {
+  const { id } = UserIdParam.parse(req.params);
+
+  deleteUserById({
+    id,
+    actorUserId: req.authUser?.id,
+  });
+
+  res.json({
+    ok: true,
+  });
 }

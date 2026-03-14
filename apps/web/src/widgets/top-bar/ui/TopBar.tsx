@@ -4,6 +4,7 @@ import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import ManageAccountsRoundedIcon from "@mui/icons-material/ManageAccountsRounded";
 import SettingsIcon from "@mui/icons-material/Settings";
 import StorefrontIcon from "@mui/icons-material/Storefront";
+import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
 import { AppBar, Avatar, Box, Button, Chip, Divider, ListItemIcon, ListItemText, Menu, MenuItem, Stack, Toolbar, Typography } from "@mui/material";
 import { memo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -54,7 +55,8 @@ function TopBarBase(props: {
   const canControlMonitor = props.canControlMonitor ?? canManageMonitor;
   const active = (path: string) => loc.pathname === path;
   const activeGroup = (path: string) => loc.pathname === path || loc.pathname.startsWith(`${path}/`);
-  const mappingActive = loc.pathname === "/mapping" || loc.pathname === "/branches" || activeGroup("/settings/thresholds");
+  const branchesActive = active("/branches");
+  const thresholdsActive = active("/thresholds") || activeGroup("/settings/thresholds");
   const userInitials = getUserInitials(user?.name);
   const handleMenuClose = () => setUserMenuAnchor(null);
   const handleNavigate = (path: string) => {
@@ -71,11 +73,18 @@ function TopBarBase(props: {
       onClick: () => handleNavigate("/"),
     },
     {
-      label: "Mapping",
-      caption: "Branches + rules",
+      label: "Branches",
+      caption: "Branch mappings",
       icon: <StorefrontIcon fontSize="small" />,
-      isActive: mappingActive,
-      onClick: () => handleNavigate("/mapping"),
+      isActive: branchesActive,
+      onClick: () => handleNavigate("/branches"),
+    },
+    {
+      label: "Thresholds",
+      caption: "Rules and overrides",
+      icon: <TuneRoundedIcon fontSize="small" />,
+      isActive: thresholdsActive,
+      onClick: () => handleNavigate("/thresholds"),
     },
     {
       label: "Settings",

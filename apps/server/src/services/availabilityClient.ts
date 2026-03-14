@@ -4,6 +4,7 @@ import type { AvailabilityRecord } from "../types/models.js";
 
 const READ_BASE = "https://vendor-api-eg.me.restaurant-partners.com";
 const WRITE_BASE = "https://vss.me.restaurant-partners.com";
+const FALLBACK_STATUS_URL = `${WRITE_BASE}/api/v1/vendors/status`;
 
 const AvailabilityRecordSchema = z.object({
   platformKey: z.string().min(1),
@@ -11,6 +12,22 @@ const AvailabilityRecordSchema = z.object({
   availabilityState: z.enum(["OPEN", "CLOSED_UNTIL", "CLOSED", "UNKNOWN"]),
   platformRestaurantId: z.string().min(1),
 }).passthrough();
+
+const FallbackAvailabilityRootSchema = z.object({
+  vendors: z.record(z.unknown()),
+});
+
+const FallbackVendorStatusSchema = z.object({
+  platformVendorId: z.string().min(1),
+  changeable: z.boolean().optional(),
+  nextOpeningAt: z.string().optional(),
+  endTime: z.string().optional(),
+  adjustmentMinutes: z.number().optional(),
+}).passthrough();
+
+export interface FetchAvailabilitiesOptions {
+  expectedVendorIds?: Iterable<string>;
+}
 
 function createMalformedAvailabilityPayloadError(message: string) {
   const error = new Error(`Availability API returned malformed payload: ${message}`);
@@ -45,6 +62,20 @@ function normalizeAvailabilityRecord(value: z.infer<typeof AvailabilityRecordSch
   };
 }
 
+function normalizeExpectedVendorIds(expectedVendorIds?: Iterable<string>) {
+  if (!expectedVendorIds) return [];
+
+  const normalized = new Set<string>();
+  for (const vendorId of expectedVendorIds) {
+    const value = String(vendorId ?? "").trim();
+    if (value) {
+      normalized.add(value);
+    }
+  }
+
+  return Array.from(normalized);
+}
+
 function normalizeAvailabilityPayload(payload: unknown): AvailabilityRecord[] {
   if (!Array.isArray(payload)) {
     throw createMalformedAvailabilityPayloadError("expected an array response");
@@ -59,6 +90,79 @@ function normalizeAvailabilityPayload(payload: unknown): AvailabilityRecord[] {
     }
     return normalizeAvailabilityRecord(parsed.data);
   });
+}
+
+function collectFallbackVendorStatusGroups(node: unknown, path: string[] = []): Array<{ path: string[]; items: unknown[] }> {
+  if (!node || typeof node !== "object" || Array.isArray(node)) {
+    return [];
+  }
+
+  const groups: Array<{ path: string[]; items: unknown[] }> = [];
+  const entries = Object.entries(node as Record<string, unknown>);
+
+  for (const [key, value] of entries) {
+    if (key === "vendorStatuses") {
+      if (!Array.isArray(value)) {
+        throw createMalformedAvailabilityPayloadError(`fallback payload ${path.join(".")} vendorStatuses: expected an array`);
+      }
+      groups.push({ path, items: value });
+      continue;
+    }
+
+    groups.push(...collectFallbackVendorStatusGroups(value, [...path, key]));
+  }
+
+  return groups;
+}
+
+function mapFallbackPathToAvailabilityState(path: string[]): AvailabilityRecord["availabilityState"] {
+  const normalizedPath = path.map((segment) => segment.toLowerCase());
+  if (normalizedPath.includes("temporarilyclosed")) {
+    return "CLOSED_UNTIL";
+  }
+  if (normalizedPath.includes("closed")) {
+    return "CLOSED";
+  }
+  if (normalizedPath.includes("open")) {
+    return "OPEN";
+  }
+  return "UNKNOWN";
+}
+
+function normalizeFallbackAvailabilityPayload(payload: unknown): AvailabilityRecord[] {
+  const parsedRoot = FallbackAvailabilityRootSchema.safeParse(payload);
+  if (!parsedRoot.success) {
+    throw createMalformedAvailabilityPayloadError("fallback payload expected an object with vendors");
+  }
+
+  const groups = collectFallbackVendorStatusGroups(parsedRoot.data.vendors, ["vendors"]);
+  const records = new Map<string, AvailabilityRecord>();
+
+  for (const group of groups) {
+    const availabilityState = mapFallbackPathToAvailabilityState(group.path);
+    for (const [index, item] of group.items.entries()) {
+      const parsedItem = FallbackVendorStatusSchema.safeParse(item);
+      if (!parsedItem.success) {
+        const issue = parsedItem.error.issues[0];
+        const issuePath = issue?.path?.length ? issue.path.join(".") : "record";
+        throw createMalformedAvailabilityPayloadError(
+          `fallback payload ${group.path.join(".")} item ${index} ${issuePath}: ${issue?.message ?? "invalid shape"}`,
+        );
+      }
+
+      const value = parsedItem.data;
+      records.set(value.platformVendorId, {
+        platformKey: "vss_vendor_status",
+        changeable: value.changeable ?? false,
+        availabilityState,
+        platformRestaurantId: value.platformVendorId,
+        currentSlotEndAt: typeof value.endTime === "string" ? value.endTime : undefined,
+        closedUntil: typeof value.nextOpeningAt === "string" ? value.nextOpeningAt : undefined,
+      });
+    }
+  }
+
+  return Array.from(records.values());
 }
 
 export function isRetryableAvailabilityRequestError(error: any) {
@@ -123,11 +227,53 @@ async function putWithRetry(url: string, payload: any, headers: Record<string, s
   throw lastErr;
 }
 
-export async function fetchAvailabilities(token: string): Promise<AvailabilityRecord[]> {
+async function fetchFallbackAvailabilities(token: string, expectedVendorIds: string[]) {
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/json, text/plain, */*",
+    Origin: "https://partner-app.talabat.com",
+    Referer: "https://partner-app.talabat.com/",
+  };
+
+  const res = await getWithRetry(FALLBACK_STATUS_URL, headers, 1);
+  const fallbackRows = normalizeFallbackAvailabilityPayload(res.data);
+  if (!expectedVendorIds.length) {
+    return fallbackRows;
+  }
+
+  const missingVendorIds = new Set(expectedVendorIds);
+  return fallbackRows.filter((row) => missingVendorIds.has(row.platformRestaurantId));
+}
+
+export async function fetchAvailabilities(token: string, options: FetchAvailabilitiesOptions = {}): Promise<AvailabilityRecord[]> {
   const url = `${READ_BASE}/api/1/platforms/restaurants/availabilities`;
   const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
   const res = await getWithRetry(url, headers, 2);
-  return normalizeAvailabilityPayload(res.data);
+  const primaryRows = normalizeAvailabilityPayload(res.data);
+  const expectedVendorIds = normalizeExpectedVendorIds(options.expectedVendorIds);
+
+  if (!expectedVendorIds.length) {
+    return primaryRows;
+  }
+
+  const merged = new Map(primaryRows.map((row) => [row.platformRestaurantId, row]));
+  const missingVendorIds = expectedVendorIds.filter((vendorId) => !merged.has(vendorId));
+  if (!missingVendorIds.length) {
+    return primaryRows;
+  }
+
+  try {
+    const fallbackRows = await fetchFallbackAvailabilities(token, missingVendorIds);
+    for (const row of fallbackRows) {
+      if (!merged.has(row.platformRestaurantId)) {
+        merged.set(row.platformRestaurantId, row);
+      }
+    }
+  } catch {
+    // The fallback endpoint is supplementary; primary data remains authoritative.
+  }
+
+  return Array.from(merged.values());
 }
 
 export async function setAvailability(params: {

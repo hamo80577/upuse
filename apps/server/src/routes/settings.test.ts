@@ -173,8 +173,9 @@ describe("putSettingsRoute", () => {
     }));
   });
 
-  it("accepts admin settings updates and returns masked tokens", () => {
+  it("accepts user threshold and token updates and returns masked tokens", () => {
     const req: any = {
+      authUser: { role: "user" },
       body: {
         ordersToken: "updated-orders-token",
         lateThreshold: 9,
@@ -199,8 +200,9 @@ describe("putSettingsRoute", () => {
     });
   });
 
-  it("accepts global entity updates without requiring token changes", () => {
+  it("accepts global entity updates for admins", () => {
     const req: any = {
+      authUser: { role: "admin" },
       body: {
         globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
       },
@@ -218,6 +220,25 @@ describe("putSettingsRoute", () => {
       settings: {
         globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
       },
+    });
+  });
+
+  it("rejects admin-only runtime setting updates for non-admin users", () => {
+    const req: any = {
+      authUser: { role: "user" },
+      body: {
+        ordersRefreshSeconds: 45,
+      },
+    };
+    const res = createResponse();
+
+    putSettingsRoute(req, res);
+
+    expect(mockUpdateSettings).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toEqual({
+      ok: false,
+      message: "Forbidden",
     });
   });
 });

@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
@@ -17,6 +17,7 @@ vi.mock("../api/client", () => ({
 vi.mock("../app/providers/AuthProvider", () => ({
   useAuth: () => ({
     canManageMonitor: true,
+    canManageThresholds: true,
     canManageSettings: true,
     canManageTokens: true,
     canTestTokens: true,
@@ -33,7 +34,7 @@ vi.mock("../app/providers/MonitorStatusProvider", () => ({
   }),
 }));
 
-vi.mock("../components/TopBar", () => ({
+vi.mock("../widgets/top-bar/ui/TopBar", () => ({
   TopBar: () => null,
 }));
 
@@ -45,7 +46,7 @@ vi.mock("../features/settings/BranchThresholdOverrideManager", () => ({
   BranchThresholdOverrideManager: () => null,
 }));
 
-import { ThresholdsPage } from "./Thresholds";
+import { ThresholdsPage } from "./thresholds/ui/ThresholdsPage";
 
 describe("ThresholdsPage", () => {
   beforeEach(() => {
@@ -54,6 +55,7 @@ describe("ThresholdsPage", () => {
     mockApi.listBranches.mockReset();
     mockApi.listBranchSource.mockReset();
     mockApi.getSettings.mockResolvedValue({
+      globalEntityId: "TEST_ENTITY",
       ordersToken: "",
       availabilityToken: "",
       chainNames: ["Chain A"],
@@ -84,5 +86,6 @@ describe("ThresholdsPage", () => {
     });
 
     expect(mockApi.dashboard).not.toHaveBeenCalled();
+    expect(screen.queryByText("Add From Local Source")).not.toBeInTheDocument();
   });
 });

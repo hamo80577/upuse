@@ -15,7 +15,7 @@ const loadBranchDetailDialog = () =>
 const BranchDetailDialog = lazy(loadBranchDetailDialog);
 
 const ReportDownloadDialog = lazy(() =>
-  import("../../../components/ReportDownloadDialog").then((module) => ({ default: module.ReportDownloadDialog })),
+  import("../../../features/reports/ui/ReportDownloadDialog").then((module) => ({ default: module.ReportDownloadDialog })),
 );
 
 function fmtIssueAt(iso?: string) {

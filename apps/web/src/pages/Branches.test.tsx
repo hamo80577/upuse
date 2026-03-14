@@ -24,6 +24,7 @@ vi.mock("../app/providers/AuthProvider", () => ({
     canManageBranches: true,
     canDeleteBranches: true,
     canManageMonitor: true,
+    canManageThresholds: false,
     canManageSettings: false,
   }),
 }));
@@ -36,7 +37,7 @@ vi.mock("../app/providers/MonitorStatusProvider", () => ({
   }),
 }));
 
-vi.mock("../components/TopBar", () => ({
+vi.mock("../widgets/top-bar/ui/TopBar", () => ({
   TopBar: () => null,
 }));
 
@@ -48,13 +49,14 @@ vi.mock("../features/settings/BranchThresholdOverrideManager", () => ({
   BranchThresholdOverrideManager: () => null,
 }));
 
-import { BranchesPage } from "./Branches";
+import { BranchesPage } from "./branches/ui/BranchesPage";
 
 describe("BranchesPage", () => {
   beforeEach(() => {
     Object.values(mockApi).forEach((mockFn) => mockFn.mockReset());
 
     mockApi.getSettings.mockResolvedValue({
+      globalEntityId: "TEST_ENTITY",
       ordersToken: "",
       availabilityToken: "",
       chainNames: ["Chain A"],
@@ -99,6 +101,7 @@ describe("BranchesPage", () => {
     expect(mockApi.dashboard).not.toHaveBeenCalled();
     expect(screen.getByText("Start typing to search source branches.")).toBeInTheDocument();
     expect(screen.queryByText("Carrefour, Zahraa El Maadi - El Me'arag El Ouloy")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Default Late Threshold")).not.toBeInTheDocument();
   });
 
   it("adds a branch from the local source catalog", async () => {

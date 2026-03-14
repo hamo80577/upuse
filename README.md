@@ -19,7 +19,16 @@ A production-ready monitoring control tower for branch availability, driven by r
 - `npm run build`
 
 ## Run server (prod)
+- `npm run build`
 - `npm run start`
+
+`npm run start` now:
+- loads root `.env` if present
+- forces `NODE_ENV=production`
+- refuses to start if `apps/server/dist/index.js` or `apps/web/dist/index.html` is missing
+
+If you want one Windows command that loads `.env`, builds, and starts production, use:
+- `.\start.ps1`
 
 ## Notes
 - Settings, branch mappings, and logs are stored in `apps/server/data/upuse.sqlite`.
@@ -90,7 +99,9 @@ A production-ready monitoring control tower for branch availability, driven by r
 ## Refactor structure (progressive feature-sliced)
 - Web:
   - `apps/web/src/app`: router + providers
-  - `apps/web/src/pages/*/ui`: page containers
+  - `apps/web/src/pages/*/ui`: canonical page entrypoints (`dashboard`, `login`, `branches`, `thresholds`, `settings`, `users`)
+  - `apps/web/src/features/branch-mapping`: shared branch/threshold state + pure helpers used by both `BranchesPage` and `ThresholdsPage`
+  - `apps/web/src/features/reports/ui`: report download UI
   - `apps/web/src/widgets`: composed UI blocks (`top-bar`, `branch-detail`, `operations-summary`)
   - `apps/web/src/entities`: shared domain UI/model (`branch`, `monitoring`)
   - `apps/web/src/shared`: cross-cutting API + lib helpers

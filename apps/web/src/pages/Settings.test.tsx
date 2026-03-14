@@ -10,11 +10,12 @@ const mockApi = vi.hoisted(() => ({
 }));
 
 const mockAuthState = vi.hoisted(() => ({
-  value: {
-    canManageMonitor: true,
-    canManageSettings: true,
-    canManageTokens: true,
-    canTestTokens: true,
+    value: {
+      canManageMonitor: true,
+      canManageThresholds: true,
+      canManageSettings: true,
+      canManageTokens: true,
+      canTestTokens: true,
     canManage: true,
   },
 }));
@@ -37,16 +38,17 @@ vi.mock("../app/providers/MonitorStatusProvider", () => ({
   }),
 }));
 
-vi.mock("../components/TopBar", () => ({
+vi.mock("../widgets/top-bar/ui/TopBar", () => ({
   TopBar: () => null,
 }));
 
-import { SettingsPage } from "./Settings";
+import { SettingsPage } from "./settings/ui/SettingsPage";
 
 describe("SettingsPage", () => {
   beforeEach(() => {
     mockAuthState.value = {
       canManageMonitor: true,
+      canManageThresholds: true,
       canManageSettings: true,
       canManageTokens: true,
       canTestTokens: true,
@@ -87,12 +89,13 @@ describe("SettingsPage", () => {
     expect(mockApi.listBranches).not.toHaveBeenCalled();
   });
 
-  it("does not expose token actions to restricted roles", async () => {
+  it("exposes token actions to non-admin roles that have token capabilities", async () => {
     mockAuthState.value = {
       canManageMonitor: true,
+      canManageThresholds: true,
       canManageSettings: false,
-      canManageTokens: false,
-      canTestTokens: false,
+      canManageTokens: true,
+      canTestTokens: true,
       canManage: false,
     };
 
@@ -106,9 +109,9 @@ describe("SettingsPage", () => {
       expect(mockApi.getSettings).toHaveBeenCalled();
     });
 
-    expect(screen.queryByLabelText("Orders API Token")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Availability API Token")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Test Tokens" })).not.toBeInTheDocument();
-    expect(screen.getByText("Token management and token tests are restricted to admins.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Orders API Token")).toBeInTheDocument();
+    expect(screen.getByLabelText("Availability API Token")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Test Tokens" })).toBeInTheDocument();
+    expect(screen.queryByText("Token management and token tests are not available for this role.")).not.toBeInTheDocument();
   });
 });

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { resolveSecurityConfig } from "../config/security.js";
-import { createAuthSession, createUser, deleteAuthSession, listUsers, verifyUserCredentials } from "../services/authStore.js";
+import { createAuthSession, createUser, deleteAuthSession, deleteUserById, listUsers, updateUser, verifyUserCredentials } from "../services/authStore.js";
 import { clearAuthSessionCookie, setAuthSessionCookie } from "../http/sessionCookie.js";
 import { normalizeEmail } from "../services/auth/passwords.js";
 const LoginBody = z.object({
@@ -12,6 +12,15 @@ const CreateUserBody = z.object({
     password: z.string().min(8).max(120),
     name: z.string().trim().min(1).max(120),
     role: z.enum(["admin", "user"]),
+});
+const UpdateUserBody = z.object({
+    email: z.string().email(),
+    password: z.string().min(8).max(120).optional().or(z.literal("")),
+    name: z.string().trim().min(1).max(120),
+    role: z.enum(["admin", "user"]),
+});
+const UserIdParam = z.object({
+    id: z.coerce.number().int().positive(),
 });
 function isUniqueEmailError(error) {
     const message = typeof error?.message === "string"
@@ -170,4 +179,41 @@ export function createUserRoute(req, res) {
         }
         throw error;
     }
+}
+export function updateUserRoute(req, res) {
+    const { id } = UserIdParam.parse(req.params);
+    const input = UpdateUserBody.parse(req.body);
+    try {
+        const user = updateUser({
+            id,
+            email: input.email,
+            name: input.name,
+            role: input.role,
+            password: typeof input.password === "string" && input.password.trim() ? input.password : undefined,
+            actorUserId: req.authUser?.id,
+        });
+        res.json({
+            ok: true,
+            user,
+        });
+    }
+    catch (error) {
+        if (isUniqueEmailError(error)) {
+            return res.status(409).json({
+                ok: false,
+                message: "Email already exists",
+            });
+        }
+        throw error;
+    }
+}
+export function deleteUserRoute(req, res) {
+    const { id } = UserIdParam.parse(req.params);
+    deleteUserById({
+        id,
+        actorUserId: req.authUser?.id,
+    });
+    res.json({
+        ok: true,
+    });
 }

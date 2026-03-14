@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getAppPermissions } from "./permissions";
 
 describe("getAppPermissions", () => {
-  it("keeps the user role limited to the backend-allowed non-admin capabilities", () => {
+  it("grants the user role mapping and token capabilities while keeping user management admin-only", () => {
     expect(getAppPermissions("user")).toEqual({
       isAdmin: false,
       canManage: false,
@@ -10,10 +10,11 @@ describe("getAppPermissions", () => {
       canManageMonitor: true,
       canRefreshOrdersNow: false,
       canManageBranches: true,
-      canDeleteBranches: false,
+      canDeleteBranches: true,
+      canManageThresholds: true,
       canManageSettings: false,
-      canManageTokens: false,
-      canTestTokens: false,
+      canManageTokens: true,
+      canTestTokens: true,
       canClearLogs: false,
     });
   });
@@ -24,6 +25,7 @@ describe("getAppPermissions", () => {
       canManageUsers: true,
       canManageMonitor: true,
       canManageBranches: true,
+      canManageThresholds: true,
       canManageSettings: true,
       canManageTokens: true,
       canTestTokens: true,

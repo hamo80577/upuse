@@ -1,7 +1,7 @@
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import { Box, Chip, Collapse, Grid, Stack, Typography } from "@mui/material";
 import type { KeyboardEvent } from "react";
-import { BranchCard } from "../../components/BranchCard";
+import { BranchCard } from "../../entities/branch/ui/BranchCard/BranchCard";
 import { isGroupExpanded } from "../../pages/dashboard/lib/dashboardGrouping";
 import type { BranchGroup } from "../../pages/dashboard/lib/dashboardGrouping";
 

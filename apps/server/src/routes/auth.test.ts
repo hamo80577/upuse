@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AUTH_SESSION_COOKIE_NAME } from "../http/sessionCookie.js";
 
-const { mockCreateAuthSession, mockCreateUser, mockDeleteAuthSession, mockVerifyUserCredentials } = vi.hoisted(() => ({
+const { mockCreateAuthSession, mockCreateUser, mockDeleteAuthSession, mockDeleteUserById, mockUpdateUser, mockVerifyUserCredentials } = vi.hoisted(() => ({
   mockCreateAuthSession: vi.fn(),
   mockCreateUser: vi.fn(),
   mockDeleteAuthSession: vi.fn(),
+  mockDeleteUserById: vi.fn(),
+  mockUpdateUser: vi.fn(),
   mockVerifyUserCredentials: vi.fn(),
 }));
 
@@ -12,11 +14,13 @@ vi.mock("../services/authStore.js", () => ({
   createAuthSession: mockCreateAuthSession,
   createUser: mockCreateUser,
   deleteAuthSession: mockDeleteAuthSession,
+  deleteUserById: mockDeleteUserById,
   listUsers: vi.fn(() => []),
+  updateUser: mockUpdateUser,
   verifyUserCredentials: mockVerifyUserCredentials,
 }));
 
-import { createUserRoute, loginRoute, logoutRoute, resetLoginRateLimitStateForTests } from "./auth.js";
+import { createUserRoute, deleteUserRoute, loginRoute, logoutRoute, resetLoginRateLimitStateForTests, updateUserRoute } from "./auth.js";
 
 function createMockResponse() {
   return {
@@ -45,6 +49,8 @@ describe("auth.logoutRoute", () => {
     mockCreateAuthSession.mockReset();
     mockCreateUser.mockReset();
     mockDeleteAuthSession.mockReset();
+    mockDeleteUserById.mockReset();
+    mockUpdateUser.mockReset();
     mockVerifyUserCredentials.mockReset();
   });
 
@@ -181,6 +187,65 @@ describe("auth.logoutRoute", () => {
     expect(res.payload).toEqual({
       ok: true,
       user: createdUser,
+    });
+  });
+
+  it("updates an existing user and forwards the acting admin id", () => {
+    const updatedUser = {
+      id: 2,
+      email: "user@example.com",
+      name: "Updated User",
+      role: "user",
+      active: true,
+      createdAt: "2026-03-07T10:30:00.000Z",
+    };
+    mockUpdateUser.mockReturnValue(updatedUser);
+
+    const req = {
+      params: { id: "2" },
+      authUser: { id: 1 },
+      body: {
+        email: "user@example.com",
+        password: "",
+        name: "Updated User",
+        role: "user",
+      },
+    };
+    const res = createMockResponse();
+
+    updateUserRoute(req as any, res as any);
+
+    expect(mockUpdateUser).toHaveBeenCalledWith({
+      id: 2,
+      email: "user@example.com",
+      name: "Updated User",
+      role: "user",
+      password: undefined,
+      actorUserId: 1,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).toEqual({
+      ok: true,
+      user: updatedUser,
+    });
+  });
+
+  it("deletes an existing user and forwards the acting admin id", () => {
+    const req = {
+      params: { id: "2" },
+      authUser: { id: 1 },
+    };
+    const res = createMockResponse();
+
+    deleteUserRoute(req as any, res as any);
+
+    expect(mockDeleteUserById).toHaveBeenCalledWith({
+      id: 2,
+      actorUserId: 1,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).toEqual({
+      ok: true,
     });
   });
 });

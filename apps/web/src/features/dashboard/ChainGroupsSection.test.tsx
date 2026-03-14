@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../components/BranchCard", () => ({
+vi.mock("../../entities/branch/ui/BranchCard/BranchCard", () => ({
   BranchCard: ({ b }: { b: { name: string } }) => <div>{b.name}</div>,
 }));
 

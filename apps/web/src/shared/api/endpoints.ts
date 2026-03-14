@@ -90,6 +90,16 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }),
+  updateUser: (id: number, payload: { email: string; password?: string; name: string; role: AppUserRole }) =>
+    requestJson<{ ok: boolean; user: AuthUsersResponse["items"][number] }>(`/api/auth/users/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  deleteUser: (id: number) =>
+    requestJson<{ ok: boolean }>(`/api/auth/users/${id}`, {
+      method: "DELETE",
+    }),
   dashboard: () => requestJson<DashboardSnapshot>("/api/dashboard", undefined, { timeoutMs: 20_000 }),
   streamDashboard: (options: {
     signal?: AbortSignal;

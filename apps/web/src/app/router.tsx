@@ -7,16 +7,19 @@ const DashboardPage = lazy(() =>
   import("../pages/dashboard/ui/DashboardPage").then((module) => ({ default: module.DashboardPage })),
 );
 const LoginPage = lazy(() =>
-  import("../pages/Login").then((module) => ({ default: module.LoginPage })),
-);
-const MappingPage = lazy(() =>
-  import("../pages/Mapping").then((module) => ({ default: module.MappingPage })),
+  import("../pages/login/ui/LoginPage").then((module) => ({ default: module.LoginPage })),
 );
 const SettingsPage = lazy(() =>
-  import("../pages/Settings").then((module) => ({ default: module.SettingsPage })),
+  import("../pages/settings/ui/SettingsPage").then((module) => ({ default: module.SettingsPage })),
+);
+const BranchesPage = lazy(() =>
+  import("../pages/branches/ui/BranchesPage").then((module) => ({ default: module.BranchesPage })),
+);
+const ThresholdsPage = lazy(() =>
+  import("../pages/thresholds/ui/ThresholdsPage").then((module) => ({ default: module.ThresholdsPage })),
 );
 const UsersPage = lazy(() =>
-  import("../pages/Users").then((module) => ({ default: module.UsersPage })),
+  import("../pages/users/ui/UsersPage").then((module) => ({ default: module.UsersPage })),
 );
 
 function RouteFallback() {
@@ -86,10 +89,11 @@ export function AppRouter() {
       <Routes>
         <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
         <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
-        <Route path="/mapping" element={<ProtectedRoute><MappingPage /></ProtectedRoute>} />
-        <Route path="/settings/thresholds" element={<ProtectedRoute><MappingPage /></ProtectedRoute>} />
+        <Route path="/mapping" element={<Navigate to="/branches" replace />} />
+        <Route path="/branches" element={<ProtectedRoute><BranchesPage /></ProtectedRoute>} />
+        <Route path="/thresholds" element={<ProtectedRoute><ThresholdsPage /></ProtectedRoute>} />
+        <Route path="/settings/thresholds" element={<ProtectedRoute><ThresholdsPage /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
-        <Route path="/branches" element={<ProtectedRoute><MappingPage /></ProtectedRoute>} />
         <Route path="/users" element={<AdminRoute><UsersPage /></AdminRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

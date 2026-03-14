@@ -16,6 +16,7 @@ interface AuthContextValue {
   canRefreshOrdersNow: boolean;
   canManageBranches: boolean;
   canDeleteBranches: boolean;
+  canManageThresholds: boolean;
   canManageSettings: boolean;
   canManageTokens: boolean;
   canTestTokens: boolean;
@@ -77,6 +78,7 @@ export function AuthProvider(props: PropsWithChildren) {
       canRefreshOrdersNow: permissions.canRefreshOrdersNow,
       canManageBranches: permissions.canManageBranches,
       canDeleteBranches: permissions.canDeleteBranches,
+      canManageThresholds: permissions.canManageThresholds,
       canManageSettings: permissions.canManageSettings,
       canManageTokens: permissions.canManageTokens,
       canTestTokens: permissions.canTestTokens,

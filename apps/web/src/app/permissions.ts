@@ -8,6 +8,7 @@ export interface AppPermissions {
   canRefreshOrdersNow: boolean;
   canManageBranches: boolean;
   canDeleteBranches: boolean;
+  canManageThresholds: boolean;
   canManageSettings: boolean;
   canManageTokens: boolean;
   canTestTokens: boolean;
@@ -22,6 +23,7 @@ const anonymousPermissions: AppPermissions = {
   canRefreshOrdersNow: false,
   canManageBranches: false,
   canDeleteBranches: false,
+  canManageThresholds: false,
   canManageSettings: false,
   canManageTokens: false,
   canTestTokens: false,
@@ -34,6 +36,7 @@ type UiCapability =
   | "refresh_monitor_orders"
   | "manage_branch_mappings"
   | "delete_branch_mappings"
+  | "manage_thresholds"
   | "manage_settings"
   | "manage_settings_tokens"
   | "test_settings_tokens"
@@ -46,6 +49,7 @@ const roleCapabilities: Record<AppUserRole, ReadonlySet<UiCapability>> = {
     "refresh_monitor_orders",
     "manage_branch_mappings",
     "delete_branch_mappings",
+    "manage_thresholds",
     "manage_settings",
     "manage_settings_tokens",
     "test_settings_tokens",
@@ -54,6 +58,10 @@ const roleCapabilities: Record<AppUserRole, ReadonlySet<UiCapability>> = {
   user: new Set<UiCapability>([
     "manage_monitor",
     "manage_branch_mappings",
+    "delete_branch_mappings",
+    "manage_thresholds",
+    "manage_settings_tokens",
+    "test_settings_tokens",
   ]),
 };
 
@@ -72,6 +80,7 @@ export function getAppPermissions(role?: AppUserRole | null): AppPermissions {
     canRefreshOrdersNow: hasUiCapability(role, "refresh_monitor_orders"),
     canManageBranches: hasUiCapability(role, "manage_branch_mappings"),
     canDeleteBranches: hasUiCapability(role, "delete_branch_mappings"),
+    canManageThresholds: hasUiCapability(role, "manage_thresholds"),
     canManageSettings: hasUiCapability(role, "manage_settings"),
     canManageTokens: hasUiCapability(role, "manage_settings_tokens"),
     canTestTokens: hasUiCapability(role, "test_settings_tokens"),

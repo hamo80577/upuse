@@ -195,7 +195,9 @@ async function runSettingsTokenTestJob(jobId, settings, branches) {
     }
     else {
         try {
-            await fetchAvailabilities(availabilityToken);
+            await fetchAvailabilities(availabilityToken, {
+                expectedVendorIds: branches.map((branch) => branch.availabilityVendorId),
+            });
             upsertJob(jobId, {
                 availabilityConfigured: 1,
                 availabilityOk: 1,

@@ -204,6 +204,10 @@ export class MonitorEngine {
     return Math.min(15000, Math.floor(availabilityMs / 2));
   }
 
+  private getExpectedAvailabilityVendorIds() {
+    return listResolvedBranches({ enabledOnly: true }).map((branch) => branch.availabilityVendorId);
+  }
+
   private clearCycleTimer(source: ScheduledSource) {
     const state = this.getCycleState(source);
     if (state.timer) clearTimeout(state.timer);
@@ -1013,7 +1017,9 @@ export class MonitorEngine {
       if (!this.isLifecycleActive(expectedLifecycleId)) return;
       const settings = getSettings();
       try {
-        const rows = await fetchAvailabilities(settings.availabilityToken);
+        const rows = await fetchAvailabilities(settings.availabilityToken, {
+          expectedVendorIds: this.getExpectedAvailabilityVendorIds(),
+        });
         if (!this.isLifecycleActive(expectedLifecycleId)) return;
         this.availabilityByVendor = new Map(rows.map((r) => [r.platformRestaurantId, r]));
         this.syncExternalClosureState(nowUtcIso());
@@ -1317,7 +1323,9 @@ export class MonitorEngine {
     }
 
     const settings = getSettings();
-    const rows = await fetchAvailabilities(settings.availabilityToken);
+    const rows = await fetchAvailabilities(settings.availabilityToken, {
+      expectedVendorIds: this.getExpectedAvailabilityVendorIds(),
+    });
     if (!this.isLifecycleActive(expectedLifecycleId)) {
       return new Map(this.availabilityByVendor);
     }

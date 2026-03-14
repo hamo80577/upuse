@@ -532,6 +532,7 @@ describe("monitorEngine.stop", () => {
   beforeEach(() => {
     mockGetSettings.mockReset();
     mockListBranches.mockReset();
+    mockListResolvedBranches.mockReset();
     mockGetRuntime.mockReset();
     mockSetRuntime.mockReset();
     mockFetchAvailabilities.mockReset();
@@ -540,6 +541,7 @@ describe("monitorEngine.stop", () => {
     mockRecordMonitorCloseAction.mockReset();
     mockDecide.mockReset();
     mockDecide.mockReturnValue({ type: "NOOP" });
+    mockListResolvedBranches.mockImplementation((...args) => mockListBranches(...args));
   });
 
   it("clears live monitor caches and timing state back to standby", () => {
@@ -608,6 +610,7 @@ describe("monitorEngine.reconcile", () => {
   beforeEach(() => {
     mockGetSettings.mockReset();
     mockListBranches.mockReset();
+    mockListResolvedBranches.mockReset();
     mockGetRuntime.mockReset();
     mockSetRuntime.mockReset();
     mockFetchAvailabilities.mockReset();
@@ -616,6 +619,7 @@ describe("monitorEngine.reconcile", () => {
     mockRecordMonitorCloseAction.mockReset();
     mockDecide.mockReset();
     mockDecide.mockReturnValue({ type: "NOOP" });
+    mockListResolvedBranches.mockImplementation((...args) => mockListBranches(...args));
   });
 
   it("uses the branch-configured global entity and refreshes availability at most once before and once after a multi-branch action batch", async () => {
@@ -721,6 +725,12 @@ describe("monitorEngine.reconcile", () => {
 
     await engine.reconcile("orders");
 
+    expect(mockFetchAvailabilities).toHaveBeenNthCalledWith(1, "", {
+      expectedVendorIds: ["av-8", "av-9"],
+    });
+    expect(mockFetchAvailabilities).toHaveBeenNthCalledWith(2, "", {
+      expectedVendorIds: ["av-8", "av-9"],
+    });
     expect(mockSetAvailability).toHaveBeenNthCalledWith(1, expect.objectContaining({
       globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
       availabilityVendorId: "av-8",
@@ -730,6 +740,67 @@ describe("monitorEngine.reconcile", () => {
       availabilityVendorId: "av-9",
     }));
     expect(mockFetchAvailabilities).toHaveBeenCalledTimes(2);
+  });
+
+  it("passes enabled branch availability ids when fetching the live availability snapshot", async () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "availability-token",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 20,
+      availabilityRefreshSeconds: 11,
+      maxVendorsPerOrdersRequest: 50,
+    });
+    mockListBranches.mockReturnValue([
+      {
+        id: 1,
+        name: "Branch 1",
+        chainName: "",
+        ordersVendorId: 101,
+        availabilityVendorId: "av-1",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        enabled: true,
+      },
+      {
+        id: 2,
+        name: "Branch 2",
+        chainName: "",
+        ordersVendorId: 202,
+        availabilityVendorId: "av-2",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        enabled: true,
+      },
+    ]);
+    mockGetRuntime.mockReturnValue(undefined);
+    mockFetchAvailabilities.mockResolvedValue([
+      {
+        platformKey: "test",
+        changeable: true,
+        availabilityState: "OPEN",
+        platformRestaurantId: "av-1",
+      },
+      {
+        platformKey: "test",
+        changeable: false,
+        availabilityState: "OPEN",
+        platformRestaurantId: "av-2",
+      },
+    ]);
+
+    const engine = new MonitorEngine() as any;
+    engine.running = true;
+
+    await engine.runAvailabilityCycle();
+
+    expect(mockFetchAvailabilities).toHaveBeenCalledWith("availability-token", {
+      expectedVendorIds: ["av-1", "av-2"],
+    });
   });
 
   it("does not schedule overlapping orders cycles while a previous run is still in flight", async () => {

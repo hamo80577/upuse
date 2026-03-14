@@ -15,6 +15,30 @@ vi.mock("axios", () => ({
 
 import { fetchAvailabilities, isRetryableAvailabilityRequestError, setAvailability } from "./availabilityClient.js";
 
+function fallbackStatusPayload(params: {
+  openVendorStatuses?: Array<Record<string, unknown>>;
+  temporarilyClosedVendorStatuses?: Array<Record<string, unknown>>;
+}) {
+  return {
+    vendors: {
+      open: {
+        count: params.openVendorStatuses?.length ?? 0,
+        open: {
+          count: params.openVendorStatuses?.length ?? 0,
+          vendorStatuses: params.openVendorStatuses ?? [],
+        },
+      },
+      temporarilyClosed: {
+        count: params.temporarilyClosedVendorStatuses?.length ?? 0,
+        shortClosures: {
+          count: params.temporarilyClosedVendorStatuses?.length ?? 0,
+          vendorStatuses: params.temporarilyClosedVendorStatuses ?? [],
+        },
+      },
+    },
+  };
+}
+
 describe("availabilityClient", () => {
   beforeEach(() => {
     mockAxiosGet.mockReset();
@@ -81,6 +105,112 @@ describe("availabilityClient", () => {
         availabilityState: "OPEN",
       }),
     ]);
+  });
+
+  it("does not call the fallback status endpoint when the primary payload already covers expected vendors", async () => {
+    mockAxiosGet.mockResolvedValue({
+      data: [
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "OPEN",
+          platformRestaurantId: "vendor-1",
+        },
+      ],
+    });
+
+    await expect(fetchAvailabilities("token", {
+      expectedVendorIds: ["vendor-1"],
+    })).resolves.toEqual([
+      expect.objectContaining({
+        platformRestaurantId: "vendor-1",
+        availabilityState: "OPEN",
+      }),
+    ]);
+
+    expect(mockAxiosGet).toHaveBeenCalledTimes(1);
+    expect(String(mockAxiosGet.mock.calls[0]?.[0])).toContain("/platforms/restaurants/availabilities");
+  });
+
+  it("fills missing expected vendors from the fallback vendor-status endpoint", async () => {
+    mockAxiosGet
+      .mockResolvedValueOnce({
+        data: [
+          {
+            platformKey: "test",
+            changeable: true,
+            availabilityState: "OPEN",
+            platformRestaurantId: "vendor-1",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        data: fallbackStatusPayload({
+          temporarilyClosedVendorStatuses: [
+            {
+              name: "Fallback Branch",
+              globalEntityId: TEST_GLOBAL_ENTITY_ID,
+              platformVendorId: "vendor-2",
+              nextOpeningAt: "2026-03-14T13:39:39Z",
+              changeable: true,
+            },
+          ],
+        }),
+      });
+
+    await expect(fetchAvailabilities("token", {
+      expectedVendorIds: ["vendor-1", "vendor-2"],
+    })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        platformRestaurantId: "vendor-1",
+        availabilityState: "OPEN",
+        changeable: true,
+      }),
+      expect.objectContaining({
+        platformRestaurantId: "vendor-2",
+        availabilityState: "CLOSED_UNTIL",
+        closedUntil: "2026-03-14T13:39:39Z",
+        changeable: true,
+        platformKey: "vss_vendor_status",
+      }),
+    ]));
+
+    expect(mockAxiosGet).toHaveBeenCalledTimes(2);
+    expect(String(mockAxiosGet.mock.calls[1]?.[0])).toContain("/api/v1/vendors/status");
+  });
+
+  it("keeps primary availability data when the fallback endpoint returns malformed payloads", async () => {
+    mockAxiosGet
+      .mockResolvedValueOnce({
+        data: [
+          {
+            platformKey: "test",
+            changeable: true,
+            availabilityState: "OPEN",
+            platformRestaurantId: "vendor-1",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        data: {
+          vendors: {
+            open: {
+              vendorStatuses: "not-an-array",
+            },
+          },
+        },
+      });
+
+    await expect(fetchAvailabilities("token", {
+      expectedVendorIds: ["vendor-1", "vendor-2"],
+    })).resolves.toEqual([
+      expect.objectContaining({
+        platformRestaurantId: "vendor-1",
+        availabilityState: "OPEN",
+      }),
+    ]);
+
+    expect(mockAxiosGet).toHaveBeenCalledTimes(2);
   });
 
   it("accepts upstream UNKNOWN availability states without treating the payload as malformed", async () => {

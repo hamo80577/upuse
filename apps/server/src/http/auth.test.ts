@@ -72,13 +72,16 @@ describe("createSessionAuthMiddleware", () => {
 });
 
 describe("authorization capabilities", () => {
-  it("grants user access to monitor control and branch management, but not user management", () => {
+  it("grants user access to mapping and token management, but not user management", () => {
     expect(hasCapability("user", "manage_monitor")).toBe(true);
     expect(hasCapability("user", "manage_branch_mappings")).toBe(true);
-    expect(hasCapability("user", "manage_settings_tokens")).toBe(false);
-    expect(hasCapability("user", "test_settings_tokens")).toBe(false);
+    expect(hasCapability("user", "delete_branch_mappings")).toBe(true);
+    expect(hasCapability("user", "manage_thresholds")).toBe(true);
+    expect(hasCapability("user", "manage_settings")).toBe(false);
+    expect(hasCapability("user", "manage_settings_tokens")).toBe(true);
+    expect(hasCapability("user", "test_settings_tokens")).toBe(true);
     expect(hasCapability("user", "manage_users")).toBe(false);
-    expect(hasCapability("user", "delete_branch_mappings")).toBe(false);
+    expect(hasCapability("user", "clear_logs")).toBe(false);
   });
 
   it("returns 403 when the current user lacks the required capability", () => {
@@ -120,6 +123,7 @@ describe("authorization capabilities", () => {
       expect(permissions.canRefreshOrdersNow).toBe(hasCapability(role, "refresh_monitor_orders"));
       expect(permissions.canManageBranches).toBe(hasCapability(role, "manage_branch_mappings"));
       expect(permissions.canDeleteBranches).toBe(hasCapability(role, "delete_branch_mappings"));
+      expect(permissions.canManageThresholds).toBe(hasCapability(role, "manage_thresholds"));
       expect(permissions.canManageSettings).toBe(hasCapability(role, "manage_settings"));
       expect(permissions.canManageTokens).toBe(hasCapability(role, "manage_settings_tokens"));
       expect(permissions.canTestTokens).toBe(hasCapability(role, "test_settings_tokens"));

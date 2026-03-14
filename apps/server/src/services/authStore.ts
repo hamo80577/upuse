@@ -21,6 +21,18 @@ interface SessionRow {
 
 const SESSION_TTL_HOURS = 12;
 
+export class AuthStoreError extends Error {
+  status: number;
+  code: string;
+
+  constructor(message: string, status: number, code: string) {
+    super(message);
+    this.name = "AuthStoreError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -79,6 +91,24 @@ export function listUsers() {
   return rows.map(toAppUser);
 }
 
+function countActiveAdminUsers(excludingUserId?: number) {
+  if (typeof excludingUserId === "number") {
+    const row = db.prepare<[number], { count: number }>(`
+      SELECT COUNT(*) AS count
+      FROM users
+      WHERE active = 1 AND LOWER(TRIM(role)) = 'admin' AND id != ?
+    `).get(excludingUserId);
+    return Number(row?.count ?? 0);
+  }
+
+  const row = db.prepare<[], { count: number }>(`
+    SELECT COUNT(*) AS count
+    FROM users
+    WHERE active = 1 AND LOWER(TRIM(role)) = 'admin'
+  `).get();
+  return Number(row?.count ?? 0);
+}
+
 export function createUser(input: {
   email: string;
   name: string;
@@ -100,6 +130,71 @@ export function createUser(input: {
     active: 1,
     createdAt,
   });
+}
+
+export function updateUser(input: {
+  id: number;
+  email: string;
+  name: string;
+  role: AppUserRole;
+  password?: string;
+  actorUserId?: number | null;
+}) {
+  const existing = getUserById(input.id);
+  if (!existing) {
+    throw new AuthStoreError("User not found", 404, "USER_NOT_FOUND");
+  }
+
+  const normalizedEmail = normalizeEmail(input.email);
+  const trimmedName = input.name.trim();
+  const trimmedPassword = input.password?.trim() || undefined;
+
+  if (input.actorUserId === input.id && input.role !== "admin") {
+    throw new AuthStoreError("You cannot remove admin access from your current session.", 409, "SELF_ROLE_CHANGE_FORBIDDEN");
+  }
+
+  if (existing.role === "admin" && input.role !== "admin" && countActiveAdminUsers(existing.id) === 0) {
+    throw new AuthStoreError("At least one admin user must remain.", 409, "LAST_ADMIN_REQUIRED");
+  }
+
+  if (trimmedPassword) {
+    db.prepare(`
+      UPDATE users
+      SET email = ?, name = ?, role = ?, passwordHash = ?
+      WHERE id = ?
+    `).run(normalizedEmail, trimmedName, input.role, hashPassword(trimmedPassword), input.id);
+  } else {
+    db.prepare(`
+      UPDATE users
+      SET email = ?, name = ?, role = ?
+      WHERE id = ?
+    `).run(normalizedEmail, trimmedName, input.role, input.id);
+  }
+
+  const updated = getUserById(input.id);
+  if (!updated) {
+    throw new AuthStoreError("User not found after update", 500, "USER_UPDATE_MISSING");
+  }
+
+  return toAppUser(updated);
+}
+
+export function deleteUserById(input: { id: number; actorUserId?: number | null }) {
+  const existing = getUserById(input.id);
+  if (!existing) {
+    throw new AuthStoreError("User not found", 404, "USER_NOT_FOUND");
+  }
+
+  if (input.actorUserId === input.id) {
+    throw new AuthStoreError("You cannot delete your current account.", 409, "SELF_DELETE_FORBIDDEN");
+  }
+
+  if (existing.role === "admin" && countActiveAdminUsers(existing.id) === 0) {
+    throw new AuthStoreError("At least one admin user must remain.", 409, "LAST_ADMIN_REQUIRED");
+  }
+
+  const result = db.prepare<[number]>("DELETE FROM users WHERE id = ?").run(input.id);
+  return result.changes > 0;
 }
 
 export function verifyUserCredentials(email: string, password: string) {

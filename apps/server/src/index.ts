@@ -19,7 +19,7 @@ import { createSessionAuthMiddleware, requireAdminRole, requireAuthenticatedApi,
 import { MonitorEngine } from "./monitor/index.js";
 
 import { health, readiness } from "./routes/health.js";
-import { createUserRoute, listUsersRoute, loginRoute, logoutRoute, meRoute } from "./routes/auth.js";
+import { createUserRoute, deleteUserRoute, listUsersRoute, loginRoute, logoutRoute, meRoute, updateUserRoute } from "./routes/auth.js";
 import { getSettingsRoute, getTokenTestRoute, putSettingsRoute, testTokensRoute } from "./routes/settings.js";
 import { listBranchesRoute, listVendorSourceRoute, addBranchRoute, updateBranchThresholdOverridesRoute, updateBranchMonitoringRoute, branchDetailRoute, branchPickersRoute, deleteBranchRoute } from "./routes/branches.js";
 import { dashboardRoute } from "./routes/dashboard.js";
@@ -67,16 +67,18 @@ app.get("/api/auth/me", meRoute);
 app.post("/api/auth/logout", logoutRoute());
 app.get("/api/auth/users", requireAdminRole(), listUsersRoute);
 app.post("/api/auth/users", requireAdminRole(), createUserRoute);
+app.patch("/api/auth/users/:id", requireAdminRole(), updateUserRoute);
+app.delete("/api/auth/users/:id", requireAdminRole(), deleteUserRoute);
 
 app.get("/api/settings", getSettingsRoute);
-app.put("/api/settings", requireCapability("manage_settings_tokens"), putSettingsRoute);
+app.put("/api/settings", putSettingsRoute);
 app.post("/api/settings/test", requireCapability("test_settings_tokens"), testTokensRoute);
 app.get("/api/settings/test/:jobId", requireCapability("test_settings_tokens"), getTokenTestRoute);
 
 app.get("/api/branches", listBranchesRoute);
 app.get("/api/branches/source", listVendorSourceRoute);
 app.post("/api/branches", requireCapability("manage_branch_mappings"), addBranchRoute);
-app.patch("/api/branches/:id/threshold-overrides", requireCapability("manage_settings"), updateBranchThresholdOverridesRoute);
+app.patch("/api/branches/:id/threshold-overrides", requireCapability("manage_thresholds"), updateBranchThresholdOverridesRoute);
 app.patch("/api/branches/:id/monitoring", requireCapability("manage_branch_mappings"), updateBranchMonitoringRoute(engine));
 app.get("/api/branches/:id/detail", branchDetailRoute(engine));
 app.get("/api/branches/:id/pickers", branchPickersRoute());
