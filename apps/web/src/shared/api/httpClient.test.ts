@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AUTH_UNAUTHORIZED_EVENT, requestJson } from "./httpClient";
+import { AUTH_FORBIDDEN_EVENT, AUTH_UNAUTHORIZED_EVENT, requestJson } from "./httpClient";
 
 describe("httpClient", () => {
   const fetchMock = vi.fn<typeof fetch>();
@@ -66,6 +66,40 @@ describe("httpClient", () => {
 
     expect(unauthorizedListener).not.toHaveBeenCalled();
     window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, unauthorizedListener);
+  });
+
+  it("dispatches a forbidden event for admin-only user management requests", async () => {
+    const forbiddenListener = vi.fn();
+    window.addEventListener(AUTH_FORBIDDEN_EVENT, forbiddenListener);
+
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ message: "Forbidden" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await expect(requestJson<{ ok: boolean }>("/api/auth/users")).rejects.toThrow("Forbidden");
+
+    expect(forbiddenListener).toHaveBeenCalledTimes(1);
+    window.removeEventListener(AUTH_FORBIDDEN_EVENT, forbiddenListener);
+  });
+
+  it("does not dispatch a forbidden event for non-admin routes", async () => {
+    const forbiddenListener = vi.fn();
+    window.addEventListener(AUTH_FORBIDDEN_EVENT, forbiddenListener);
+
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ message: "Forbidden" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await expect(requestJson<{ ok: boolean }>("/api/settings")).rejects.toThrow("Forbidden");
+
+    expect(forbiddenListener).not.toHaveBeenCalled();
+    window.removeEventListener(AUTH_FORBIDDEN_EVENT, forbiddenListener);
   });
 
   it("converts html error pages into a friendly tunnel message", async () => {

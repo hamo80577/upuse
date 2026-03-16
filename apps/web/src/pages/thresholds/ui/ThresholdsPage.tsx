@@ -211,50 +211,52 @@ export function ThresholdsPage() {
               <Tab value="overrides" label="Overrides" />
             </Tabs>
 
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
-              <TextField
-                label="Default Late Threshold"
-                type="number"
-                size="small"
-                value={thresholdForm.lateThreshold}
-                onChange={(event) => setThresholdForm((current) => ({ ...current, lateThreshold: Number(event.target.value) }))}
-                disabled={!canManageThresholds}
-              />
-              <TextField
-                label="Default Unassigned Threshold"
-                type="number"
-                size="small"
-                value={thresholdForm.unassignedThreshold}
-                onChange={(event) => setThresholdForm((current) => ({ ...current, unassignedThreshold: Number(event.target.value) }))}
-                disabled={!canManageThresholds}
-              />
-              <Button variant="contained" onClick={() => void saveGlobalThresholds()} disabled={!canManageThresholds}>
-                Save Defaults
-              </Button>
-            </Stack>
-
             {rulesMode === "chains" ? (
-              <ChainThresholdManager
-                chains={thresholdForm.chains}
-                editingChainIndex={editingChainIndex}
-                chainEditor={chainEditor}
-                readOnly={!canManageThresholds}
-                onChangeEditor={(patch) => setChainEditor((current) => ({ ...current, ...patch }))}
-                onEditChain={(chain, index) => {
-                  setEditingChainIndex(index);
-                  setChainEditor({
-                    name: chain.name,
-                    lateThreshold: String(chain.lateThreshold),
-                    unassignedThreshold: String(chain.unassignedThreshold),
-                  });
-                }}
-                onRemoveChain={(index) => void persistChains(thresholdForm.chains.filter((_item, itemIndex) => itemIndex !== index))}
-                onSaveChain={() => void upsertChain()}
-                onCancelEdit={() => {
-                  setEditingChainIndex(null);
-                  setChainEditor(emptyChainEditor());
-                }}
-              />
+              <>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
+                  <TextField
+                    label="Default Late Threshold"
+                    type="number"
+                    size="small"
+                    value={thresholdForm.lateThreshold}
+                    onChange={(event) => setThresholdForm((current) => ({ ...current, lateThreshold: Number(event.target.value) }))}
+                    disabled={!canManageThresholds}
+                  />
+                  <TextField
+                    label="Default Unassigned Threshold"
+                    type="number"
+                    size="small"
+                    value={thresholdForm.unassignedThreshold}
+                    onChange={(event) => setThresholdForm((current) => ({ ...current, unassignedThreshold: Number(event.target.value) }))}
+                    disabled={!canManageThresholds}
+                  />
+                  <Button variant="contained" onClick={() => void saveGlobalThresholds()} disabled={!canManageThresholds}>
+                    Save Defaults
+                  </Button>
+                </Stack>
+
+                <ChainThresholdManager
+                  chains={thresholdForm.chains}
+                  editingChainIndex={editingChainIndex}
+                  chainEditor={chainEditor}
+                  readOnly={!canManageThresholds}
+                  onChangeEditor={(patch) => setChainEditor((current) => ({ ...current, ...patch }))}
+                  onEditChain={(chain, index) => {
+                    setEditingChainIndex(index);
+                    setChainEditor({
+                      name: chain.name,
+                      lateThreshold: String(chain.lateThreshold),
+                      unassignedThreshold: String(chain.unassignedThreshold),
+                    });
+                  }}
+                  onRemoveChain={(index) => void persistChains(thresholdForm.chains.filter((_item, itemIndex) => itemIndex !== index))}
+                  onSaveChain={() => void upsertChain()}
+                  onCancelEdit={() => {
+                    setEditingChainIndex(null);
+                    setChainEditor(emptyChainEditor());
+                  }}
+                />
+              </>
             ) : (
               <BranchThresholdOverrideManager
                 branches={branches}

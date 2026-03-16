@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
@@ -87,5 +87,24 @@ describe("ThresholdsPage", () => {
 
     expect(mockApi.dashboard).not.toHaveBeenCalled();
     expect(screen.queryByText("Add From Local Source")).not.toBeInTheDocument();
+  });
+
+  it("shows default thresholds only in the chains tab", async () => {
+    render(
+      <MemoryRouter>
+        <ThresholdsPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Default Late Threshold")).toBeInTheDocument();
+      expect(screen.getByLabelText("Default Unassigned Threshold")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Overrides" }));
+
+    expect(screen.queryByLabelText("Default Late Threshold")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Default Unassigned Threshold")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save Defaults" })).not.toBeInTheDocument();
   });
 });

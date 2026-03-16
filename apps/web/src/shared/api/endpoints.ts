@@ -13,7 +13,7 @@ import type {
   SettingsTokenTestSnapshot,
   SettingsTokenTestStartResponse,
 } from "../../api/types";
-import { AUTH_UNAUTHORIZED_EVENT, describeApiError, requestCsvDownload, requestJson, requestJsonWebSocket } from "./httpClient";
+import { AUTH_FORBIDDEN_EVENT, AUTH_UNAUTHORIZED_EVENT, describeApiError, requestCsvDownload, requestJson, requestJsonWebSocket } from "./httpClient";
 
 type LegacyBranchMappingItem = Omit<BranchMappingItem, "chainName" | "catalogState"> & {
   chainName?: string | null;
@@ -282,6 +282,7 @@ export const api = {
 };
 
 export {
+  AUTH_FORBIDDEN_EVENT,
   AUTH_UNAUTHORIZED_EVENT,
   describeApiError,
 };

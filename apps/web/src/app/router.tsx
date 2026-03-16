@@ -1,5 +1,5 @@
-import { Box, CircularProgress } from "@mui/material";
-import { lazy, Suspense, type ReactElement } from "react";
+import { Alert, Box, Button, CircularProgress, Stack } from "@mui/material";
+import { lazy, Suspense, useEffect, useState, type ReactElement } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./providers/AuthProvider";
 
@@ -23,6 +23,8 @@ const UsersPage = lazy(() =>
 );
 
 function RouteFallback() {
+  const { bootstrapError, retryBootstrap } = useAuth();
+
   return (
     <Box
       sx={{
@@ -30,9 +32,21 @@ function RouteFallback() {
         display: "grid",
         placeItems: "center",
         bgcolor: "background.default",
+        px: 2,
       }}
     >
-      <CircularProgress size={28} />
+      {bootstrapError ? (
+        <Stack spacing={1.5} sx={{ width: "100%", maxWidth: 420 }}>
+          <Alert severity="error" variant="outlined">
+            {bootstrapError}
+          </Alert>
+          <Button variant="contained" onClick={retryBootstrap}>
+            Retry
+          </Button>
+        </Stack>
+      ) : (
+        <CircularProgress size={28} />
+      )}
     </Box>
   );
 }
@@ -66,14 +80,45 @@ function GuestRoute(props: { children: ReactElement }) {
 }
 
 function AdminRoute(props: { children: ReactElement }) {
-  const { status, isAdmin } = useAuth();
+  const location = useLocation();
+  const { status, isAdmin, refreshAuth } = useAuth();
+  const [checkingAccess, setCheckingAccess] = useState(true);
 
-  if (status === "loading") {
+  useEffect(() => {
+    let active = true;
+
+    if (status === "loading") {
+      return () => {
+        active = false;
+      };
+    }
+
+    if (status !== "authenticated") {
+      setCheckingAccess(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setCheckingAccess(true);
+    void refreshAuth()
+      .catch(() => {})
+      .finally(() => {
+        if (!active) return;
+        setCheckingAccess(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [location.pathname, refreshAuth, status]);
+
+  if (status === "loading" || (status === "authenticated" && checkingAccess)) {
     return <RouteFallback />;
   }
 
   if (status !== "authenticated") {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
   if (!isAdmin) {

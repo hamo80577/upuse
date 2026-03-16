@@ -1,0 +1,11 @@
+.env
+.env.local
+.env.*.local
+node_modules/
+apps/server/dist/
+apps/web/dist/
+data/
+apps/server/data/.dev-secret
+apps/server/data/*.sqlite
+apps/server/data/*.sqlite-shm
+apps/server/data/*.sqlite-wal

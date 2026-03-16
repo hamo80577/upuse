@@ -1,6 +1,7 @@
 const DEFAULT_TIMEOUT_MS = 25_000;
 const TIMEOUT_MESSAGE = "Request timed out. Please try again.";
 export const AUTH_UNAUTHORIZED_EVENT = "upuse:auth:unauthorized";
+export const AUTH_FORBIDDEN_EVENT = "upuse:auth:forbidden";
 
 function collapseWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
@@ -103,9 +104,21 @@ function notifyUnauthorized() {
   window.dispatchEvent(new Event(AUTH_UNAUTHORIZED_EVENT));
 }
 
+function shouldRefreshAuthOnForbidden(requestUrl?: string) {
+  return typeof requestUrl === "string" && /^\/api\/auth\/users(?:\/|$)/.test(requestUrl);
+}
+
+function notifyForbidden() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(AUTH_FORBIDDEN_EVENT));
+}
+
 async function createResponseError(response: Response, requestUrl?: string) {
   if (response.status === 401 && requestUrl !== "/api/auth/login") {
     notifyUnauthorized();
+  }
+  if (response.status === 403 && shouldRefreshAuthOnForbidden(requestUrl)) {
+    notifyForbidden();
   }
 
   const text = await response.text().catch(() => "");
