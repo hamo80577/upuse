@@ -236,6 +236,8 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
               ? "No closure timer is active right now."
               : props.branch.status === "CLOSED"
                 ? "The branch is closed from source with no reopen timer."
+                : panel.footerCaption
+                  ? panel.footerCaption
                 : !props.branch.monitorEnabled
                   ? "This branch is paused from monitor cycles."
                   : "Waiting for the next live availability update."}

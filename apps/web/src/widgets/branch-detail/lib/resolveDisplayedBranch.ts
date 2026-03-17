@@ -56,6 +56,7 @@ export function resolveDisplayedBranch(
     closedByUpuse: liveBranch.closedByUpuse,
     closureSource: liveBranch.closureSource,
     closeReason: liveBranch.closeReason,
+    sourceClosedReason: liveBranch.sourceClosedReason,
     autoReopen: liveBranch.autoReopen,
     changeable: liveBranch.changeable,
     thresholds: liveBranch.thresholds ?? detailBranch.thresholds ?? branchSnapshot.thresholds,

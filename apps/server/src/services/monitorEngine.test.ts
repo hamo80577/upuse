@@ -433,6 +433,7 @@ describe("monitorEngine.getSnapshot", () => {
           platformRestaurantId: "av-3",
           globalEntityId: TEST_GLOBAL_ENTITY_ID,
           closedUntil: "2026-03-08T13:54:53.000Z",
+          closedReason: "TECHNICAL_PROBLEM",
           modifiedBy: "log_vendor_monitor",
         },
       ],
@@ -444,6 +445,7 @@ describe("monitorEngine.getSnapshot", () => {
     expect(branch.closureSource).toBe("EXTERNAL");
     expect(branch.closedByUpuse).toBe(false);
     expect(branch.closeReason).toBeUndefined();
+    expect(branch.sourceClosedReason).toBe("TECHNICAL_PROBLEM");
   });
 
   it("derives external temporary-close start time from the first observed external close", () => {

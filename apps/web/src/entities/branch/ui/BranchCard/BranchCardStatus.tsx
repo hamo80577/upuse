@@ -11,7 +11,7 @@ function BranchCardStatusBase(props: {
   canTrackProgress: boolean;
   timerReached: boolean;
 }) {
-  const meta = statusMeta(props.branch.status);
+  const meta = statusMeta(props.branch);
 
   return (
     <Box

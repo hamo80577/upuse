@@ -761,6 +761,7 @@ export class MonitorEngine {
       let closedByUpuse = false;
       let closureSource: "UPUSE" | "EXTERNAL" | undefined;
       let closeReason: DashboardSnapshot["branches"][number]["closeReason"] = undefined;
+      let sourceClosedReason: string | undefined;
       let autoReopen = false;
 
       if (av) {
@@ -774,6 +775,7 @@ export class MonitorEngine {
           closedUntil = av.closedUntil;
           closedByUpuse = this.isMonitorOwnedClosure(runtime, av);
           closureSource = closedByUpuse ? "UPUSE" : "EXTERNAL";
+          sourceClosedReason = closedByUpuse ? undefined : av.closedReason;
           closeStartedAt = closedByUpuse
             ? this.inferCloseStartedAt(av.closedUntil, settings.tempCloseMinutes)
             : this.inferObservedExternalCloseStartedAt(runtime, av.closedUntil);
@@ -789,6 +791,8 @@ export class MonitorEngine {
         } else if (av.availabilityState === "CLOSED") {
           status = "CLOSED";
           statusColor = "orange";
+          closureSource = "EXTERNAL";
+          sourceClosedReason = av.closedReason;
           totals.closed += 1;
         }
       } else {
@@ -809,6 +813,7 @@ export class MonitorEngine {
         closedByUpuse,
         closureSource,
         closeReason,
+        sourceClosedReason,
         autoReopen,
         changeable: av?.changeable,
         thresholds,

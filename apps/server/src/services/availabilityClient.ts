@@ -120,6 +120,9 @@ function mapFallbackPathToAvailabilityState(path: string[]): AvailabilityRecord[
   if (normalizedPath.includes("temporarilyclosed")) {
     return "CLOSED_UNTIL";
   }
+  if (normalizedPath.includes("offhours")) {
+    return "CLOSED";
+  }
   if (normalizedPath.includes("closed")) {
     return "CLOSED";
   }
@@ -158,6 +161,7 @@ function normalizeFallbackAvailabilityPayload(payload: unknown): AvailabilityRec
         platformRestaurantId: value.platformVendorId,
         currentSlotEndAt: typeof value.endTime === "string" ? value.endTime : undefined,
         closedUntil: typeof value.nextOpeningAt === "string" ? value.nextOpeningAt : undefined,
+        closedReason: typeof value.closedReason === "string" ? value.closedReason : undefined,
       });
     }
   }

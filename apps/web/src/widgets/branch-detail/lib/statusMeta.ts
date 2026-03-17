@@ -1,4 +1,5 @@
 import type { BranchSnapshot } from "../../../api/types";
+import { formatSourceClosedReason, isExternalManualSourceClose } from "../../../shared/lib/branch/sourceClosedReason";
 
 export function statusChip(branch: BranchSnapshot) {
   if (!branch.monitorEnabled) return { label: "Paused", sx: { bgcolor: "#eef2ff", color: "#4338ca" } };
@@ -22,6 +23,7 @@ export function statusPanelMeta(branch: BranchSnapshot) {
       tone: "#4338ca",
       sourceLabel: null,
       showTimer: false,
+      footerCaption: null,
     };
   }
 
@@ -32,12 +34,27 @@ export function statusPanelMeta(branch: BranchSnapshot) {
       tone: "#166534",
       sourceLabel: null,
       showTimer: false,
+      footerCaption: null,
     };
   }
 
   if (branch.status === "TEMP_CLOSE") {
     const isUpuseControlled = branch.closureSource === "UPUSE" || branch.closedByUpuse;
     const canAutoReopen = Boolean(isUpuseControlled && branch.autoReopen && branch.changeable !== false);
+    const sourceReason = formatSourceClosedReason(branch.sourceClosedReason);
+    if (isExternalManualSourceClose(branch)) {
+      return {
+        title: "Source Temporary Close",
+        caption: sourceReason
+          ? `${sourceReason} is selected in source with no reopen time. The monitor will not reopen it automatically.`
+          : "Observed from source with no reopen time. The monitor will not reopen it automatically.",
+        tone: "#92400e",
+        sourceLabel: "External Source",
+        showTimer: false,
+        footerCaption:
+          "No reopen timer is available. This branch stays closed until someone reopens it manually or source reaches normal closed hours.",
+      };
+    }
     return {
       title: isUpuseControlled ? "UPuse Temporary Close" : "Source Temporary Close",
       caption: canAutoReopen
@@ -48,6 +65,7 @@ export function statusPanelMeta(branch: BranchSnapshot) {
       tone: "#166534",
       sourceLabel: isUpuseControlled ? "UPuse Control" : "External Source",
       showTimer: true,
+      footerCaption: null,
     };
   }
 
@@ -58,6 +76,7 @@ export function statusPanelMeta(branch: BranchSnapshot) {
       tone: "#92400e",
       sourceLabel: "Source Closed",
       showTimer: false,
+      footerCaption: null,
     };
   }
 
@@ -67,5 +86,6 @@ export function statusPanelMeta(branch: BranchSnapshot) {
     tone: "#475569",
     sourceLabel: null,
     showTimer: false,
+    footerCaption: null,
   };
 }

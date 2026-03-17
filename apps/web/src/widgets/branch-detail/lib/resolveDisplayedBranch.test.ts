@@ -84,6 +84,7 @@ describe("resolveDisplayedBranch", () => {
       closedUntil: "2026-03-08T13:19:00.000Z",
       closeStartedAt: "2026-03-08T12:49:00.000Z",
       status: "TEMP_CLOSE",
+      sourceClosedReason: "TECHNICAL_PROBLEM",
       lastUpdatedAt: "2026-03-08T12:50:00.000Z",
     });
 
@@ -92,6 +93,7 @@ describe("resolveDisplayedBranch", () => {
     expect(result?.name).toBe("Loaded Detail Name");
     expect(result?.closedUntil).toBe("2026-03-08T13:19:00.000Z");
     expect(result?.closeStartedAt).toBe("2026-03-08T12:49:00.000Z");
+    expect(result?.sourceClosedReason).toBe("TECHNICAL_PROBLEM");
   });
 
   it("returns null when the branch was deleted after the dialog opened", () => {

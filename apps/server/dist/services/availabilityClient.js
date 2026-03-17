@@ -98,6 +98,9 @@ function mapFallbackPathToAvailabilityState(path) {
     if (normalizedPath.includes("temporarilyclosed")) {
         return "CLOSED_UNTIL";
     }
+    if (normalizedPath.includes("offhours")) {
+        return "CLOSED";
+    }
     if (normalizedPath.includes("closed")) {
         return "CLOSED";
     }

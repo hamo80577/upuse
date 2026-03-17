@@ -150,6 +150,7 @@ export interface BranchSnapshot {
   closedByUpuse?: boolean;
   closureSource?: "UPUSE" | "EXTERNAL";
   closeReason?: CloseReason;
+  sourceClosedReason?: string;
   autoReopen?: boolean;
 
   changeable?: boolean;
