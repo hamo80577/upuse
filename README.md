@@ -31,9 +31,9 @@ If you want one Windows command that loads `.env`, builds, and starts production
 - `.\start.ps1`
 
 ## Notes
-- Settings, branch mappings, logs, SQLite WAL/SHM sidecars, and the development secret file live under one resolved runtime data directory.
+- Settings, branch mappings, and logs are stored in `apps/server/data/upuse.sqlite`.
 - Tokens are stored encrypted-at-rest using a local key derived from `UPUSE_SECRET` (see `.env.example`).
-- In development only, if `UPUSE_SECRET` is missing, the server creates and reuses `.dev-secret` inside the runtime data directory with a loud warning so localhost stays usable.
+- In development only, if `UPUSE_SECRET` is missing, the server creates and reuses `apps/server/data/.dev-secret` with a loud warning so localhost stays usable.
 - In production, `UPUSE_SECRET` is mandatory and the server refuses to start without it.
 - The server supports one-way secret rotation through `UPUSE_SECRET_PREVIOUS`: old secrets can still decrypt stored tokens, and the current `UPUSE_SECRET` is used to re-encrypt them during startup.
 - Web access is authenticated with email/password sessions and role-based authorization (`admin` / `user`).
@@ -46,7 +46,7 @@ If you want one Windows command that loads `.env`, builds, and starts production
 - `PORT`: API port. Default `8080`.
 - `UPUSE_SECRET`: encryption key seed for stored tokens. Required in production.
 - `UPUSE_SECRET_PREVIOUS`: optional comma-separated old encryption secrets kept for decrypt-only compatibility during rotation. Stored tokens are re-encrypted with the current `UPUSE_SECRET` during startup when an old key is used.
-- `UPUSE_DATA_DIR`: optional runtime data directory override. Relative values are resolved from `apps/server`, not the shell working directory.
+- `UPUSE_DATA_DIR`: optional data directory override for SQLite files. Relative values are resolved from `apps/server`, not the shell working directory. Default stays `apps/server/data`.
 - `UPUSE_CORS_ORIGINS`: optional comma-separated allowed origins. By default only `http://localhost:*` and `http://127.0.0.1:*` are allowed.
 - `UPUSE_TRUST_PROXY`: configure Express `trust proxy` when the app is behind a reverse proxy. Accepts `true`, a hop count like `1`, or a subnet/list such as `loopback` or `loopback, linklocal`.
 - `UPUSE_LOGIN_RATE_LIMIT_MAX_KEYS`: maximum number of distinct login throttle keys retained in memory. Default `5000`.
@@ -94,26 +94,7 @@ If you want one Windows command that loads `.env`, builds, and starts production
 2) Put the previous secret in `UPUSE_SECRET_PREVIOUS`.
 3) Start the server once and verify `/api/settings` loads successfully.
 4) After the server logs that stored settings were re-encrypted, remove the old secret from `UPUSE_SECRET_PREVIOUS`.
-5) If you still use `start.ps1` and an old repo-local `.dev-secret` file exists from a previous setup, either delete it or replace it with the current secret so the compatibility fallback is not re-added on the next start.
-
-## Runtime data
-- Production now defaults to an external OS data directory outside the repo checkout:
-  - Windows: `%LOCALAPPDATA%\UPuse`
-  - macOS: `~/Library/Application Support/UPuse`
-  - Linux: `${XDG_DATA_HOME:-~/.local/share}/UPuse`
-- Development now defaults to `<repo>/.upuse-data`, which keeps mutable SQLite files out of git-tracked paths while still being easy to find locally.
-- `UPUSE_DATA_DIR` overrides both defaults. Relative values are resolved from `apps/server`.
-- In production, startup refuses any runtime data directory that resolves inside the repo checkout. This prevents `git pull` and other git operations from colliding with live SQLite state.
-- On first start after this change, the server automatically migrates legacy repo-local runtime data from `apps/server/data` and, if needed, the older repo-root `data` location into the resolved runtime data directory. The target database is never overwritten, migration is idempotent, and the legacy source files are left in place.
-- If you still have an old `UPUSE_DATA_DIR=data` setting in `.env`, remove it or replace it with an external path before production startup.
-
-Safe update flow with `git pull`:
-1) Stop the app.
-2) Run `git pull`.
-3) Run `npm run build`.
-4) Start the app again.
-
-Because live runtime data is no longer stored in tracked source paths, code updates do not touch the active SQLite database.
+5) If you still use `start.ps1` and an old `apps/server/data/.dev-secret` file exists from a previous setup, either delete it or replace it with the current secret so the compatibility fallback is not re-added on the next start.
 
 ## Refactor structure (progressive feature-sliced)
 - Web:
