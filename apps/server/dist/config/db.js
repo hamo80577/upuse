@@ -1,8 +1,7 @@
 import Database from "better-sqlite3";
-import fs from "node:fs";
-import { resolveDataDir, resolveDbFilePath } from "./paths.js";
 import { createCryptoBox, createEncryptionKeyring, parseEncryptionSecretList } from "./encryption.js";
 import { resolveBootstrapGlobalEntityId } from "./globalEntityId.js";
+import { prepareRuntimeDataDir } from "./runtimeData.js";
 import { resolveEncryptionSecret } from "./secret.js";
 import { hashPassword, normalizeEmail } from "../services/auth/passwords.js";
 function isProduction() {
@@ -52,10 +51,9 @@ function maybeSeedBootstrapAdmin() {
   `).run(bootstrapAdmin.email, bootstrapAdmin.name, bootstrapAdmin.role, hashPassword(bootstrapAdmin.password), new Date().toISOString());
     console.warn(`Created bootstrap admin user for ${bootstrapAdmin.email}. Rotate bootstrap credentials after first use.`);
 }
-export const dataDir = resolveDataDir({ env: process.env });
-if (!fs.existsSync(dataDir))
-    fs.mkdirSync(dataDir, { recursive: true });
-export const dbFilePath = resolveDbFilePath({ env: process.env });
+const runtimeData = prepareRuntimeDataDir({ env: process.env });
+export const dataDir = runtimeData.dataDir;
+export const dbFilePath = runtimeData.dbFilePath;
 export const db = new Database(dbFilePath);
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
