@@ -5,6 +5,7 @@ import { resolveBranchThresholdProfile } from "./thresholds.js";
 export interface PolicyInput {
   branch: ResolvedBranchMapping;
   metrics: OrdersMetrics;
+  lastHourPickers: number;
   availability?: AvailabilityRecord;
   runtime?: {
     lastUpuseCloseUntil?: string | null;
@@ -23,6 +24,18 @@ export type PolicyDecision =
   | { type: "CLOSE"; reason: CloseReason }
   | { type: "EARLY_OPEN"; reason: CloseReason }
   | { type: "MARK_EXTERNAL_OPEN"; note?: string };
+
+function normalizeLastHourPickers(value: number) {
+  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+}
+
+function capacityLimit(lastHourPickers: number) {
+  return normalizeLastHourPickers(lastHourPickers) * 2;
+}
+
+function hasCapacitySignal(lastHourPickers: number) {
+  return normalizeLastHourPickers(lastHourPickers) > 0;
+}
 
 function isoToUtcDT(iso?: string | null) {
   if (!iso) return null;
@@ -80,7 +93,7 @@ function isMonitorOwnedClosure(
 }
 
 export function decide(input: PolicyInput): PolicyDecision {
-  const { branch, metrics, availability, runtime, nowUtcIso, settings } = input;
+  const { branch, metrics, lastHourPickers, availability, runtime, nowUtcIso, settings } = input;
   if (!branch.enabled) return { type: "NOOP" };
   if (!availability) return { type: "NOOP", note: "Availability not found" };
   if (!availability.changeable) return { type: "NOOP" };
@@ -88,9 +101,12 @@ export function decide(input: PolicyInput): PolicyDecision {
   const now = DateTime.fromISO(nowUtcIso, { zone: "utc" });
   const thresholds = resolveBranchThresholdProfile(branch, settings);
   const trustedRuntime = hasTrustedTrackedRuntime(runtime, settings);
+  const capacitySignalAvailable = hasCapacitySignal(lastHourPickers);
+  const capacityRuleEnabled = thresholds.capacityRuleEnabled !== false;
 
   const exceedLate = metrics.lateNow >= thresholds.lateThreshold && thresholds.lateThreshold > 0;
   const exceedUnassigned = metrics.unassignedNow >= thresholds.unassignedThreshold && thresholds.unassignedThreshold > 0;
+  const exceedCapacity = capacityRuleEnabled && capacitySignalAvailable && metrics.activeNow > capacityLimit(lastHourPickers);
 
   const lastCloseUntil = trustedRuntime ? isoToUtcDT(runtime?.lastUpuseCloseUntil ?? null) : null;
   const lastCloseReason = trustedRuntime ? (runtime?.lastUpuseCloseReason ?? null) as CloseReason | null : null;
@@ -120,6 +136,7 @@ export function decide(input: PolicyInput): PolicyDecision {
     // After grace, enforce as normal
     if (exceedLate) return { type: "CLOSE", reason: "LATE" };
     if (exceedUnassigned) return { type: "CLOSE", reason: "UNASSIGNED" };
+    if (exceedCapacity) return { type: "CLOSE", reason: "CAPACITY" };
     return { type: "NOOP" };
   }
 
@@ -129,6 +146,12 @@ export function decide(input: PolicyInput): PolicyDecision {
 
     if (lastCloseReason === "LATE" && metrics.lateNow === 0) return { type: "EARLY_OPEN", reason: "LATE" };
     if (lastCloseReason === "UNASSIGNED" && metrics.unassignedNow === 0) return { type: "EARLY_OPEN", reason: "UNASSIGNED" };
+    if (
+      lastCloseReason === "CAPACITY" &&
+      (!capacityRuleEnabled || !capacitySignalAvailable || metrics.activeNow <= normalizeLastHourPickers(lastHourPickers))
+    ) {
+      return { type: "EARLY_OPEN", reason: "CAPACITY" };
+    }
 
     return { type: "NOOP" };
   }
@@ -141,6 +164,7 @@ export function decide(input: PolicyInput): PolicyDecision {
   if (availability.availabilityState === "OPEN") {
     if (exceedLate) return { type: "CLOSE", reason: "LATE" };
     if (exceedUnassigned) return { type: "CLOSE", reason: "UNASSIGNED" };
+    if (exceedCapacity) return { type: "CLOSE", reason: "CAPACITY" };
   }
 
   return { type: "NOOP" };

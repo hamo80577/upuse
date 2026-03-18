@@ -94,6 +94,7 @@ function branchMapping(overrides?: Record<string, unknown>) {
     catalogState: "available",
     lateThresholdOverride: null,
     unassignedThresholdOverride: null,
+    capacityRuleEnabledOverride: null,
     ...overrides,
   };
 }
@@ -120,6 +121,7 @@ function branchSnapshot(overrides?: Record<string, unknown>) {
     thresholds: {
       lateThreshold: 5,
       unassignedThreshold: 5,
+      capacityRuleEnabled: true,
       source: "chain",
     },
     metrics: {
@@ -165,7 +167,7 @@ describe("branches routes", () => {
     mockGetSettings.mockReturnValue({
       globalEntityId: TEST_GLOBAL_ENTITY_ID,
       ordersRefreshSeconds: 30,
-      chains: [{ name: "Chain A", lateThreshold: 5, unassignedThreshold: 5 }],
+      chains: [{ name: "Chain A", lateThreshold: 5, unassignedThreshold: 5, capacityRuleEnabled: true }],
       lateThreshold: 5,
       unassignedThreshold: 5,
     });
@@ -275,12 +277,14 @@ describe("branches routes", () => {
     mockSetBranchThresholdOverrides.mockReturnValue(branchMapping({
       lateThresholdOverride: 7,
       unassignedThresholdOverride: 9,
+      capacityRuleEnabledOverride: false,
     }));
     const req: any = {
       params: { id: "7" },
       body: {
         lateThresholdOverride: 7,
         unassignedThresholdOverride: 9,
+        capacityRuleEnabledOverride: false,
       },
     };
     const res = createResponse();
@@ -290,12 +294,14 @@ describe("branches routes", () => {
     expect(mockSetBranchThresholdOverrides).toHaveBeenCalledWith(7, {
       lateThresholdOverride: 7,
       unassignedThresholdOverride: 9,
+      capacityRuleEnabledOverride: false,
     });
     expect(res.body).toEqual({
       ok: true,
       item: branchMapping({
         lateThresholdOverride: 7,
         unassignedThresholdOverride: 9,
+        capacityRuleEnabledOverride: false,
       }),
     });
   });

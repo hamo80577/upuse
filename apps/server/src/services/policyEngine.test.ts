@@ -31,6 +31,7 @@ function baseBranch(): ResolvedBranchMapping {
     enabled: true,
     lateThresholdOverride: null,
     unassignedThresholdOverride: null,
+    capacityRuleEnabledOverride: null,
   };
 }
 
@@ -83,6 +84,7 @@ describe("policyEngine.decide", () => {
         ...baseMetrics(),
         lateNow: 5,
       },
+      lastHourPickers: 0,
       availability: openAvailability(),
       nowUtcIso: "2026-03-03T10:00:00.000Z",
       settings: baseSettings(),
@@ -98,6 +100,7 @@ describe("policyEngine.decide", () => {
         ...baseMetrics(),
         unassignedNow: 5,
       },
+      lastHourPickers: 0,
       availability: openAvailability(),
       nowUtcIso: "2026-03-03T10:00:00.000Z",
       settings: baseSettings(),
@@ -117,6 +120,7 @@ describe("policyEngine.decide", () => {
         lateNow: 3,
         unassignedNow: 0,
       },
+      lastHourPickers: 0,
       availability: tempCloseAvailability(),
       runtime: {
         lastUpuseCloseReason: "UNASSIGNED",
@@ -135,6 +139,7 @@ describe("policyEngine.decide", () => {
         lateNow: 2,
         unassignedNow: 0,
       },
+      lastHourPickers: 0,
       availability: tempCloseAvailability(),
       runtime: {
         lastUpuseCloseReason: "LATE",
@@ -159,6 +164,7 @@ describe("policyEngine.decide", () => {
         ...baseMetrics(),
         unassignedNow: 7,
       },
+      lastHourPickers: 0,
       availability: openAvailability(),
       runtime: {
         lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
@@ -176,6 +182,7 @@ describe("policyEngine.decide", () => {
         ...baseMetrics(),
         unassignedNow: 7,
       },
+      lastHourPickers: 0,
       availability: openAvailability(),
       runtime: {
         lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
@@ -204,6 +211,7 @@ describe("policyEngine.decide", () => {
         lateNow: 6,
         unassignedNow: 8,
       },
+      lastHourPickers: 0,
       availability: openAvailability(),
       nowUtcIso: "2026-03-03T10:00:00.000Z",
       settings: {
@@ -222,6 +230,7 @@ describe("policyEngine.decide", () => {
         ...baseMetrics(),
         unassignedNow: 8,
       },
+      lastHourPickers: 0,
       availability: openAvailability(),
       runtime: {
         lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
@@ -242,6 +251,7 @@ describe("policyEngine.decide", () => {
         ...baseMetrics(),
         unassignedNow: 7,
       },
+      lastHourPickers: 0,
       availability: openAvailability(),
       runtime: {
         lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
@@ -264,11 +274,216 @@ describe("policyEngine.decide", () => {
         lateNow: 7,
         unassignedNow: 7,
       },
+      lastHourPickers: 0,
       availability: unknownAvailability(),
       nowUtcIso: "2026-03-03T10:08:00.000Z",
       settings: baseSettings(),
     });
 
     expect(decision).toEqual({ type: "NOOP" });
+  });
+
+  it("closes on capacity when active orders exceed twice the last-hour picker count", () => {
+    const decision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        activeNow: 7,
+      },
+      lastHourPickers: 3,
+      availability: openAvailability(),
+      nowUtcIso: "2026-03-03T10:00:00.000Z",
+      settings: baseSettings(),
+    });
+
+    expect(decision).toEqual({ type: "CLOSE", reason: "CAPACITY" });
+  });
+
+  it("ignores capacity when there are no last-hour pickers", () => {
+    const decision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        activeNow: 7,
+      },
+      lastHourPickers: 0,
+      availability: openAvailability(),
+      nowUtcIso: "2026-03-03T10:00:00.000Z",
+      settings: baseSettings(),
+    });
+
+    expect(decision).toEqual({ type: "NOOP" });
+  });
+
+  it("does not close on capacity when active orders only meet the cap", () => {
+    const decision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        activeNow: 6,
+      },
+      lastHourPickers: 3,
+      availability: openAvailability(),
+      nowUtcIso: "2026-03-03T10:00:00.000Z",
+      settings: baseSettings(),
+    });
+
+    expect(decision).toEqual({ type: "NOOP" });
+  });
+
+  it("does not close on capacity when the chain disables the capacity rule", () => {
+    const decision = decide({
+      branch: {
+        ...baseBranch(),
+        chainName: "Chain A",
+      },
+      metrics: {
+        ...baseMetrics(),
+        activeNow: 10,
+      },
+      lastHourPickers: 3,
+      availability: openAvailability(),
+      nowUtcIso: "2026-03-03T10:00:00.000Z",
+      settings: {
+        ...baseSettings(),
+        chains: [{ name: "Chain A", lateThreshold: 5, unassignedThreshold: 5, capacityRuleEnabled: false }],
+      },
+    });
+
+    expect(decision).toEqual({ type: "NOOP" });
+  });
+
+  it("does not close on capacity when the branch override disables the capacity rule", () => {
+    const decision = decide({
+      branch: {
+        ...baseBranch(),
+        chainName: "Chain A",
+        capacityRuleEnabledOverride: false,
+      },
+      metrics: {
+        ...baseMetrics(),
+        activeNow: 10,
+      },
+      lastHourPickers: 3,
+      availability: openAvailability(),
+      nowUtcIso: "2026-03-03T10:00:00.000Z",
+      settings: {
+        ...baseSettings(),
+        chains: [{ name: "Chain A", lateThreshold: 5, unassignedThreshold: 5, capacityRuleEnabled: true }],
+      },
+    });
+
+    expect(decision).toEqual({ type: "NOOP" });
+  });
+
+  it("keeps late and unassigned triggers ahead of capacity", () => {
+    const decision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        activeNow: 10,
+        lateNow: 5,
+      },
+      lastHourPickers: 3,
+      availability: openAvailability(),
+      nowUtcIso: "2026-03-03T10:00:00.000Z",
+      settings: baseSettings(),
+    });
+
+    expect(decision).toEqual({ type: "CLOSE", reason: "LATE" });
+  });
+
+  it("reopens capacity-owned closes when active orders drop to the picker count", () => {
+    const decision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        activeNow: 3,
+      },
+      lastHourPickers: 3,
+      availability: tempCloseAvailability(),
+      runtime: {
+        lastUpuseCloseReason: "CAPACITY",
+        lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
+        lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
+        lastUpuseCloseEventId: 16,
+      },
+      nowUtcIso: "2026-03-03T10:05:00.000Z",
+      settings: baseSettings(),
+    });
+
+    expect(decision).toEqual({ type: "EARLY_OPEN", reason: "CAPACITY" });
+  });
+
+  it("reopens capacity-owned closes when last-hour picker signal disappears", () => {
+    const decision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        activeNow: 5,
+      },
+      lastHourPickers: 0,
+      availability: tempCloseAvailability(),
+      runtime: {
+        lastUpuseCloseReason: "CAPACITY",
+        lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
+        lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
+        lastUpuseCloseEventId: 18,
+      },
+      nowUtcIso: "2026-03-03T10:05:00.000Z",
+      settings: baseSettings(),
+    });
+
+    expect(decision).toEqual({ type: "EARLY_OPEN", reason: "CAPACITY" });
+  });
+
+  it("reopens capacity-owned closes when the rule gets disabled", () => {
+    const decision = decide({
+      branch: {
+        ...baseBranch(),
+        chainName: "Chain A",
+      },
+      metrics: {
+        ...baseMetrics(),
+        activeNow: 5,
+      },
+      lastHourPickers: 3,
+      availability: tempCloseAvailability(),
+      runtime: {
+        lastUpuseCloseReason: "CAPACITY",
+        lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
+        lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
+        lastUpuseCloseEventId: 19,
+      },
+      nowUtcIso: "2026-03-03T10:05:00.000Z",
+      settings: {
+        ...baseSettings(),
+        chains: [{ name: "Chain A", lateThreshold: 5, unassignedThreshold: 5, capacityRuleEnabled: false }],
+      },
+    });
+
+    expect(decision).toEqual({ type: "EARLY_OPEN", reason: "CAPACITY" });
+  });
+
+  it("re-applies capacity after external-open grace when overload remains", () => {
+    const decision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        activeNow: 10,
+      },
+      lastHourPickers: 3,
+      availability: openAvailability(),
+      runtime: {
+        lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
+        lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
+        externalOpenDetectedAt: "2026-03-03T10:01:00.000Z",
+        lastUpuseCloseEventId: 17,
+      },
+      nowUtcIso: "2026-03-03T10:08:00.000Z",
+      settings: baseSettings(),
+    });
+
+    expect(decision).toEqual({ type: "CLOSE", reason: "CAPACITY" });
   });
 });

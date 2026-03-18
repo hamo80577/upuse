@@ -1,4 +1,20 @@
 export function describeLogMessage(message: string) {
+  const reapplyAfterGraceCapacityMatch = message.match(
+    /^TEMP CLOSE — re-applied after external open grace \(Capacity active=(\d+) cap=(\d+) pickers=(\d+)\)(?: until ([0-9]{2}:[0-9]{2}))?$/i,
+  );
+  if (reapplyAfterGraceCapacityMatch) {
+    const active = reapplyAfterGraceCapacityMatch[1];
+    const cap = reapplyAfterGraceCapacityMatch[2];
+    const pickers = reapplyAfterGraceCapacityMatch[3];
+    const until = reapplyAfterGraceCapacityMatch[4];
+    return {
+      title: "Temporary close re-applied",
+      detail: until
+        ? `Active orders stayed at ${active} above picker capacity ${cap} from ${pickers} last-hour pickers after grace. Source timer ends at ${until}.`
+        : `Active orders stayed at ${active} above picker capacity ${cap} from ${pickers} last-hour pickers after grace.`,
+    };
+  }
+
   const reapplyAfterGraceMatch = message.match(
     /^TEMP CLOSE — re-applied after external open grace \((Late|Unassigned)=(\d+)\)(?: until ([0-9]{2}:[0-9]{2}))?$/i,
   );
@@ -11,6 +27,22 @@ export function describeLogMessage(message: string) {
       detail: until
         ? `${kind} stayed at ${count} after grace. Source timer ends at ${until}.`
         : `${kind} stayed at ${count} after grace.`,
+    };
+  }
+
+  const capacityMatch = message.match(
+    /^TEMP CLOSE — Capacity active=(\d+) cap=(\d+) pickers=(\d+)(?: until ([0-9]{2}:[0-9]{2}))?$/i,
+  );
+  if (capacityMatch) {
+    const active = capacityMatch[1];
+    const cap = capacityMatch[2];
+    const pickers = capacityMatch[3];
+    const until = capacityMatch[4];
+    return {
+      title: "Temporary close applied",
+      detail: until
+        ? `Active orders reached ${active}, above picker capacity ${cap} from ${pickers} last-hour pickers. Source timer ends at ${until}.`
+        : `Active orders reached ${active}, above picker capacity ${cap} from ${pickers} last-hour pickers.`,
     };
   }
 

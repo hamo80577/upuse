@@ -1,4 +1,5 @@
 import AccessTimeFilledRoundedIcon from "@mui/icons-material/AccessTimeFilledRounded";
+import GroupsRoundedIcon from "@mui/icons-material/GroupsRounded";
 import PersonOffRoundedIcon from "@mui/icons-material/PersonOffRounded";
 import SettingsSuggestRoundedIcon from "@mui/icons-material/SettingsSuggestRounded";
 import StorefrontRoundedIcon from "@mui/icons-material/StorefrontRounded";
@@ -35,6 +36,7 @@ function sourceWindowMeta(branch: BranchSnapshot, sourceLabel: string | null) {
 function triggerIcon(reason?: BranchSnapshot["closeReason"]) {
   if (reason === "LATE") return <AccessTimeFilledRoundedIcon sx={{ fontSize: 18 }} />;
   if (reason === "UNASSIGNED") return <PersonOffRoundedIcon sx={{ fontSize: 18 }} />;
+  if (reason === "CAPACITY") return <GroupsRoundedIcon sx={{ fontSize: 18 }} />;
   return null;
 }
 

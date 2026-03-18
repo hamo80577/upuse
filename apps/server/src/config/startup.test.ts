@@ -39,7 +39,7 @@ describe("startup config", () => {
   });
 
   it("resolves a workspace-relative vendor catalog path when startup sync is enabled", () => {
-    const serverRootDir = path.join("C:\\", "srv", "upuse", "apps", "server");
+    const serverRootDir = path.win32.join("C:\\", "srv", "upuse", "apps", "server");
 
     expect(resolveStartupConfig({
       env: {
@@ -51,7 +51,7 @@ describe("startup config", () => {
       serverRootDir,
     })).toEqual({
       syncVendorCatalogOnStartup: true,
-      vendorCatalogCsvPath: path.join("C:\\", "srv", "upuse", "deploy", "vendors.csv"),
+      vendorCatalogCsvPath: path.win32.join("C:\\", "srv", "upuse", "deploy", "vendors.csv"),
     });
   });
 });

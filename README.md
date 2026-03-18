@@ -30,6 +30,17 @@ A production-ready monitoring control tower for branch availability, driven by r
 If you want one Windows command that loads `.env`, builds, and starts production, use:
 - `.\start.ps1`
 
+## Live deploy checks
+- Keep runtime artifacts out of Git. `apps/server/dist`, `apps/web/dist`, and `apps/server/data/upuse.sqlite*` should exist on disk when needed, but should not be tracked.
+- Before restart, back up `apps/server/data/upuse.sqlite`.
+- Build production artifacts:
+  - `npm run build`
+- Start production:
+  - `npm run start`
+- After restart, verify health endpoints:
+  - `curl http://127.0.0.1:8080/api/health`
+  - `curl http://127.0.0.1:8080/api/ready`
+
 ## Notes
 - Settings, branch mappings, and logs are stored in `apps/server/data/upuse.sqlite`.
 - Tokens are stored encrypted-at-rest using a local key derived from `UPUSE_SECRET` (see `.env.example`).

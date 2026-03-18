@@ -26,6 +26,7 @@ export function normalizeChains(chains: ChainThreshold[]) {
       name,
       lateThreshold: Math.max(0, Math.round(chain.lateThreshold)),
       unassignedThreshold: Math.max(0, Math.round(chain.unassignedThreshold)),
+      capacityRuleEnabled: chain.capacityRuleEnabled !== false,
     });
   }
 
@@ -37,6 +38,7 @@ export function emptyChainEditor() {
     name: "",
     lateThreshold: "5",
     unassignedThreshold: "5",
+    capacityRuleEnabled: true,
   };
 }
 
@@ -44,6 +46,7 @@ export function emptyBranchThresholdEditor() {
   return {
     lateThreshold: "",
     unassignedThreshold: "",
+    capacityRuleEnabled: true,
   };
 }
 
@@ -54,30 +57,42 @@ export function safeBranchName(branch: Pick<BranchMappingItem, "name" | "availab
 export function resolveEffectiveThresholds(
   branch: BranchMappingItem,
   chains: ChainThreshold[],
-  globalThresholds: Pick<ThresholdProfile, "lateThreshold" | "unassignedThreshold">,
+  globalThresholds: Pick<ThresholdProfile, "lateThreshold" | "unassignedThreshold" | "capacityRuleEnabled">,
 ) {
-  if (typeof branch.lateThresholdOverride === "number" && typeof branch.unassignedThresholdOverride === "number") {
+  const chain = chains.find((item) => item.name.trim().toLowerCase() === branch.chainName.trim().toLowerCase());
+  const inherited = chain
+    ? {
+        lateThreshold: chain.lateThreshold,
+        unassignedThreshold: chain.unassignedThreshold,
+        capacityRuleEnabled: chain.capacityRuleEnabled !== false,
+        source: "chain" as const,
+      }
+    : {
+        lateThreshold: globalThresholds.lateThreshold,
+        unassignedThreshold: globalThresholds.unassignedThreshold,
+        capacityRuleEnabled: globalThresholds.capacityRuleEnabled !== false,
+        source: "global" as const,
+      };
+
+  const hasThresholdOverride =
+    typeof branch.lateThresholdOverride === "number" &&
+    typeof branch.unassignedThresholdOverride === "number";
+  const hasCapacityOverride = typeof branch.capacityRuleEnabledOverride === "boolean";
+
+  if (hasThresholdOverride || hasCapacityOverride) {
     return {
-      lateThreshold: branch.lateThresholdOverride,
-      unassignedThreshold: branch.unassignedThresholdOverride,
+      lateThreshold: hasThresholdOverride ? branch.lateThresholdOverride : inherited.lateThreshold,
+      unassignedThreshold: hasThresholdOverride ? branch.unassignedThresholdOverride : inherited.unassignedThreshold,
+      capacityRuleEnabled: hasCapacityOverride ? branch.capacityRuleEnabledOverride : inherited.capacityRuleEnabled,
       source: "branch" as const,
     };
   }
 
-  const chain = chains.find((item) => item.name.trim().toLowerCase() === branch.chainName.trim().toLowerCase());
   if (chain) {
-    return {
-      lateThreshold: chain.lateThreshold,
-      unassignedThreshold: chain.unassignedThreshold,
-      source: "chain" as const,
-    };
+    return inherited;
   }
 
-  return {
-    lateThreshold: globalThresholds.lateThreshold,
-    unassignedThreshold: globalThresholds.unassignedThreshold,
-    source: "global" as const,
-  };
+  return inherited;
 }
 
 export function scoreSourceItem(item: LocalVendorCatalogItem, query: string) {

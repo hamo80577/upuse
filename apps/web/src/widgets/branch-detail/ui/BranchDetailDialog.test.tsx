@@ -302,4 +302,36 @@ describe("BranchDetailDialog", () => {
     expect(screen.getByLabelText("Unassigned Trigger")).toBeInTheDocument();
     expect(screen.queryByText("Late Trigger")).not.toBeInTheDocument();
   });
+
+  it("shows the capacity trigger badge when the branch closed from overload", () => {
+    mockUseBranchDetailState.mockReturnValue(buildHookState({
+      kind: "ok",
+      branch: createBranchSnapshot({
+        closeReason: "CAPACITY",
+        metrics: {
+          ...createBranchSnapshot().metrics,
+          activeNow: 10,
+          unassignedNow: 0,
+        },
+      }),
+      totals: createBranchSnapshot().metrics,
+      fetchedAt: "2026-03-08T14:10:00.000Z",
+      cacheState: "fresh",
+      unassignedOrders: [],
+      preparingOrders: [],
+      pickers: emptyPickers(),
+    }));
+
+    render(
+      <BranchDetailDialog
+        open
+        branchId={7}
+        branchSnapshot={createBranchSnapshot({ closeReason: "CAPACITY" })}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(screen.getByLabelText("Capacity Trigger")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Unassigned Trigger")).not.toBeInTheDocument();
+  });
 });

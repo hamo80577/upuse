@@ -155,10 +155,16 @@ export function useBranchMappingState() {
     ));
   };
 
-  const saveBranchThresholdOverride = async (branchId: number, lateThresholdOverride: number | null, unassignedThresholdOverride: number | null) => {
+  const saveBranchThresholdOverride = async (
+    branchId: number,
+    lateThresholdOverride: number | null,
+    unassignedThresholdOverride: number | null,
+    capacityRuleEnabledOverride: boolean | null,
+  ) => {
     const response = await api.setBranchThresholdOverrides(branchId, {
       lateThresholdOverride,
       unassignedThresholdOverride,
+      capacityRuleEnabledOverride,
     });
     setBranches((current) => current.map((item) => (item.id === branchId ? response.item : item)));
     return response.item;

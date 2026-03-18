@@ -3,13 +3,14 @@ import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
-import { Alert, Box, Button, Chip, IconButton, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, Checkbox, Chip, FormControlLabel, IconButton, Stack, TextField, Typography } from "@mui/material";
 import type { ChainThreshold } from "../../api/types";
 
 export interface ChainEditorDraft {
   name: string;
   lateThreshold: string;
   unassignedThreshold: string;
+  capacityRuleEnabled: boolean;
 }
 
 export function ChainThresholdManager(props: {
@@ -105,6 +106,15 @@ export function ChainThresholdManager(props: {
                     color: "#b91c1c",
                   }}
                 />
+                <Chip
+                  size="small"
+                  label={chain.capacityRuleEnabled === false ? "Capacity Off" : "Capacity On"}
+                  sx={{
+                    fontWeight: 800,
+                    bgcolor: chain.capacityRuleEnabled === false ? "rgba(148,163,184,0.14)" : "rgba(20,184,166,0.10)",
+                    color: chain.capacityRuleEnabled === false ? "#475569" : "#0f766e",
+                  }}
+                />
               </Stack>
 
               <Stack direction="row" spacing={0.4} justifyContent={{ xs: "flex-end", sm: "flex-start" }}>
@@ -168,6 +178,18 @@ export function ChainThresholdManager(props: {
             sx={{ width: { xs: "100%", md: 180 } }}
           />
         </Stack>
+
+        <FormControlLabel
+          sx={{ mt: 0.8 }}
+          control={(
+            <Checkbox
+              checked={chainEditor.capacityRuleEnabled}
+              onChange={(event) => props.onChangeEditor({ capacityRuleEnabled: event.target.checked })}
+              disabled={readOnly}
+            />
+          )}
+          label="Enable Capacity Rule"
+        />
 
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mt: 1.2 }}>
           <Button

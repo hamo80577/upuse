@@ -3,7 +3,7 @@ import { getSettings, updateSettings } from "../services/settingsStore.js";
 import { GlobalEntityIdSchema } from "../config/globalEntityId.js";
 import { z } from "zod";
 import { getSettingsTokenTestSnapshot, startSettingsTokenTestJob } from "../services/settingsTokenTestStore.js";
-import { hasCapability } from "../http/auth.js";
+import { hasCapability } from "../http/authorization.js";
 
 const SettingsPatch = z
   .object({
@@ -15,6 +15,7 @@ const SettingsPatch = z
         name: z.string().min(1).max(120),
         lateThreshold: z.number().int().min(0).max(999),
         unassignedThreshold: z.number().int().min(0).max(999),
+        capacityRuleEnabled: z.boolean().optional(),
       }),
     ).max(200).optional(),
     lateThreshold: z.number().int().min(0).optional(),

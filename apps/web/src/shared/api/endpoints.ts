@@ -63,6 +63,12 @@ function normalizeBranchItem(item: BranchMappingItem | LegacyBranchMappingItem):
     chainName: typeof item.chainName === "string" ? item.chainName : "",
     ordersVendorId,
     catalogState,
+    capacityRuleEnabledOverride:
+      typeof item.capacityRuleEnabledOverride === "boolean"
+        ? item.capacityRuleEnabledOverride
+        : item.capacityRuleEnabledOverride == null
+          ? null
+          : Boolean(item.capacityRuleEnabledOverride),
   };
 }
 
@@ -259,7 +265,11 @@ export const api = {
   },
   setBranchThresholdOverrides: (
     id: number,
-    payload: { lateThresholdOverride: number | null; unassignedThresholdOverride: number | null },
+    payload: {
+      lateThresholdOverride: number | null;
+      unassignedThresholdOverride: number | null;
+      capacityRuleEnabledOverride: boolean | null;
+    },
   ) =>
     requestJson<{ ok: boolean; item: BranchMappingItem | LegacyBranchMappingItem }>(`/api/branches/${id}/threshold-overrides`, {
       method: "PATCH",

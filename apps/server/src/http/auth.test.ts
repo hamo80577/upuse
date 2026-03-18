@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AUTH_SESSION_COOKIE_NAME } from "./sessionCookie.js";
 import { getAppPermissions } from "../../../web/src/app/permissions.ts";
+import { hasCapability } from "./authorization.js";
 
 const { mockGetSessionUserByToken } = vi.hoisted(() => ({
   mockGetSessionUserByToken: vi.fn(),
@@ -10,7 +11,7 @@ vi.mock("../services/authStore.js", () => ({
   getSessionUserByToken: mockGetSessionUserByToken,
 }));
 
-import { createSessionAuthMiddleware, hasCapability, requireAuthenticatedApi, requireCapability } from "./auth.js";
+import { createSessionAuthMiddleware, requireAuthenticatedApi, requireCapability } from "./auth.js";
 
 describe("createSessionAuthMiddleware", () => {
   beforeEach(() => {

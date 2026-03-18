@@ -1,4 +1,4 @@
-export type CloseReason = "LATE" | "UNASSIGNED";
+export type CloseReason = "LATE" | "UNASSIGNED" | "CAPACITY";
 export type AppUserRole = "admin" | "user";
 export type ThresholdSource = "branch" | "chain" | "global";
 export type BranchCatalogState = "available" | "missing";
@@ -7,11 +7,13 @@ export interface ChainThreshold {
   name: string;
   lateThreshold: number;
   unassignedThreshold: number;
+  capacityRuleEnabled?: boolean;
 }
 
 export interface ThresholdProfile {
   lateThreshold: number;
   unassignedThreshold: number;
+  capacityRuleEnabled?: boolean;
   source: ThresholdSource;
 }
 
@@ -105,6 +107,7 @@ export interface BranchMappingItem {
   catalogState: BranchCatalogState;
   lateThresholdOverride?: number | null;
   unassignedThresholdOverride?: number | null;
+  capacityRuleEnabledOverride?: boolean | null;
 }
 
 export interface LocalVendorCatalogItem {

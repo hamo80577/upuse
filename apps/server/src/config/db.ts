@@ -198,7 +198,9 @@ function migrateBranchesTableToLocalCatalogShape() {
     "enabled",
     "lateThresholdOverride",
     "unassignedThresholdOverride",
+    "capacityRuleEnabledOverride",
   ]);
+  const hasCapacityRuleEnabledOverride = branchColumns.some((column) => column.name === "capacityRuleEnabledOverride");
 
   const requiresRebuild =
     branchColumns.length !== expectedColumns.size ||
@@ -222,7 +224,8 @@ function migrateBranchesTableToLocalCatalogShape() {
         chainName TEXT NOT NULL DEFAULT '',
         enabled INTEGER NOT NULL DEFAULT 1,
         lateThresholdOverride INTEGER,
-        unassignedThresholdOverride INTEGER
+        unassignedThresholdOverride INTEGER,
+        capacityRuleEnabledOverride INTEGER
       );
 
       INSERT INTO branches_next (
@@ -231,7 +234,8 @@ function migrateBranchesTableToLocalCatalogShape() {
         chainName,
         enabled,
         lateThresholdOverride,
-        unassignedThresholdOverride
+        unassignedThresholdOverride,
+        capacityRuleEnabledOverride
       )
       SELECT
         id,
@@ -239,7 +243,8 @@ function migrateBranchesTableToLocalCatalogShape() {
         COALESCE(chainName, ''),
         CASE WHEN enabled IS NULL THEN 1 ELSE enabled END,
         lateThresholdOverride,
-        unassignedThresholdOverride
+        unassignedThresholdOverride,
+        ${hasCapacityRuleEnabledOverride ? "capacityRuleEnabledOverride" : "NULL"}
       FROM branches;
 
       DROP TABLE branches;
@@ -281,7 +286,8 @@ export function migrate() {
       chainName TEXT NOT NULL DEFAULT '',
       enabled INTEGER NOT NULL DEFAULT 1,
       lateThresholdOverride INTEGER,
-      unassignedThresholdOverride INTEGER
+      unassignedThresholdOverride INTEGER,
+      capacityRuleEnabledOverride INTEGER
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_branches_availabilityVendorId ON branches(availabilityVendorId);
@@ -575,6 +581,7 @@ export function migrate() {
               name,
               lateThreshold: 5,
               unassignedThreshold: 5,
+              capacityRuleEnabled: true,
             })),
           ),
           JSON.stringify(chainNames),

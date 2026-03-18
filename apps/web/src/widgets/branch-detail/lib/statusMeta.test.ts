@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BranchSnapshot } from "../../../api/types";
-import { statusPanelMeta } from "./statusMeta";
+import { closeReasonMeta, statusPanelMeta } from "./statusMeta";
 
 function createBranch(overrides: Partial<BranchSnapshot> = {}): BranchSnapshot {
   return {
@@ -38,5 +38,11 @@ describe("statusPanelMeta", () => {
     expect(meta.caption).toContain("no reopen time");
     expect(meta.showTimer).toBe(false);
     expect(meta.footerCaption).toContain("manually");
+  });
+
+  it("labels capacity closures distinctly in the trigger badge", () => {
+    expect(closeReasonMeta("CAPACITY")).toEqual(expect.objectContaining({
+      label: "Capacity Trigger",
+    }));
   });
 });

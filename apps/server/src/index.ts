@@ -14,7 +14,13 @@ import { resolveSecurityConfig } from "./config/security.js";
 import { resolveStartupConfig } from "./config/startup.js";
 import { getSettings } from "./services/settingsStore.js";
 import { attachDashboardWebSocketServer } from "./http/dashboardWebSocket.js";
-import { createApiNoStoreMiddleware, createCorsOptions, createTrustedOriginMiddleware } from "./http/security.js";
+import {
+  createApiNoStoreMiddleware,
+  createContentSecurityPolicyDirectives,
+  createCorsOptions,
+  createCspNonceMiddleware,
+  createTrustedOriginMiddleware,
+} from "./http/security.js";
 import { createSessionAuthMiddleware, requireAdminRole, requireAuthenticatedApi, requireCapability } from "./http/auth.js";
 import { MonitorEngine } from "./monitor/index.js";
 
@@ -49,7 +55,13 @@ const securityConfig = resolveSecurityConfig();
 app.disable("x-powered-by");
 app.set("trust proxy", securityConfig.trustProxy);
 app.use(cors(createCorsOptions()));
-app.use(helmet());
+app.use(createCspNonceMiddleware());
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: createContentSecurityPolicyDirectives(),
+  },
+}));
 app.use(createApiNoStoreMiddleware());
 app.use(createTrustedOriginMiddleware());
 app.use(express.json({ limit: "1mb" }));

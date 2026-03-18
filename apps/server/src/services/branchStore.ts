@@ -11,6 +11,7 @@ interface BranchRow {
   enabled: number;
   lateThresholdOverride: number | null;
   unassignedThresholdOverride: number | null;
+  capacityRuleEnabledOverride: number | null;
 }
 
 interface JoinedBranchRow extends BranchRow {
@@ -39,6 +40,7 @@ const AddBranchSchema = z.object({
 const ThresholdOverrideSchema = z.object({
   lateThresholdOverride: z.number().int().min(0).max(999).nullable(),
   unassignedThresholdOverride: z.number().int().min(0).max(999).nullable(),
+  capacityRuleEnabledOverride: z.boolean().nullable().optional().default(null),
 }).superRefine((value, ctx) => {
   const hasLate = value.lateThresholdOverride != null;
   const hasUnassigned = value.unassignedThresholdOverride != null;
@@ -63,6 +65,8 @@ function mapBranchRow(row: JoinedBranchRow): BranchMapping {
     catalogState: row.name && row.ordersVendorId ? "available" : "missing",
     lateThresholdOverride: row.lateThresholdOverride,
     unassignedThresholdOverride: row.unassignedThresholdOverride,
+    capacityRuleEnabledOverride:
+      row.capacityRuleEnabledOverride == null ? null : row.capacityRuleEnabledOverride === 1,
   };
 }
 
@@ -89,6 +93,7 @@ function getJoinedBranchQuery(whereClause = "", orderClause = "ORDER BY LOWER(CO
       branches.enabled,
       branches.lateThresholdOverride,
       branches.unassignedThresholdOverride,
+      branches.capacityRuleEnabledOverride,
       vendor_catalog.name,
       vendor_catalog.ordersVendorId
     FROM branches
@@ -137,9 +142,10 @@ export function addBranch(input: { availabilityVendorId: string; chainName?: str
       chainName,
       enabled,
       lateThresholdOverride,
-      unassignedThresholdOverride
+      unassignedThresholdOverride,
+      capacityRuleEnabledOverride
     )
-    VALUES (?, ?, ?, NULL, NULL)
+    VALUES (?, ?, ?, NULL, NULL, NULL)
   `).run(
     catalogItem.availabilityVendorId,
     parsed.chainName,
@@ -167,6 +173,7 @@ export function setBranchThresholdOverrides(
   overrides: {
     lateThresholdOverride: number | null;
     unassignedThresholdOverride: number | null;
+    capacityRuleEnabledOverride: boolean | null;
   },
 ) {
   ensureBranchExists(id);
@@ -174,11 +181,13 @@ export function setBranchThresholdOverrides(
   db.prepare(`
     UPDATE branches
     SET lateThresholdOverride = ?,
-        unassignedThresholdOverride = ?
+        unassignedThresholdOverride = ?,
+        capacityRuleEnabledOverride = ?
     WHERE id = ?
   `).run(
     parsed.lateThresholdOverride,
     parsed.unassignedThresholdOverride,
+    parsed.capacityRuleEnabledOverride == null ? null : (parsed.capacityRuleEnabledOverride ? 1 : 0),
     id,
   );
   return getBranchById(id);

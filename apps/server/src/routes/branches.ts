@@ -41,6 +41,7 @@ const BranchMonitoringBody = z.object({
 const BranchThresholdOverrideBody = z.object({
   lateThresholdOverride: z.number().int().min(0).max(999).nullable(),
   unassignedThresholdOverride: z.number().int().min(0).max(999).nullable(),
+  capacityRuleEnabledOverride: z.boolean().nullable().optional().default(null),
 }).superRefine((value, ctx) => {
   const hasLate = value.lateThresholdOverride != null;
   const hasUnassigned = value.unassignedThresholdOverride != null;

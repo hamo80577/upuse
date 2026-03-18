@@ -48,6 +48,7 @@ export function ThresholdsPage() {
   const globalThresholds = {
     lateThreshold: Number(thresholdForm.lateThreshold ?? settings?.lateThreshold ?? 5),
     unassignedThreshold: Number(thresholdForm.unassignedThreshold ?? settings?.unassignedThreshold ?? 5),
+    capacityRuleEnabled: true,
   };
 
   const onStart = async () => {
@@ -116,6 +117,7 @@ export function ThresholdsPage() {
       name,
       lateThreshold: Math.round(lateThreshold),
       unassignedThreshold: Math.round(unassignedThreshold),
+      capacityRuleEnabled: chainEditor.capacityRuleEnabled,
     });
     await persistChains(nextChains);
   };
@@ -146,8 +148,9 @@ export function ThresholdsPage() {
     const effective = resolveEffectiveThresholds(branch, thresholdForm.chains, globalThresholds);
     setEditingThresholdBranchId(branch.id);
     setBranchThresholdEditor({
-      lateThreshold: String(branch.lateThresholdOverride ?? effective.lateThreshold),
-      unassignedThreshold: String(branch.unassignedThresholdOverride ?? effective.unassignedThreshold),
+      lateThreshold: branch.lateThresholdOverride == null ? "" : String(branch.lateThresholdOverride),
+      unassignedThreshold: branch.unassignedThresholdOverride == null ? "" : String(branch.unassignedThresholdOverride),
+      capacityRuleEnabled: branch.capacityRuleEnabledOverride ?? (effective.capacityRuleEnabled !== false),
     });
     setRulesMode("overrides");
   };
@@ -158,17 +161,45 @@ export function ThresholdsPage() {
       return;
     }
 
-    const lateThreshold = Number(branchThresholdEditor.lateThreshold);
-    const unassignedThreshold = Number(branchThresholdEditor.unassignedThreshold);
+    const lateThresholdRaw = branchThresholdEditor.lateThreshold.trim();
+    const unassignedThresholdRaw = branchThresholdEditor.unassignedThreshold.trim();
+    const hasLateThreshold = lateThresholdRaw.length > 0;
+    const hasUnassignedThreshold = unassignedThresholdRaw.length > 0;
 
-    if (!Number.isFinite(lateThreshold) || lateThreshold < 0 || !Number.isFinite(unassignedThreshold) || unassignedThreshold < 0) {
+    if (hasLateThreshold !== hasUnassignedThreshold) {
+      setToast({ type: "error", msg: "Enter both branch thresholds or leave both inherited" });
+      return;
+    }
+
+    const lateThreshold = hasLateThreshold ? Number(lateThresholdRaw) : null;
+    const unassignedThreshold = hasUnassignedThreshold ? Number(unassignedThresholdRaw) : null;
+
+    if (
+      (lateThreshold != null && (!Number.isFinite(lateThreshold) || lateThreshold < 0))
+      || (unassignedThreshold != null && (!Number.isFinite(unassignedThreshold) || unassignedThreshold < 0))
+    ) {
       setToast({ type: "error", msg: "Enter valid branch thresholds" });
       return;
     }
 
+    const inherited = resolveEffectiveThresholds(
+      { ...branch, capacityRuleEnabledOverride: null },
+      thresholdForm.chains,
+      globalThresholds,
+    );
+    const capacityRuleEnabledOverride =
+      branchThresholdEditor.capacityRuleEnabled === (inherited.capacityRuleEnabled !== false)
+        ? null
+        : branchThresholdEditor.capacityRuleEnabled;
+
     try {
       setSavingThresholdBranchId(branch.id);
-      await persistBranchThresholdOverride(branch.id, Math.round(lateThreshold), Math.round(unassignedThreshold));
+      await persistBranchThresholdOverride(
+        branch.id,
+        lateThreshold == null ? null : Math.round(lateThreshold),
+        unassignedThreshold == null ? null : Math.round(unassignedThreshold),
+        capacityRuleEnabledOverride,
+      );
       setEditingThresholdBranchId(null);
       setBranchThresholdEditor(emptyBranchThresholdEditor());
       setToast({ type: "success", msg: "Override saved" });
@@ -187,7 +218,7 @@ export function ThresholdsPage() {
 
     try {
       setSavingThresholdBranchId(branch.id);
-      await persistBranchThresholdOverride(branch.id, null, null);
+      await persistBranchThresholdOverride(branch.id, null, null, null);
       setEditingThresholdBranchId(null);
       setBranchThresholdEditor(emptyBranchThresholdEditor());
       setToast({ type: "success", msg: "Using inherited thresholds" });
@@ -247,6 +278,7 @@ export function ThresholdsPage() {
                       name: chain.name,
                       lateThreshold: String(chain.lateThreshold),
                       unassignedThreshold: String(chain.unassignedThreshold),
+                      capacityRuleEnabled: chain.capacityRuleEnabled !== false,
                     });
                   }}
                   onRemoveChain={(index) => void persistChains(thresholdForm.chains.filter((_item, itemIndex) => itemIndex !== index))}

@@ -6,18 +6,20 @@ export type AppUserRole = "admin" | "user";
 export type ThresholdSource = "branch" | "chain" | "global";
 export type BranchCatalogState = "available" | "missing";
 
-export type CloseReason = "LATE" | "UNASSIGNED";
+export type CloseReason = "LATE" | "UNASSIGNED" | "CAPACITY";
 export type MonitorIssueSource = "orders" | "availability";
 
 export interface ChainThreshold {
   name: string;
   lateThreshold: number;
   unassignedThreshold: number;
+  capacityRuleEnabled?: boolean;
 }
 
 export interface ThresholdProfile {
   lateThreshold: number;
   unassignedThreshold: number;
+  capacityRuleEnabled?: boolean;
   source: ThresholdSource;
 }
 
@@ -61,6 +63,7 @@ export interface BranchMapping {
   catalogState: BranchCatalogState;
   lateThresholdOverride?: number | null;
   unassignedThresholdOverride?: number | null;
+  capacityRuleEnabledOverride?: boolean | null;
 }
 
 export interface ResolvedBranchMapping extends Omit<BranchMapping, "name" | "ordersVendorId" | "catalogState"> {

@@ -28,6 +28,7 @@ const SettingsSchema = z.object({
       name: z.string().trim().min(1).max(120),
       lateThreshold: z.number().int().min(0).max(999),
       unassignedThreshold: z.number().int().min(0).max(999),
+      capacityRuleEnabled: z.boolean().optional().default(true),
     }),
   ).max(200),
 
@@ -75,6 +76,7 @@ function normalizeChainThresholds(values: ChainThreshold[]) {
       name,
       lateThreshold: Math.max(0, Math.round(item.lateThreshold)),
       unassignedThreshold: Math.max(0, Math.round(item.unassignedThreshold)),
+      capacityRuleEnabled: item.capacityRuleEnabled !== false,
     });
   }
 
@@ -99,6 +101,7 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
         name,
         lateThreshold: 5,
         unassignedThreshold: 5,
+        capacityRuleEnabled: true,
       })),
     );
 
@@ -120,6 +123,7 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
           name,
           lateThreshold: 5,
           unassignedThreshold: 5,
+          capacityRuleEnabled: true,
         })),
       );
     }
@@ -131,7 +135,7 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
             value,
           ): value is
             | { name: string; threshold: number }
-            | { name: string; lateThreshold: number; unassignedThreshold: number } =>
+            | { name: string; lateThreshold: number; unassignedThreshold: number; capacityRuleEnabled?: boolean } =>
             typeof value === "object" &&
             value !== null &&
             typeof (value as { name?: unknown }).name === "string" &&
@@ -149,6 +153,7 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
             threshold?: number;
             lateThreshold?: number;
             unassignedThreshold?: number;
+            capacityRuleEnabled?: boolean;
           };
 
           const fallbackThreshold = typeof legacyValue.threshold === "number" ? legacyValue.threshold : 5;
@@ -163,6 +168,7 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
               typeof legacyValue.unassignedThreshold === "number"
                 ? legacyValue.unassignedThreshold
                 : fallbackThreshold,
+            capacityRuleEnabled: legacyValue.capacityRuleEnabled !== false,
           };
         }),
     );

@@ -1,0 +1,19 @@
+[0;1;32m●[0m upuse.service - UPuse Application
+     Loaded: loaded (]8;;file://ubuntu-4gb-nbg1-29/etc/systemd/system/upuse.service/etc/systemd/system/upuse.service]8;;; [0;1;32menabled[0m; preset: [0;1;32menabled[0m)
+     Active: [0;1;32mactive (running)[0m since Tue 2026-03-17 11:18:34 UTC; 57s ago
+   Main PID: 14744 (npm run start)
+      Tasks: 38 (limit: 4538)
+     Memory: 67.9M (peak: 85.7M)
+        CPU: 3.572s
+     CGroup: /system.slice/upuse.service
+             ├─[0;38;5;245m14744 "npm run start"[0m
+             ├─[0;38;5;245m14761 sh -c "node scripts/start-production.mjs"[0m
+             ├─[0;38;5;245m14762 node scripts/start-production.mjs[0m
+             └─[0;38;5;245m14773 /usr/bin/node /var/www/myapp/apps/server/dist/index.js[0m
+
+Mar 17 11:18:34 ubuntu-4gb-nbg1-29 systemd[1]: Started upuse.service - UPuse Application.
+Mar 17 11:18:35 ubuntu-4gb-nbg1-29 npm[14744]: > start
+Mar 17 11:18:35 ubuntu-4gb-nbg1-29 npm[14744]: > node scripts/start-production.mjs
+Mar 17 11:18:36 ubuntu-4gb-nbg1-29 npm[14773]: UPuse server listening on http://localhost:8080
+Mar 17 11:18:42 ubuntu-4gb-nbg1-29 npm[14773]: GET /api/health 200 300 - 20.939 ms
+Mar 17 11:18:42 ubuntu-4gb-nbg1-29 npm[14773]: GET / 200 1965 - 16.161 ms

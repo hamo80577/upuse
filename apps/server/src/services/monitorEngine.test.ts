@@ -7,6 +7,8 @@ const {
   mockListResolvedBranches,
   mockGetRuntime,
   mockSetRuntime,
+  mockGetMirrorBranchDetail,
+  mockSyncOrdersMirror,
   mockFetchAvailabilities,
   mockSetAvailability,
   mockLog,
@@ -18,6 +20,8 @@ const {
   mockListResolvedBranches: vi.fn(),
   mockGetRuntime: vi.fn(),
   mockSetRuntime: vi.fn(),
+  mockGetMirrorBranchDetail: vi.fn(),
+  mockSyncOrdersMirror: vi.fn(),
   mockFetchAvailabilities: vi.fn(),
   mockSetAvailability: vi.fn(),
   mockLog: vi.fn(),
@@ -57,6 +61,11 @@ vi.mock("./actionReportStore.js", () => ({
 vi.mock("./monitorOrdersPolling.js", () => ({
   createOrdersPollingPlan: vi.fn(),
   createOrdersPollingRequests: vi.fn(),
+}));
+
+vi.mock("./ordersMirrorStore.js", () => ({
+  getMirrorBranchDetail: mockGetMirrorBranchDetail,
+  syncOrdersMirror: mockSyncOrdersMirror,
 }));
 
 vi.mock("./policyEngine.js", () => ({
@@ -118,6 +127,8 @@ describe("monitorEngine.getSnapshot", () => {
     mockListResolvedBranches.mockReset();
     mockGetRuntime.mockReset();
     mockSetRuntime.mockReset();
+    mockGetMirrorBranchDetail.mockReset();
+    mockSyncOrdersMirror.mockReset();
     mockFetchAvailabilities.mockReset();
     mockSetAvailability.mockReset();
     mockLog.mockReset();
@@ -125,6 +136,37 @@ describe("monitorEngine.getSnapshot", () => {
     mockDecide.mockReset();
     mockDecide.mockReturnValue({ type: "NOOP" });
     mockListResolvedBranches.mockImplementation((...args) => mockListBranches(...args));
+    mockGetMirrorBranchDetail.mockReturnValue({
+      metrics: {
+        totalToday: 0,
+        cancelledToday: 0,
+        doneToday: 0,
+        activeNow: 0,
+        lateNow: 0,
+        unassignedNow: 0,
+      },
+      fetchedAt: null,
+      unassignedOrders: [],
+      preparingOrders: [],
+      pickers: {
+        todayCount: 0,
+        activePreparingCount: 0,
+        lastHourCount: 0,
+        items: [],
+      },
+      cacheState: "warming",
+    });
+    mockSyncOrdersMirror.mockResolvedValue({
+      dayKey: "2026-03-04",
+      totalVendors: 0,
+      successfulVendors: 0,
+      failedVendors: 0,
+      updatedVendors: 0,
+      staleVendorCount: 0,
+      lastSuccessfulSyncAt: null,
+      errors: [],
+      statusesByVendor: new Map(),
+    });
   });
 
   it("rebuilds missing monitor close metadata from the tracked closure window instead of stale lastActionAt", () => {
@@ -182,6 +224,16 @@ describe("monitorEngine.getSnapshot", () => {
         },
       ],
     ]);
+    engine.preparationByVendor = new Map([
+      [
+        101,
+        {
+          preparingNow: 8,
+          preparingPickersNow: 3,
+          lastHourPickers: 3,
+        },
+      ],
+    ]);
     engine.availabilityByVendor = new Map([
       [
         "av-1",
@@ -207,7 +259,269 @@ describe("monitorEngine.getSnapshot", () => {
     expect(branch.thresholds).toEqual({
       lateThreshold: 4,
       unassignedThreshold: 5,
+      capacityRuleEnabled: true,
       source: "global",
+    });
+  });
+
+  it("infers capacity as the monitor close reason from the tracked window when runtime reason is missing", () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 30,
+      availabilityRefreshSeconds: 30,
+      maxVendorsPerOrdersRequest: 50,
+    });
+
+    mockListBranches.mockReturnValue([
+      {
+        id: 2,
+        name: "Branch 2",
+        chainName: "",
+        ordersVendorId: 202,
+        availabilityVendorId: "av-2",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        enabled: true,
+      },
+    ]);
+
+    mockGetRuntime.mockReturnValue({
+      branchId: 2,
+      lastUpuseCloseUntil: "2026-03-04T13:16:59.000Z",
+      lastUpuseCloseReason: null,
+      lastUpuseCloseAt: null,
+      lastUpuseCloseEventId: 52,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      externalOpenDetectedAt: null,
+      lastActionAt: "2026-03-03T14:48:24.286Z",
+    });
+
+    const engine = new MonitorEngine() as any;
+    engine.ordersFresh = true;
+    engine.ordersByVendor = new Map([
+      [
+        202,
+        {
+          totalToday: 12,
+          cancelledToday: 1,
+          doneToday: 3,
+          activeNow: 10,
+          lateNow: 0,
+          unassignedNow: 0,
+        },
+      ],
+    ]);
+    engine.preparationByVendor = new Map([
+      [
+        202,
+        {
+          preparingNow: 10,
+          preparingPickersNow: 3,
+          lastHourPickers: 3,
+        },
+      ],
+    ]);
+    engine.availabilityByVendor = new Map([
+      [
+        "av-2",
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "CLOSED_UNTIL",
+          platformRestaurantId: "av-2",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID,
+          closedUntil: "2026-03-04T13:16:59.000Z",
+          modifiedBy: "log_vendor_monitor",
+        },
+      ],
+    ]);
+
+    const branch = engine.getSnapshot().branches[0];
+
+    expect(branch.closeReason).toBe("CAPACITY");
+  });
+
+  it("does not infer capacity when the last-hour picker signal is zero", () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 30,
+      availabilityRefreshSeconds: 30,
+      maxVendorsPerOrdersRequest: 50,
+    });
+
+    mockListBranches.mockReturnValue([
+      {
+        id: 3,
+        name: "Branch 3",
+        chainName: "",
+        ordersVendorId: 303,
+        availabilityVendorId: "av-3",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        enabled: true,
+      },
+    ]);
+
+    mockGetRuntime.mockReturnValue({
+      branchId: 3,
+      lastUpuseCloseUntil: "2026-03-04T13:16:59.000Z",
+      lastUpuseCloseReason: null,
+      lastUpuseCloseAt: null,
+      lastUpuseCloseEventId: 53,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      externalOpenDetectedAt: null,
+      lastActionAt: "2026-03-03T14:48:24.286Z",
+    });
+
+    const engine = new MonitorEngine() as any;
+    engine.ordersFresh = true;
+    engine.ordersByVendor = new Map([
+      [
+        303,
+        {
+          totalToday: 12,
+          cancelledToday: 1,
+          doneToday: 3,
+          activeNow: 10,
+          lateNow: 0,
+          unassignedNow: 0,
+        },
+      ],
+    ]);
+    engine.preparationByVendor = new Map([
+      [
+        303,
+        {
+          preparingNow: 10,
+          preparingPickersNow: 0,
+          lastHourPickers: 0,
+        },
+      ],
+    ]);
+    engine.availabilityByVendor = new Map([
+      [
+        "av-3",
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "CLOSED_UNTIL",
+          platformRestaurantId: "av-3",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID,
+          closedUntil: "2026-03-04T13:16:59.000Z",
+          modifiedBy: "log_vendor_monitor",
+        },
+      ],
+    ]);
+
+    const branch = engine.getSnapshot().branches[0];
+
+    expect(branch.closeReason).toBeUndefined();
+  });
+
+  it("does not infer capacity when the chain disables the capacity rule", () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      chainNames: ["Chain A"],
+      chains: [{ name: "Chain A", lateThreshold: 4, unassignedThreshold: 5, capacityRuleEnabled: false }],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 30,
+      availabilityRefreshSeconds: 30,
+      maxVendorsPerOrdersRequest: 50,
+    });
+
+    mockListBranches.mockReturnValue([
+      {
+        id: 4,
+        name: "Branch 4",
+        chainName: "Chain A",
+        ordersVendorId: 404,
+        availabilityVendorId: "av-4",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        enabled: true,
+      },
+    ]);
+
+    mockGetRuntime.mockReturnValue({
+      branchId: 4,
+      lastUpuseCloseUntil: "2026-03-04T13:16:59.000Z",
+      lastUpuseCloseReason: null,
+      lastUpuseCloseAt: null,
+      lastUpuseCloseEventId: 54,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      externalOpenDetectedAt: null,
+      lastActionAt: "2026-03-03T14:48:24.286Z",
+    });
+
+    const engine = new MonitorEngine() as any;
+    engine.ordersFresh = true;
+    engine.ordersByVendor = new Map([
+      [
+        404,
+        {
+          totalToday: 12,
+          cancelledToday: 1,
+          doneToday: 3,
+          activeNow: 10,
+          lateNow: 0,
+          unassignedNow: 0,
+        },
+      ],
+    ]);
+    engine.preparationByVendor = new Map([
+      [
+        404,
+        {
+          preparingNow: 10,
+          preparingPickersNow: 3,
+          lastHourPickers: 3,
+        },
+      ],
+    ]);
+    engine.availabilityByVendor = new Map([
+      [
+        "av-4",
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "CLOSED_UNTIL",
+          platformRestaurantId: "av-4",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID,
+          closedUntil: "2026-03-04T13:16:59.000Z",
+          modifiedBy: "log_vendor_monitor",
+        },
+      ],
+    ]);
+
+    const branch = engine.getSnapshot().branches[0];
+
+    expect(branch.closeReason).toBeUndefined();
+    expect(branch.thresholds).toEqual({
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      capacityRuleEnabled: false,
+      source: "chain",
     });
   });
 
@@ -262,6 +576,7 @@ describe("monitorEngine.getSnapshot", () => {
         {
           preparingNow: 5,
           preparingPickersNow: 3,
+          lastHourPickers: 3,
         },
       ],
     ]);
@@ -342,6 +657,7 @@ describe("monitorEngine.getSnapshot", () => {
         {
           preparingNow: 5,
           preparingPickersNow: 3,
+          lastHourPickers: 3,
         },
       ],
     ]);
@@ -525,6 +841,7 @@ describe("monitorEngine.getSnapshot", () => {
     expect(branch.thresholds).toEqual({
       lateThreshold: 4,
       unassignedThreshold: 5,
+      capacityRuleEnabled: true,
       source: "global",
     });
   });
@@ -571,6 +888,7 @@ describe("monitorEngine.stop", () => {
     engine.preparationByVendor = new Map([[101, {
       preparingNow: 4,
       preparingPickersNow: 2,
+      lastHourPickers: 2,
     }]]);
     engine.availabilityByVendor = new Map([["av-1", {
       platformKey: "test",
@@ -933,6 +1251,16 @@ describe("monitorEngine.reconcile", () => {
         },
       ],
     ]);
+    engine.preparationByVendor = new Map([
+      [
+        505,
+        {
+          preparingNow: 8,
+          preparingPickersNow: 4,
+          lastHourPickers: 4,
+        },
+      ],
+    ]);
     engine.availabilityByVendor = new Map([
       [
         "av-5",
@@ -1048,6 +1376,190 @@ describe("monitorEngine.reconcile", () => {
     expect(mockLog).toHaveBeenCalledWith(8, "INFO", "TEMP CLOSE — Unassigned=7");
   });
 
+  it("logs capacity closures with active orders, cap, and picker counts", async () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 20,
+      availabilityRefreshSeconds: 11,
+      maxVendorsPerOrdersRequest: 50,
+    });
+    mockListBranches.mockReturnValue([
+      {
+        id: 10,
+        name: "Branch 10",
+        chainName: "",
+        ordersVendorId: 1010,
+        availabilityVendorId: "av-10",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        enabled: true,
+      },
+    ]);
+    mockGetRuntime.mockReturnValue({
+      branchId: 10,
+      lastUpuseCloseUntil: null,
+      lastUpuseCloseReason: null,
+      lastUpuseCloseAt: null,
+      lastUpuseCloseEventId: null,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      externalOpenDetectedAt: null,
+      lastActionAt: null,
+    });
+    mockDecide.mockReturnValue({ type: "CLOSE", reason: "CAPACITY" });
+    mockSetAvailability.mockResolvedValue({});
+    mockFetchAvailabilities.mockResolvedValue([
+      {
+        platformKey: "test",
+        changeable: true,
+        availabilityState: "OPEN",
+        platformRestaurantId: "av-10",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      },
+    ]);
+    mockRecordMonitorCloseAction.mockReturnValue(91);
+
+    const engine = new MonitorEngine() as any;
+    engine.running = true;
+    engine.ordersFresh = true;
+    engine.ordersDataStateByVendor = new Map([[1010, "fresh"]]);
+    engine.ordersByVendor = new Map([
+      [
+        1010,
+        {
+          totalToday: 20,
+          cancelledToday: 1,
+          doneToday: 11,
+          activeNow: 10,
+          lateNow: 0,
+          unassignedNow: 0,
+        },
+      ],
+    ]);
+    engine.preparationByVendor = new Map([
+      [
+        1010,
+        {
+          preparingNow: 10,
+          preparingPickersNow: 3,
+          lastHourPickers: 3,
+        },
+      ],
+    ]);
+    engine.availabilityByVendor = new Map([
+      [
+        "av-10",
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "OPEN",
+          platformRestaurantId: "av-10",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        },
+      ],
+    ]);
+
+    await engine.reconcile("orders");
+
+    expect(mockSetRuntime).toHaveBeenCalledWith(10, expect.objectContaining({
+      lastUpuseCloseReason: "CAPACITY",
+    }));
+    expect(mockLog).toHaveBeenCalledWith(10, "INFO", "TEMP CLOSE — Capacity active=10 cap=6 pickers=3");
+  });
+
+  it("passes last-hour picker counts into policy decisions", async () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 20,
+      availabilityRefreshSeconds: 11,
+      maxVendorsPerOrdersRequest: 50,
+    });
+    mockListBranches.mockReturnValue([
+      {
+        id: 12,
+        name: "Branch 12",
+        chainName: "",
+        ordersVendorId: 1212,
+        availabilityVendorId: "av-12",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        enabled: true,
+      },
+    ]);
+    mockGetRuntime.mockReturnValue({
+      branchId: 12,
+      lastUpuseCloseUntil: null,
+      lastUpuseCloseReason: null,
+      lastUpuseCloseAt: null,
+      lastUpuseCloseEventId: null,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      externalOpenDetectedAt: null,
+      lastActionAt: null,
+    });
+    mockDecide.mockReturnValue({ type: "NOOP" });
+
+    const engine = new MonitorEngine() as any;
+    engine.running = true;
+    engine.ordersFresh = true;
+    engine.ordersDataStateByVendor = new Map([[1212, "fresh"]]);
+    engine.ordersByVendor = new Map([
+      [
+        1212,
+        {
+          totalToday: 4,
+          cancelledToday: 0,
+          doneToday: 0,
+          activeNow: 4,
+          lateNow: 0,
+          unassignedNow: 0,
+        },
+      ],
+    ]);
+    engine.preparationByVendor = new Map([
+      [
+        1212,
+        {
+          preparingNow: 4,
+          preparingPickersNow: 2,
+          lastHourPickers: 2,
+        },
+      ],
+    ]);
+    engine.availabilityByVendor = new Map([
+      [
+        "av-12",
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "OPEN",
+          platformRestaurantId: "av-12",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        },
+      ],
+    ]);
+
+    await engine.reconcile("orders");
+
+    expect(mockDecide).toHaveBeenCalledWith(expect.objectContaining({
+      lastHourPickers: 2,
+    }));
+  });
+
   it("clears stale tracked runtime when an external close replaces an old monitor window", () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",
@@ -1141,4 +1653,3 @@ describe("monitorEngine.reconcile", () => {
     });
   });
 });
-

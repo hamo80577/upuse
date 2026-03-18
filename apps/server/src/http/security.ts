@@ -1,5 +1,9 @@
+import crypto from "node:crypto";
 import type { CorsOptionsDelegate } from "cors";
-import type { Request, RequestHandler } from "express";
+import type { Request as ExpressRequest, RequestHandler } from "express";
+
+export const CLOUDFLARE_INSIGHTS_SCRIPT_ORIGIN = "https://static.cloudflareinsights.com";
+export const CLOUDFLARE_INSIGHTS_BEACON_ORIGIN = "https://cloudflareinsights.com";
 
 export function parseCorsOrigins(raw: string | undefined) {
   if (!raw) return [];
@@ -32,7 +36,7 @@ function normalizeOrigin(origin: string | undefined) {
   }
 }
 
-type RequestOriginLike = Pick<Request, "headers" | "protocol" | "get">;
+type RequestOriginLike = Pick<ExpressRequest, "headers" | "protocol" | "get">;
 
 function hasTrustedProxy(req: RequestOriginLike & { app?: { get?: (name: string) => unknown } }) {
   return Boolean(req.app?.get?.("trust proxy"));
@@ -92,7 +96,9 @@ function isSafeMethod(method: string) {
   return method === "GET" || method === "HEAD" || method === "OPTIONS";
 }
 
-export function createCorsOptions(configuredOrigins = parseCorsOrigins(process.env.UPUSE_CORS_ORIGINS)): CorsOptionsDelegate<Request> {
+export function createCorsOptions(
+  configuredOrigins = parseCorsOrigins(process.env.UPUSE_CORS_ORIGINS),
+): CorsOptionsDelegate<ExpressRequest> {
   const trustedOrigins = configuredOrigins;
 
   return (req, callback) => {
@@ -114,6 +120,32 @@ export function createApiNoStoreMiddleware(): RequestHandler {
     }
 
     next();
+  };
+}
+
+export function createCspNonceMiddleware(): RequestHandler {
+  return (_req, res, next) => {
+    res.locals.cspNonce = crypto.randomBytes(16).toString("base64");
+    next();
+  };
+}
+
+function resolveCspNonce(_req: any, res: any) {
+  const nonce = typeof res.locals.cspNonce === "string" ? res.locals.cspNonce : "";
+  return `'nonce-${nonce}'`;
+}
+
+export function createContentSecurityPolicyDirectives() {
+  return {
+    "script-src": [
+      "'self'",
+      CLOUDFLARE_INSIGHTS_SCRIPT_ORIGIN,
+      resolveCspNonce,
+    ],
+    "connect-src": [
+      "'self'",
+      CLOUDFLARE_INSIGHTS_BEACON_ORIGIN,
+    ],
   };
 }
 

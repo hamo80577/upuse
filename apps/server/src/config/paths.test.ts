@@ -78,4 +78,18 @@ describe("config paths", () => {
       serverRootDir,
     })).toBe(path.join(workspaceRootDir, "config", "vendors", "prod.csv"));
   });
+
+  it("preserves Windows-style absolute env paths without prefixing the current workspace", () => {
+    const serverRootDir = "/srv/upuse/apps/server";
+
+    expect(resolveVendorCatalogCsvPath({
+      env: { UPUSE_VENDOR_CATALOG_CSV_PATH: "C:\\deploy\\vendors.csv" },
+      serverRootDir,
+    })).toBe("C:\\deploy\\vendors.csv");
+
+    expect(resolveDataDir({
+      env: { UPUSE_DATA_DIR: "D:\\upuse-data" },
+      serverRootDir,
+    })).toBe("D:\\upuse-data");
+  });
 });

@@ -2,12 +2,13 @@ import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import RestartAltRoundedIcon from "@mui/icons-material/RestartAltRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip, Stack, TextField, Typography } from "@mui/material";
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Checkbox, Chip, FormControlLabel, Stack, TextField, Typography } from "@mui/material";
 import type { BranchMappingItem, ChainThreshold, ThresholdProfile } from "../../api/types";
 
 export interface BranchThresholdEditorDraft {
   lateThreshold: string;
   unassignedThreshold: string;
+  capacityRuleEnabled: boolean;
 }
 
 interface ThresholdGroup {
@@ -23,41 +24,53 @@ function safeText(value: unknown) {
 }
 
 function resolveEffectiveThresholdProfile(
-  branch: Pick<BranchMappingItem, "chainName" | "lateThresholdOverride" | "unassignedThresholdOverride">,
+  branch: Pick<BranchMappingItem, "chainName" | "lateThresholdOverride" | "unassignedThresholdOverride" | "capacityRuleEnabledOverride">,
   chains: ChainThreshold[],
-  globalThresholds: Pick<ThresholdProfile, "lateThreshold" | "unassignedThreshold">,
+  globalThresholds: Pick<ThresholdProfile, "lateThreshold" | "unassignedThreshold" | "capacityRuleEnabled">,
 ): ThresholdProfile {
-  if (typeof branch.lateThresholdOverride === "number" && typeof branch.unassignedThresholdOverride === "number") {
+  const chainKey = safeText(branch.chainName).trim().toLowerCase();
+  const chain = chainKey
+    ? chains.find((item) => item.name.trim().toLowerCase() === chainKey)
+    : undefined;
+  const inherited = chain
+    ? {
+        lateThreshold: chain.lateThreshold,
+        unassignedThreshold: chain.unassignedThreshold,
+        capacityRuleEnabled: chain.capacityRuleEnabled !== false,
+        source: "chain" as const,
+      }
+    : {
+        lateThreshold: globalThresholds.lateThreshold,
+        unassignedThreshold: globalThresholds.unassignedThreshold,
+        capacityRuleEnabled: globalThresholds.capacityRuleEnabled !== false,
+        source: "global" as const,
+      };
+
+  const hasThresholdOverride =
+    typeof branch.lateThresholdOverride === "number" &&
+    typeof branch.unassignedThresholdOverride === "number";
+  const hasCapacityOverride = typeof branch.capacityRuleEnabledOverride === "boolean";
+
+  if (hasThresholdOverride || hasCapacityOverride) {
     return {
-      lateThreshold: branch.lateThresholdOverride,
-      unassignedThreshold: branch.unassignedThresholdOverride,
+      lateThreshold: hasThresholdOverride ? branch.lateThresholdOverride as number : inherited.lateThreshold,
+      unassignedThreshold: hasThresholdOverride ? branch.unassignedThresholdOverride as number : inherited.unassignedThreshold,
+      capacityRuleEnabled: hasCapacityOverride ? branch.capacityRuleEnabledOverride as boolean : inherited.capacityRuleEnabled,
       source: "branch",
     };
   }
 
-  const chainKey = safeText(branch.chainName).trim().toLowerCase();
-  if (chainKey) {
-    const chain = chains.find((item) => item.name.trim().toLowerCase() === chainKey);
-    if (chain) {
-      return {
-        lateThreshold: chain.lateThreshold,
-        unassignedThreshold: chain.unassignedThreshold,
-        source: "chain",
-      };
-    }
+  if (chain) {
+    return inherited;
   }
 
-  return {
-    lateThreshold: globalThresholds.lateThreshold,
-    unassignedThreshold: globalThresholds.unassignedThreshold,
-    source: "global",
-  };
+  return inherited;
 }
 
 function buildThresholdGroups(
   branches: BranchMappingItem[],
   chains: ChainThreshold[],
-  globalThresholds: Pick<ThresholdProfile, "lateThreshold" | "unassignedThreshold">,
+  globalThresholds: Pick<ThresholdProfile, "lateThreshold" | "unassignedThreshold" | "capacityRuleEnabled">,
 ) {
   const groups = new Map<string, ThresholdGroup>();
 
@@ -71,6 +84,7 @@ function buildThresholdGroups(
       profile: {
         lateThreshold: chain.lateThreshold,
         unassignedThreshold: chain.unassignedThreshold,
+        capacityRuleEnabled: chain.capacityRuleEnabled !== false,
         source: "chain",
       },
     });
@@ -83,7 +97,10 @@ function buildThresholdGroups(
 
     if (existing) {
       existing.branches.push(branch);
-      if (typeof branch.lateThresholdOverride === "number" && typeof branch.unassignedThresholdOverride === "number") {
+      if (
+        (typeof branch.lateThresholdOverride === "number" && typeof branch.unassignedThresholdOverride === "number")
+        || typeof branch.capacityRuleEnabledOverride === "boolean"
+      ) {
         existing.overrideCount += 1;
       }
       continue;
@@ -93,10 +110,15 @@ function buildThresholdGroups(
       key,
       label: chainName || "No Chain",
       branches: [branch],
-      overrideCount: typeof branch.lateThresholdOverride === "number" && typeof branch.unassignedThresholdOverride === "number" ? 1 : 0,
+      overrideCount:
+        (typeof branch.lateThresholdOverride === "number" && typeof branch.unassignedThresholdOverride === "number")
+        || typeof branch.capacityRuleEnabledOverride === "boolean"
+          ? 1
+          : 0,
       profile: {
         lateThreshold: globalThresholds.lateThreshold,
         unassignedThreshold: globalThresholds.unassignedThreshold,
+        capacityRuleEnabled: globalThresholds.capacityRuleEnabled !== false,
         source: "global",
       },
     });
@@ -130,7 +152,7 @@ function sourceChipLabel(source: ThresholdProfile["source"]) {
 export function BranchThresholdOverrideManager(props: {
   branches: BranchMappingItem[];
   chains: ChainThreshold[];
-  globalThresholds: { lateThreshold: number; unassignedThreshold: number };
+  globalThresholds: { lateThreshold: number; unassignedThreshold: number; capacityRuleEnabled: boolean };
   editingBranchId: number | null;
   branchEditor: BranchThresholdEditorDraft;
   savingBranchId: number | null;
@@ -176,7 +198,10 @@ export function BranchThresholdOverrideManager(props: {
           />
           <Chip
             size="small"
-            label={`${branches.filter((branch) => typeof branch.lateThresholdOverride === "number").length} custom`}
+            label={`${branches.filter((branch) => (
+              (typeof branch.lateThresholdOverride === "number" && typeof branch.unassignedThresholdOverride === "number")
+              || typeof branch.capacityRuleEnabledOverride === "boolean"
+            )).length} custom`}
             sx={{ fontWeight: 800, bgcolor: "rgba(14,165,233,0.10)", color: "#0369a1" }}
           />
         </Stack>
@@ -222,6 +247,15 @@ export function BranchThresholdOverrideManager(props: {
                     />
                     <Chip
                       size="small"
+                      label={group.profile.capacityRuleEnabled === false ? "Capacity Off" : "Capacity On"}
+                      sx={{
+                        fontWeight: 800,
+                        bgcolor: group.profile.capacityRuleEnabled === false ? "rgba(148,163,184,0.14)" : "rgba(20,184,166,0.10)",
+                        color: group.profile.capacityRuleEnabled === false ? "#475569" : "#0f766e",
+                      }}
+                    />
+                    <Chip
+                      size="small"
                       label={group.profile.source === "chain" ? "Chain base" : "Global base"}
                       sx={{ fontWeight: 800, bgcolor: "rgba(15,23,42,0.06)", color: "#334155" }}
                     />
@@ -237,8 +271,9 @@ export function BranchThresholdOverrideManager(props: {
                       const isEditing = editingBranchId === branch.id;
                       const isSaving = savingBranchId === branch.id;
                       const hasCustomOverride =
-                        typeof branch.lateThresholdOverride === "number" &&
-                        typeof branch.unassignedThresholdOverride === "number";
+                        (typeof branch.lateThresholdOverride === "number" &&
+                          typeof branch.unassignedThresholdOverride === "number")
+                        || typeof branch.capacityRuleEnabledOverride === "boolean";
 
                       return (
                         <Box
@@ -274,6 +309,15 @@ export function BranchThresholdOverrideManager(props: {
                                   size="small"
                                   label={`Unassigned ${effective.unassignedThreshold}`}
                                   sx={{ fontWeight: 800, bgcolor: "rgba(239,68,68,0.10)", color: "#b91c1c" }}
+                                />
+                                <Chip
+                                  size="small"
+                                  label={effective.capacityRuleEnabled === false ? "Capacity Off" : "Capacity On"}
+                                  sx={{
+                                    fontWeight: 800,
+                                    bgcolor: effective.capacityRuleEnabled === false ? "rgba(148,163,184,0.14)" : "rgba(20,184,166,0.10)",
+                                    color: effective.capacityRuleEnabled === false ? "#475569" : "#0f766e",
+                                  }}
                                 />
                                 <Chip
                                   size="small"
@@ -314,24 +358,38 @@ export function BranchThresholdOverrideManager(props: {
                               >
                                 <Stack direction={{ xs: "column", md: "row" }} spacing={1.1}>
                                   <TextField
-                                    label="Late Threshold"
+                                    label="Late Threshold Override"
                                     type="number"
                                     value={branchEditor.lateThreshold}
                                     onChange={(event) => props.onChangeEditor({ lateThreshold: event.target.value })}
+                                    placeholder={String(effective.lateThreshold)}
                                     inputProps={{ min: 0 }}
                                     disabled={readOnly || isSaving}
                                     sx={{ width: { xs: "100%", md: 180 } }}
                                   />
                                   <TextField
-                                    label="Unassigned Threshold"
+                                    label="Unassigned Threshold Override"
                                     type="number"
                                     value={branchEditor.unassignedThreshold}
                                     onChange={(event) => props.onChangeEditor({ unassignedThreshold: event.target.value })}
+                                    placeholder={String(effective.unassignedThreshold)}
                                     inputProps={{ min: 0 }}
                                     disabled={readOnly || isSaving}
                                     sx={{ width: { xs: "100%", md: 200 } }}
                                   />
                                 </Stack>
+
+                                <FormControlLabel
+                                  sx={{ mt: 0.4 }}
+                                  control={(
+                                    <Checkbox
+                                      checked={branchEditor.capacityRuleEnabled}
+                                      onChange={(event) => props.onChangeEditor({ capacityRuleEnabled: event.target.checked })}
+                                      disabled={readOnly || isSaving}
+                                    />
+                                  )}
+                                  label="Enable Capacity Rule"
+                                />
 
                                 <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mt: 1.1 }}>
                                   <Button

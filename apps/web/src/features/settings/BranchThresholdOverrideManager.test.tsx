@@ -17,12 +17,13 @@ describe("BranchThresholdOverrideManager", () => {
             catalogState: "available",
             lateThresholdOverride: null,
             unassignedThresholdOverride: null,
+            capacityRuleEnabledOverride: null,
           },
         ]}
         chains={[]}
-        globalThresholds={{ lateThreshold: 5, unassignedThreshold: 7 }}
+        globalThresholds={{ lateThreshold: 5, unassignedThreshold: 7, capacityRuleEnabled: true }}
         editingBranchId={null}
-        branchEditor={{ lateThreshold: "", unassignedThreshold: "" }}
+        branchEditor={{ lateThreshold: "", unassignedThreshold: "", capacityRuleEnabled: true }}
         savingBranchId={null}
         onEditBranch={vi.fn()}
         onChangeEditor={vi.fn()}
@@ -38,5 +39,39 @@ describe("BranchThresholdOverrideManager", () => {
 
     expect(screen.getByText("Branch A")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Set Custom Thresholds" })).toBeInTheDocument();
+  });
+
+  it("shows the capacity checkbox in the branch editor", () => {
+    render(
+      <BranchThresholdOverrideManager
+        branches={[
+          {
+            id: 8,
+            name: "Branch B",
+            chainName: "Chain A",
+            ordersVendorId: 1002,
+            availabilityVendorId: "2003",
+            enabled: true,
+            catalogState: "available",
+            lateThresholdOverride: null,
+            unassignedThresholdOverride: null,
+            capacityRuleEnabledOverride: false,
+          },
+        ]}
+        chains={[{ name: "Chain A", lateThreshold: 5, unassignedThreshold: 7, capacityRuleEnabled: true }]}
+        globalThresholds={{ lateThreshold: 5, unassignedThreshold: 7, capacityRuleEnabled: true }}
+        editingBranchId={8}
+        branchEditor={{ lateThreshold: "", unassignedThreshold: "", capacityRuleEnabled: false }}
+        savingBranchId={null}
+        onEditBranch={vi.fn()}
+        onChangeEditor={vi.fn()}
+        onSaveBranch={vi.fn()}
+        onClearBranchOverride={vi.fn()}
+        onCancelEdit={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Chain A"));
+    expect(screen.getByLabelText("Enable Capacity Rule")).not.toBeChecked();
   });
 });

@@ -200,6 +200,23 @@ describe("putSettingsRoute", () => {
     });
   });
 
+  it("accepts chain capacity rule updates", () => {
+    const req: any = {
+      authUser: { role: "user" },
+      body: {
+        chains: [{ name: "Chain A", lateThreshold: 6, unassignedThreshold: 8, capacityRuleEnabled: false }],
+      },
+    };
+    const res = createResponse();
+
+    putSettingsRoute(req, res);
+
+    expect(mockUpdateSettings).toHaveBeenCalledWith({
+      chains: [{ name: "Chain A", lateThreshold: 6, unassignedThreshold: 8, capacityRuleEnabled: false }],
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
   it("accepts global entity updates for admins", () => {
     const req: any = {
       authUser: { role: "admin" },

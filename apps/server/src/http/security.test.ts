@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createApiNoStoreMiddleware,
+  createContentSecurityPolicyDirectives,
+  createCspNonceMiddleware,
   createTrustedOriginMiddleware,
+  CLOUDFLARE_INSIGHTS_BEACON_ORIGIN,
+  CLOUDFLARE_INSIGHTS_SCRIPT_ORIGIN,
   isAllowedOrigin,
   isSameRequestOrigin,
   parseCorsOrigins,
@@ -186,5 +190,33 @@ describe("security helpers", () => {
     expect(res.setHeader).toHaveBeenCalledWith("Cache-Control", "no-store");
     expect(res.setHeader).toHaveBeenCalledWith("Pragma", "no-cache");
     expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("creates a per-request CSP nonce", () => {
+    const middleware = createCspNonceMiddleware();
+    const res: any = {
+      locals: {},
+    };
+    const next = vi.fn();
+
+    middleware({} as any, res, next);
+
+    expect(typeof res.locals.cspNonce).toBe("string");
+    expect(res.locals.cspNonce.length).toBeGreaterThan(10);
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("allows Cloudflare Insights scripts with a per-request nonce", () => {
+    const directives = createContentSecurityPolicyDirectives();
+    const scriptSrc = directives["script-src"];
+    const connectSrc = directives["connect-src"];
+
+    expect(scriptSrc[0]).toBe("'self'");
+    expect(scriptSrc[1]).toBe(CLOUDFLARE_INSIGHTS_SCRIPT_ORIGIN);
+    expect(scriptSrc[2]({} as any, { locals: { cspNonce: "test-nonce" } } as any)).toBe("'nonce-test-nonce'");
+    expect(connectSrc).toEqual([
+      "'self'",
+      CLOUDFLARE_INSIGHTS_BEACON_ORIGIN,
+    ]);
   });
 });

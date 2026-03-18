@@ -29,6 +29,7 @@ type JoinedBranchRow = {
   enabled: number;
   lateThresholdOverride: number | null;
   unassignedThresholdOverride: number | null;
+  capacityRuleEnabledOverride: number | null;
   name: string | null;
   ordersVendorId: number | null;
 };
@@ -41,6 +42,7 @@ function joinedBranchRow(overrides?: Partial<JoinedBranchRow>): JoinedBranchRow 
     enabled: 1,
     lateThresholdOverride: null,
     unassignedThresholdOverride: null,
+    capacityRuleEnabledOverride: null,
     name: "Branch 1",
     ordersVendorId: 101,
     ...overrides,

@@ -1,41 +1,48 @@
 import type { BranchMapping, Settings, ThresholdProfile } from "../types/models.js";
 
 export function resolveBranchThresholdProfile(
-  branch: Pick<BranchMapping, "chainName" | "lateThresholdOverride" | "unassignedThresholdOverride">,
+  branch: Pick<BranchMapping, "chainName" | "lateThresholdOverride" | "unassignedThresholdOverride" | "capacityRuleEnabledOverride">,
   settings: Pick<Settings, "chains" | "lateThreshold" | "unassignedThreshold">,
 ): ThresholdProfile {
   const chains = Array.isArray(settings.chains) ? settings.chains : [];
 
-  const hasBranchOverride =
+  const chainKey = branch.chainName.trim().toLowerCase();
+  const chainMatch = chainKey
+    ? chains.find((item) => item.name.trim().toLowerCase() === chainKey)
+    : undefined;
+  const inherited = chainMatch
+    ? {
+        lateThreshold: chainMatch.lateThreshold,
+        unassignedThreshold: chainMatch.unassignedThreshold,
+        capacityRuleEnabled: chainMatch.capacityRuleEnabled !== false,
+        source: "chain" as const,
+      }
+    : {
+        lateThreshold: settings.lateThreshold,
+        unassignedThreshold: settings.unassignedThreshold,
+        capacityRuleEnabled: true,
+        source: "global" as const,
+      };
+
+  const hasBranchThresholdOverride =
     typeof branch.lateThresholdOverride === "number" &&
     typeof branch.unassignedThresholdOverride === "number";
+  const hasBranchCapacityOverride = typeof branch.capacityRuleEnabledOverride === "boolean";
 
-  if (hasBranchOverride) {
-    const lateThreshold = branch.lateThresholdOverride as number;
-    const unassignedThreshold = branch.unassignedThresholdOverride as number;
-
+  if (hasBranchThresholdOverride || hasBranchCapacityOverride) {
     return {
-      lateThreshold,
-      unassignedThreshold,
+      lateThreshold: hasBranchThresholdOverride ? (branch.lateThresholdOverride as number) : inherited.lateThreshold,
+      unassignedThreshold: hasBranchThresholdOverride ? (branch.unassignedThresholdOverride as number) : inherited.unassignedThreshold,
+      capacityRuleEnabled: hasBranchCapacityOverride ? branch.capacityRuleEnabledOverride as boolean : inherited.capacityRuleEnabled,
       source: "branch",
     };
   }
 
-  const chainKey = branch.chainName.trim().toLowerCase();
-  if (chainKey) {
-    const match = chains.find((item) => item.name.trim().toLowerCase() === chainKey);
-    if (match) {
-      return {
-        lateThreshold: match.lateThreshold,
-        unassignedThreshold: match.unassignedThreshold,
-        source: "chain",
-      };
-    }
+  if (chainMatch) {
+    return inherited;
   }
 
   return {
-    lateThreshold: settings.lateThreshold,
-    unassignedThreshold: settings.unassignedThreshold,
-    source: "global",
+    ...inherited,
   };
 }

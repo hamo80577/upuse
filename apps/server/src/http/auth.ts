@@ -1,19 +1,7 @@
 import type { RequestHandler } from "express";
 import { getSessionUserByToken } from "../services/authStore.js";
-import type { AppUserRole } from "../types/models.js";
 import { readAuthSessionToken } from "./sessionCookie.js";
-
-export type AppCapability =
-  | "manage_users"
-  | "manage_monitor"
-  | "refresh_monitor_orders"
-  | "manage_branch_mappings"
-  | "delete_branch_mappings"
-  | "manage_thresholds"
-  | "manage_settings"
-  | "manage_settings_tokens"
-  | "test_settings_tokens"
-  | "clear_logs";
+import { hasCapability, type AppCapability } from "./authorization.js";
 
 const PUBLIC_API_PATHS = new Set([
   "/api/health",
@@ -21,36 +9,8 @@ const PUBLIC_API_PATHS = new Set([
   "/api/auth/login",
 ]);
 
-const roleCapabilities: Record<AppUserRole, ReadonlySet<AppCapability>> = {
-  admin: new Set<AppCapability>([
-    "manage_users",
-    "manage_monitor",
-    "refresh_monitor_orders",
-    "manage_branch_mappings",
-    "delete_branch_mappings",
-    "manage_thresholds",
-    "manage_settings",
-    "manage_settings_tokens",
-    "test_settings_tokens",
-    "clear_logs",
-  ]),
-  user: new Set<AppCapability>([
-    "manage_monitor",
-    "manage_branch_mappings",
-    "delete_branch_mappings",
-    "manage_thresholds",
-    "manage_settings_tokens",
-    "test_settings_tokens",
-  ]),
-};
-
 function isPublicApiPath(path: string) {
   return PUBLIC_API_PATHS.has(path);
-}
-
-export function hasCapability(role: AppUserRole | undefined, capability: AppCapability) {
-  if (!role) return false;
-  return roleCapabilities[role]?.has(capability) ?? false;
 }
 
 export function createSessionAuthMiddleware(): RequestHandler {
