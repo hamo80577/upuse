@@ -3,7 +3,9 @@ import type { BranchPickersSummary } from "../../../api/types";
 import { fmtInt } from "../../../utils/format";
 import { fmtPlacedAt } from "../lib/time";
 
-function PickerMetricTile(props: { label: string; value: number; tone?: "neutral" | "accent" }) {
+function PickerMetricTile(props: { label: string; value: number | string; tone?: "neutral" | "accent" }) {
+  const displayValue = typeof props.value === "number" ? fmtInt(props.value) : props.value;
+
   return (
     <Box
       sx={{
@@ -17,7 +19,7 @@ function PickerMetricTile(props: { label: string; value: number; tone?: "neutral
         {props.label}
       </Typography>
       <Typography sx={{ mt: 0.3, fontWeight: 900, color: props.tone === "accent" ? "#047857" : "#0f172a" }}>
-        {fmtInt(props.value)}
+        {displayValue}
       </Typography>
     </Box>
   );
@@ -29,9 +31,12 @@ function ordersLabel(count: number) {
 
 export function BranchPickersPanel(props: {
   pickers: BranchPickersSummary;
+  recentActiveAvailable?: boolean;
   loading?: boolean;
   emptyText?: string;
 }) {
+  const recentActiveAvailable = props.recentActiveAvailable === true;
+
   return (
     <Stack spacing={1.2}>
       <Box
@@ -43,7 +48,7 @@ export function BranchPickersPanel(props: {
       >
         <PickerMetricTile label="Today" value={props.pickers.todayCount} />
         <PickerMetricTile label="On Prep" value={props.pickers.activePreparingCount} tone="accent" />
-        <PickerMetricTile label="Last Hour" value={props.pickers.lastHourCount} />
+        <PickerMetricTile label="Recent Active" value={recentActiveAvailable ? props.pickers.recentActiveCount : "--"} />
       </Box>
 
       <Box
@@ -85,13 +90,13 @@ export function BranchPickersPanel(props: {
               </TableHead>
               <TableBody>
                 {props.pickers.items.map((picker) => {
-                  const activeLastHour = picker.activeLastHour;
+                  const recentlyActive = recentActiveAvailable && picker.recentlyActive;
 
                   return (
                     <TableRow
                       key={picker.shopperId}
                       hover
-                      sx={activeLastHour
+                      sx={recentlyActive
                         ? {
                             bgcolor: "rgba(240,253,244,0.86)",
                             boxShadow: "inset 3px 0 0 #22c55e",
@@ -104,7 +109,7 @@ export function BranchPickersPanel(props: {
                       <TableCell>
                         <Stack spacing={0.45} alignItems="flex-start">
                           <Stack direction="row" spacing={0.75} alignItems="center" sx={{ flexWrap: "wrap" }}>
-                            {activeLastHour ? (
+                            {recentlyActive ? (
                               <Box
                                 sx={{
                                   width: 10,
@@ -116,10 +121,10 @@ export function BranchPickersPanel(props: {
                                 }}
                               />
                             ) : null}
-                            <Typography sx={{ fontWeight: 900, lineHeight: 1.15, color: activeLastHour ? "#166534" : "#0f172a" }}>
+                            <Typography sx={{ fontWeight: 900, lineHeight: 1.15, color: recentlyActive ? "#166534" : "#0f172a" }}>
                               {picker.shopperFirstName}
                             </Typography>
-                            {activeLastHour ? (
+                            {recentlyActive ? (
                               <Box
                                 sx={{
                                   px: 0.75,
@@ -133,7 +138,7 @@ export function BranchPickersPanel(props: {
                                   border: "1px solid rgba(34,197,94,0.18)",
                                 }}
                               >
-                                Active in last hour
+                                Recent Active
                               </Box>
                             ) : null}
                           </Stack>
@@ -148,7 +153,7 @@ export function BranchPickersPanel(props: {
                       <TableCell align="center" sx={{ fontWeight: 800 }}>
                         {fmtPlacedAt(picker.firstPickupAt ?? undefined)}
                       </TableCell>
-                      <TableCell align="center" sx={{ fontWeight: 800, color: activeLastHour ? "#15803d" : "inherit" }}>
+                      <TableCell align="center" sx={{ fontWeight: 800, color: recentlyActive ? "#15803d" : "inherit" }}>
                         {fmtPlacedAt(picker.lastPickupAt ?? undefined)}
                       </TableCell>
                     </TableRow>

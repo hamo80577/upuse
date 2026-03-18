@@ -101,7 +101,7 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
     expect(result.preparingOrders[0]?.shopperId).toBe(90009);
     expect(result.pickers.todayCount).toBe(21);
     expect(result.pickers.activePreparingCount).toBe(21);
-    expect(result.pickers.lastHourCount).toBe(2);
+    expect(result.pickers.recentActiveCount).toBe(21);
     expect(result.fetchedAt).toBe("2026-03-05T10:00:00.000Z");
   });
 
@@ -111,18 +111,21 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
         items: [
           order(0, {
             status: "PREPARING",
-            pickupAt: "2026-03-05T09:30:00.000Z",
+            pickupAt: "2026-03-05T10:30:00.000Z",
             shopper: { id: 101, firstName: "Mohamed" },
+            lastActiveSeenAt: "2026-03-05T09:50:00.000Z",
           }),
           order(1, {
             isCompleted: true,
             pickupAt: "2026-03-05T09:45:00.000Z",
             shopper: { id: 101, firstName: "Mohamed" },
+            lastActiveSeenAt: "2026-03-05T09:40:00.000Z",
           }),
           order(2, {
             status: "PREPARING",
-            pickupAt: "2026-03-05T07:30:00.000Z",
+            pickupAt: "2026-03-05T10:40:00.000Z",
             shopper: { id: 202, firstName: "Sara" },
+            lastActiveSeenAt: "2026-03-05T09:20:00.000Z",
           }),
           order(3, {
             status: "UNASSIGNED",
@@ -137,6 +140,7 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
             isCompleted: true,
             pickupAt: "2026-03-05T09:10:00.000Z",
             shopper: { id: 404, firstName: "Ali" },
+            last_active_seen_at: "2026-03-05T09:35:00.000Z",
           }),
           order(6, {
             isCompleted: true,
@@ -147,6 +151,7 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
             isCompleted: true,
             pickupAt: "2026-03-05T10:30:00.000Z",
             shopper: { id: 101, firstName: "Mohamed" },
+            lastActiveSeenAt: "2026-03-05T08:59:00.000Z",
           }),
         ],
       },
@@ -168,23 +173,23 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
     expect(result.pickers).toEqual({
       todayCount: 4,
       activePreparingCount: 2,
-      lastHourCount: 2,
+      recentActiveCount: 2,
       items: [
         {
           shopperId: 101,
           shopperFirstName: "Mohamed",
           ordersToday: 3,
-          firstPickupAt: "2026-03-05T09:30:00.000Z",
+          firstPickupAt: "2026-03-05T09:45:00.000Z",
           lastPickupAt: "2026-03-05T10:30:00.000Z",
-          activeLastHour: true,
+          recentlyActive: true,
         },
         {
           shopperId: 202,
           shopperFirstName: "Sara",
           ordersToday: 2,
-          firstPickupAt: "2026-03-05T07:30:00.000Z",
-          lastPickupAt: "2026-03-05T07:30:00.000Z",
-          activeLastHour: false,
+          firstPickupAt: "2026-03-05T10:40:00.000Z",
+          lastPickupAt: "2026-03-05T10:40:00.000Z",
+          recentlyActive: false,
         },
         {
           shopperId: 404,
@@ -192,7 +197,7 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
           ordersToday: 1,
           firstPickupAt: "2026-03-05T09:10:00.000Z",
           lastPickupAt: "2026-03-05T09:10:00.000Z",
-          activeLastHour: true,
+          recentlyActive: true,
         },
         {
           shopperId: 505,
@@ -200,7 +205,7 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
           ordersToday: 1,
           firstPickupAt: null,
           lastPickupAt: null,
-          activeLastHour: false,
+          recentlyActive: false,
         },
       ],
     });

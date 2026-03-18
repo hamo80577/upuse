@@ -81,7 +81,7 @@ function emptyBranchPickers(): BranchPickersSummary {
   return {
     todayCount: 0,
     activePreparingCount: 0,
-    lastHourCount: 0,
+    recentActiveCount: 0,
     items: [],
   };
 }

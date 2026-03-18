@@ -51,7 +51,7 @@ function createDetail(branch: BranchSnapshot): BranchDetailResult {
     pickers: {
       todayCount: 0,
       activePreparingCount: 0,
-      lastHourCount: 0,
+      recentActiveCount: 0,
       items: [],
     },
   };

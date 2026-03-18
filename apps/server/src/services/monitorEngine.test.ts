@@ -151,7 +151,7 @@ describe("monitorEngine.getSnapshot", () => {
       pickers: {
         todayCount: 0,
         activePreparingCount: 0,
-        lastHourCount: 0,
+        recentActiveCount: 0,
         items: [],
       },
       cacheState: "warming",
@@ -230,7 +230,7 @@ describe("monitorEngine.getSnapshot", () => {
         {
           preparingNow: 8,
           preparingPickersNow: 3,
-          lastHourPickers: 3,
+          recentActivePickers: 3,
         },
       ],
     ]);
@@ -325,7 +325,7 @@ describe("monitorEngine.getSnapshot", () => {
         {
           preparingNow: 10,
           preparingPickersNow: 3,
-          lastHourPickers: 3,
+          recentActivePickers: 3,
         },
       ],
     ]);
@@ -349,7 +349,7 @@ describe("monitorEngine.getSnapshot", () => {
     expect(branch.closeReason).toBe("CAPACITY");
   });
 
-  it("does not infer capacity when the last-hour picker signal is zero", () => {
+  it("does not infer capacity when recent activity is unavailable", () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",
       availabilityToken: "",
@@ -410,7 +410,8 @@ describe("monitorEngine.getSnapshot", () => {
         {
           preparingNow: 10,
           preparingPickersNow: 0,
-          lastHourPickers: 0,
+          recentActivePickers: 0,
+          recentActiveAvailable: false,
         },
       ],
     ]);
@@ -495,7 +496,7 @@ describe("monitorEngine.getSnapshot", () => {
         {
           preparingNow: 10,
           preparingPickersNow: 3,
-          lastHourPickers: 3,
+          recentActivePickers: 3,
         },
       ],
     ]);
@@ -576,7 +577,7 @@ describe("monitorEngine.getSnapshot", () => {
         {
           preparingNow: 5,
           preparingPickersNow: 3,
-          lastHourPickers: 3,
+          recentActivePickers: 3,
         },
       ],
     ]);
@@ -657,7 +658,7 @@ describe("monitorEngine.getSnapshot", () => {
         {
           preparingNow: 5,
           preparingPickersNow: 3,
-          lastHourPickers: 3,
+          recentActivePickers: 3,
         },
       ],
     ]);
@@ -888,7 +889,7 @@ describe("monitorEngine.stop", () => {
     engine.preparationByVendor = new Map([[101, {
       preparingNow: 4,
       preparingPickersNow: 2,
-      lastHourPickers: 2,
+      recentActivePickers: 2,
     }]]);
     engine.availabilityByVendor = new Map([["av-1", {
       platformKey: "test",
@@ -1257,7 +1258,7 @@ describe("monitorEngine.reconcile", () => {
         {
           preparingNow: 8,
           preparingPickersNow: 4,
-          lastHourPickers: 4,
+          recentActivePickers: 4,
         },
       ],
     ]);
@@ -1449,7 +1450,7 @@ describe("monitorEngine.reconcile", () => {
         {
           preparingNow: 10,
           preparingPickersNow: 3,
-          lastHourPickers: 3,
+          recentActivePickers: 3,
         },
       ],
     ]);
@@ -1471,10 +1472,10 @@ describe("monitorEngine.reconcile", () => {
     expect(mockSetRuntime).toHaveBeenCalledWith(10, expect.objectContaining({
       lastUpuseCloseReason: "CAPACITY",
     }));
-    expect(mockLog).toHaveBeenCalledWith(10, "INFO", "TEMP CLOSE — Capacity active=10 cap=6 pickers=3");
+    expect(mockLog).toHaveBeenCalledWith(10, "INFO", "TEMP CLOSE — Capacity active=10 cap=9 recentActivePickers=3");
   });
 
-  it("passes last-hour picker counts into policy decisions", async () => {
+  it("passes recent-active picker counts into policy decisions", async () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",
       availabilityToken: "",
@@ -1536,7 +1537,7 @@ describe("monitorEngine.reconcile", () => {
         {
           preparingNow: 4,
           preparingPickersNow: 2,
-          lastHourPickers: 2,
+          recentActivePickers: 2,
         },
       ],
     ]);
@@ -1556,7 +1557,8 @@ describe("monitorEngine.reconcile", () => {
     await engine.reconcile("orders");
 
     expect(mockDecide).toHaveBeenCalledWith(expect.objectContaining({
-      lastHourPickers: 2,
+      recentActivePickers: 2,
+      recentActiveAvailable: true,
     }));
   });
 

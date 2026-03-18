@@ -58,7 +58,7 @@ function createDetailResult(overrides: Partial<Extract<BranchDetailResult, { kin
     pickers: {
       todayCount: 0,
       activePreparingCount: 0,
-      lastHourCount: 0,
+      recentActiveCount: 0,
       items: [],
     },
     ...overrides,
@@ -80,7 +80,7 @@ describe("useBranchDetailState", () => {
     mockApi.branchPickers.mockResolvedValue({
       todayCount: 2,
       activePreparingCount: 1,
-      lastHourCount: 1,
+      recentActiveCount: 1,
       items: [],
     });
     mockApi.logs.mockResolvedValue({
@@ -184,13 +184,13 @@ describe("useBranchDetailState", () => {
       .mockResolvedValueOnce({
         todayCount: 2,
         activePreparingCount: 1,
-        lastHourCount: 1,
+        recentActiveCount: 1,
         items: [],
       })
       .mockResolvedValueOnce({
         todayCount: 3,
         activePreparingCount: 2,
-        lastHourCount: 1,
+        recentActiveCount: 1,
         items: [],
       });
     mockApi.logs
@@ -329,7 +329,7 @@ describe("useBranchDetailState", () => {
       pickers: {
         todayCount: 0,
         activePreparingCount: 0,
-        lastHourCount: 0,
+        recentActiveCount: 0,
         items: [],
       },
       message: "Live availability snapshot is currently unavailable, and orders detail could not be loaded.",

@@ -40,7 +40,7 @@ function emptyPickers(): BranchPickersSummary {
   return {
     todayCount: 0,
     activePreparingCount: 0,
-    lastHourCount: 0,
+    recentActiveCount: 0,
     items: [],
   };
 }
@@ -379,6 +379,7 @@ export function BranchDetailDialog(props: {
                 {section === "pickers" ? (
                   <BranchPickersPanel
                     pickers={pickerSummary}
+                    recentActiveAvailable={detailWithBranch?.cacheState === "fresh"}
                     loading={pickersLoading}
                     emptyText={
                       pickersError

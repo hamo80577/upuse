@@ -19,6 +19,7 @@ const ACTIVE_SYNC_PAGE_SIZE = 500;
 const HISTORY_SYNC_PAGE_SIZE = 500;
 const BOOTSTRAP_SYNC_PAGE_SIZE = 500;
 const HISTORY_OVERLAP_MS = 10 * 60 * 1000;
+const PICKER_RECENT_ACTIVE_WINDOW_MS = 30 * 60 * 1000;
 
 export type BranchDetailCacheState = "fresh" | "warming" | "stale";
 export type MirrorSyncPhase = "bootstrap" | "active" | "history" | "repair";
@@ -1043,7 +1044,7 @@ function emptyPickers(): BranchPickersSummary {
   return {
     todayCount: 0,
     activePreparingCount: 0,
-    lastHourCount: 0,
+    recentActiveCount: 0,
     items: [],
   };
 }
@@ -1065,7 +1066,7 @@ export function getMirrorBranchDetail(params: {
   const cacheState = resolveCacheState(state, params.ordersRefreshSeconds);
   const nowIso = nowUtcIso();
   const nowMs = Date.now();
-  const lastHourStartIso = new Date(nowMs - 60 * 60 * 1000).toISOString();
+  const recentActiveStartIso = new Date(nowMs - PICKER_RECENT_ACTIVE_WINDOW_MS).toISOString();
 
   const rows = db.prepare<[string, string, number], OrdersMirrorRow>(`
     SELECT
@@ -1117,18 +1118,18 @@ export function getMirrorBranchDetail(params: {
   const pickerCountRow = db.prepare<[string, string, string, string, number], {
     todayCount: number;
     activePreparingCount: number;
-    lastHourCount: number;
+    recentActiveCount: number;
   }>(`
     SELECT
       COUNT(DISTINCT CASE WHEN shopperId IS NOT NULL THEN shopperId END) AS todayCount,
       COUNT(DISTINCT CASE WHEN shopperId IS NOT NULL AND isActiveNow = 1 AND isUnassigned = 0 THEN shopperId END) AS activePreparingCount,
-      COUNT(DISTINCT CASE WHEN shopperId IS NOT NULL AND pickupAt IS NOT NULL AND pickupAt <= ? AND pickupAt >= ? THEN shopperId END) AS lastHourCount
+      COUNT(DISTINCT CASE WHEN shopperId IS NOT NULL AND lastActiveSeenAt IS NOT NULL AND lastActiveSeenAt <= ? AND lastActiveSeenAt >= ? THEN shopperId END) AS recentActiveCount
     FROM orders_mirror
     WHERE dayKey = ? AND globalEntityId = ? AND vendorId = ?
-  `).get(nowIso, lastHourStartIso, dayKey, params.globalEntityId, params.vendorId) ?? {
+  `).get(nowIso, recentActiveStartIso, dayKey, params.globalEntityId, params.vendorId) ?? {
     todayCount: 0,
     activePreparingCount: 0,
-    lastHourCount: 0,
+    recentActiveCount: 0,
   };
 
   let items: BranchPickerSummaryItem[] = [];
@@ -1139,7 +1140,7 @@ export function getMirrorBranchDetail(params: {
       ordersToday: number;
       firstPickupAt: string | null;
       lastPickupAt: string | null;
-      activeLastHour: number;
+      recentlyActive: number;
     }>(`
       SELECT
         shopperId,
@@ -1158,7 +1159,7 @@ export function getMirrorBranchDetail(params: {
         COUNT(*) AS ordersToday,
         MIN(CASE WHEN pickupAt IS NOT NULL THEN pickupAt END) AS firstPickupAt,
         MAX(CASE WHEN pickupAt IS NOT NULL THEN pickupAt END) AS lastPickupAt,
-        MAX(CASE WHEN pickupAt IS NOT NULL AND pickupAt <= ? AND pickupAt >= ? THEN 1 ELSE 0 END) AS activeLastHour
+        MAX(CASE WHEN lastActiveSeenAt IS NOT NULL AND lastActiveSeenAt <= ? AND lastActiveSeenAt >= ? THEN 1 ELSE 0 END) AS recentlyActive
       FROM orders_mirror mirror
       WHERE dayKey = ? AND globalEntityId = ? AND vendorId = ? AND shopperId IS NOT NULL
       GROUP BY shopperId
@@ -1166,7 +1167,7 @@ export function getMirrorBranchDetail(params: {
         CASE WHEN lastPickupAt IS NULL THEN 1 ELSE 0 END ASC,
         lastPickupAt DESC,
         LOWER(COALESCE(shopperFirstName, '')) ASC
-    `).all(nowIso, lastHourStartIso, dayKey, params.globalEntityId, params.vendorId);
+    `).all(nowIso, recentActiveStartIso, dayKey, params.globalEntityId, params.vendorId);
 
     items = pickerRows.map((row) => ({
       shopperId: row.shopperId,
@@ -1174,7 +1175,7 @@ export function getMirrorBranchDetail(params: {
       ordersToday: row.ordersToday,
       firstPickupAt: row.firstPickupAt,
       lastPickupAt: row.lastPickupAt,
-      activeLastHour: row.activeLastHour === 1,
+      recentlyActive: row.recentlyActive === 1,
     }));
   }
 
@@ -1186,7 +1187,7 @@ export function getMirrorBranchDetail(params: {
     pickers: {
       todayCount: pickerCountRow.todayCount ?? 0,
       activePreparingCount: pickerCountRow.activePreparingCount ?? 0,
-      lastHourCount: pickerCountRow.lastHourCount ?? 0,
+      recentActiveCount: pickerCountRow.recentActiveCount ?? 0,
       items,
     },
     cacheState,

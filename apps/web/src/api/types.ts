@@ -57,13 +57,13 @@ export interface BranchPickerSummaryItem {
   ordersToday: number;
   firstPickupAt: string | null;
   lastPickupAt: string | null;
-  activeLastHour: boolean;
+  recentlyActive: boolean;
 }
 
 export interface BranchPickersSummary {
   todayCount: number;
   activePreparingCount: number;
-  lastHourCount: number;
+  recentActiveCount: number;
   items: BranchPickerSummaryItem[];
 }
 

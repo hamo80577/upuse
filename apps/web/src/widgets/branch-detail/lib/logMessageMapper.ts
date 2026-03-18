@@ -1,6 +1,6 @@
 export function describeLogMessage(message: string) {
   const reapplyAfterGraceCapacityMatch = message.match(
-    /^TEMP CLOSE — re-applied after external open grace \(Capacity active=(\d+) cap=(\d+) pickers=(\d+)\)(?: until ([0-9]{2}:[0-9]{2}))?$/i,
+    /^TEMP CLOSE — re-applied after external open grace \(Capacity active=(\d+) cap=(\d+) (?:pickers|recentActivePickers)=(\d+)\)(?: until ([0-9]{2}:[0-9]{2}))?$/i,
   );
   if (reapplyAfterGraceCapacityMatch) {
     const active = reapplyAfterGraceCapacityMatch[1];
@@ -10,8 +10,8 @@ export function describeLogMessage(message: string) {
     return {
       title: "Temporary close re-applied",
       detail: until
-        ? `Active orders stayed at ${active} above picker capacity ${cap} from ${pickers} last-hour pickers after grace. Source timer ends at ${until}.`
-        : `Active orders stayed at ${active} above picker capacity ${cap} from ${pickers} last-hour pickers after grace.`,
+        ? `Active orders stayed at ${active} above picker capacity ${cap} from ${pickers} recent active pickers (30m) after grace. Source timer ends at ${until}.`
+        : `Active orders stayed at ${active} above picker capacity ${cap} from ${pickers} recent active pickers (30m) after grace.`,
     };
   }
 
@@ -31,7 +31,7 @@ export function describeLogMessage(message: string) {
   }
 
   const capacityMatch = message.match(
-    /^TEMP CLOSE — Capacity active=(\d+) cap=(\d+) pickers=(\d+)(?: until ([0-9]{2}:[0-9]{2}))?$/i,
+    /^TEMP CLOSE — Capacity active=(\d+) cap=(\d+) (?:pickers|recentActivePickers)=(\d+)(?: until ([0-9]{2}:[0-9]{2}))?$/i,
   );
   if (capacityMatch) {
     const active = capacityMatch[1];
@@ -41,8 +41,8 @@ export function describeLogMessage(message: string) {
     return {
       title: "Temporary close applied",
       detail: until
-        ? `Active orders reached ${active}, above picker capacity ${cap} from ${pickers} last-hour pickers. Source timer ends at ${until}.`
-        : `Active orders reached ${active}, above picker capacity ${cap} from ${pickers} last-hour pickers.`,
+        ? `Active orders reached ${active}, above picker capacity ${cap} from ${pickers} recent active pickers (30m). Source timer ends at ${until}.`
+        : `Active orders reached ${active}, above picker capacity ${cap} from ${pickers} recent active pickers (30m).`,
     };
   }
 

@@ -16,7 +16,7 @@ import {
 import { BASE, BRANCH_DETAIL_MAX_PAGES, initMetrics, type DetailCacheEntry, type VendorOrdersDetailResult } from "./types.js";
 
 const detailCache = new Map<string, DetailCacheEntry>();
-const PICKER_LAST_HOUR_WINDOW_MS = 60 * 60 * 1000;
+const PICKER_RECENT_ACTIVE_WINDOW_MS = 30 * 60 * 1000;
 
 interface PickerAccumulator {
   shopperId: number;
@@ -44,6 +44,32 @@ function toValidTimeMs(iso: string | null | undefined) {
   return Number.isFinite(value) ? value : Number.NaN;
 }
 
+function resolveRecentActivityTimeMs(params: {
+  order: any;
+  nowMs: number;
+  shopperId: number | null;
+  isCompleted: boolean;
+  isUnassigned: boolean;
+}) {
+  for (const candidate of [params.order?.lastActiveSeenAt, params.order?.last_active_seen_at]) {
+    const valueMs = toValidTimeMs(candidate);
+    if (Number.isFinite(valueMs)) {
+      return valueMs;
+    }
+  }
+
+  if (
+    Number.isFinite(params.nowMs)
+    && params.shopperId != null
+    && !params.isCompleted
+    && !params.isUnassigned
+  ) {
+    return params.nowMs;
+  }
+
+  return Number.NaN;
+}
+
 function updatePickerPickupBounds(picker: PickerAccumulator, pickupAt: string | undefined) {
   if (!pickupAt) return;
 
@@ -65,7 +91,7 @@ function createEmptyPickersSummary(): BranchPickersSummary {
   return {
     todayCount: 0,
     activePreparingCount: 0,
-    lastHourCount: 0,
+    recentActiveCount: 0,
     items: [],
   };
 }
@@ -74,7 +100,7 @@ function buildPickersSummary(params: {
   pickersById: Map<number, PickerAccumulator>;
   todayPickerIds: Set<number>;
   activePreparingPickerIds: Set<number>;
-  lastHourPickerIds: Set<number>;
+  recentActivePickerIds: Set<number>;
   includeItems: boolean;
 }): BranchPickersSummary {
   const items = params.includeItems
@@ -102,14 +128,14 @@ function buildPickersSummary(params: {
         ordersToday: picker.ordersToday,
         firstPickupAt: picker.firstPickupAt,
         lastPickupAt: picker.lastPickupAt,
-        activeLastHour: params.lastHourPickerIds.has(picker.shopperId),
+        recentlyActive: params.recentActivePickerIds.has(picker.shopperId),
       }))
     : [];
 
   return {
     todayCount: params.todayPickerIds.size,
     activePreparingCount: params.activePreparingPickerIds.size,
-    lastHourCount: params.lastHourPickerIds.size,
+    recentActiveCount: params.recentActivePickerIds.size,
     items,
   };
 }
@@ -159,7 +185,7 @@ export async function fetchVendorOrdersDetail(params: {
   const pickersById = new Map<number, PickerAccumulator>();
   const todayPickerIds = new Set<number>();
   const activePreparingPickerIds = new Set<number>();
-  const lastHourPickerIds = new Set<number>();
+  const recentActivePickerIds = new Set<number>();
   const nowMs = new Date(nowIso).getTime();
 
   const collectWindow = async (window: UtcWindow, depth: number): Promise<void> => {
@@ -241,14 +267,20 @@ export async function fetchVendorOrdersDetail(params: {
           activePreparingPickerIds.add(shopperId);
         }
 
-        const pickupAtMs = toValidTimeMs(order?.pickupAt);
+        const recentActivityTimeMs = resolveRecentActivityTimeMs({
+          order,
+          nowMs,
+          shopperId,
+          isCompleted,
+          isUnassigned,
+        });
         if (
           Number.isFinite(nowMs) &&
-          Number.isFinite(pickupAtMs) &&
-          pickupAtMs <= nowMs &&
-          pickupAtMs >= nowMs - PICKER_LAST_HOUR_WINDOW_MS
+          Number.isFinite(recentActivityTimeMs) &&
+          recentActivityTimeMs <= nowMs &&
+          recentActivityTimeMs >= nowMs - PICKER_RECENT_ACTIVE_WINDOW_MS
         ) {
-          lastHourPickerIds.add(shopperId);
+          recentActivePickerIds.add(shopperId);
         }
       }
 
@@ -296,12 +328,12 @@ export async function fetchVendorOrdersDetail(params: {
     fetchedAt: nowIso,
     unassignedOrders,
     preparingOrders,
-    pickers: includePickers && (todayPickerIds.size || activePreparingPickerIds.size || lastHourPickerIds.size || pickersById.size)
+    pickers: includePickers && (todayPickerIds.size || activePreparingPickerIds.size || recentActivePickerIds.size || pickersById.size)
       ? buildPickersSummary({
           pickersById,
           todayPickerIds,
           activePreparingPickerIds,
-          lastHourPickerIds,
+          recentActivePickerIds,
           includeItems: includePickerItems,
         })
       : createEmptyPickersSummary(),

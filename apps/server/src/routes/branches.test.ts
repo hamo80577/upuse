@@ -143,7 +143,7 @@ function emptyPickers(overrides?: Record<string, unknown>) {
   return {
     todayCount: 0,
     activePreparingCount: 0,
-    lastHourCount: 0,
+    recentActiveCount: 0,
     items: [],
     ...overrides,
   };
@@ -349,7 +349,7 @@ describe("branches routes", () => {
       fetchedAt: "2026-03-06T10:05:00.000Z",
       unassignedOrders: [{ id: "1", externalId: "ORD-1", status: "UNASSIGNED", isUnassigned: true, isLate: false }],
       preparingOrders: [{ id: "2", externalId: "ORD-2", status: "PREPARING", isUnassigned: false, isLate: false }],
-      pickers: emptyPickers({ todayCount: 2, activePreparingCount: 1, lastHourCount: 1 }),
+      pickers: emptyPickers({ todayCount: 2, activePreparingCount: 1, recentActiveCount: 1 }),
       cacheState: "fresh",
     });
     const res = createResponse();
@@ -371,7 +371,7 @@ describe("branches routes", () => {
       cacheState: "fresh",
       unassignedOrders: [{ id: "1", externalId: "ORD-1", status: "UNASSIGNED", isUnassigned: true, isLate: false }],
       preparingOrders: [{ id: "2", externalId: "ORD-2", status: "PREPARING", isUnassigned: false, isLate: false }],
-      pickers: emptyPickers({ todayCount: 2, activePreparingCount: 1, lastHourCount: 1 }),
+      pickers: emptyPickers({ todayCount: 2, activePreparingCount: 1, recentActiveCount: 1 }),
     });
   });
 

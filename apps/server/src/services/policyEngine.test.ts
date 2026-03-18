@@ -84,7 +84,8 @@ describe("policyEngine.decide", () => {
         ...baseMetrics(),
         lateNow: 5,
       },
-      lastHourPickers: 0,
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
       availability: openAvailability(),
       nowUtcIso: "2026-03-03T10:00:00.000Z",
       settings: baseSettings(),
@@ -100,7 +101,8 @@ describe("policyEngine.decide", () => {
         ...baseMetrics(),
         unassignedNow: 5,
       },
-      lastHourPickers: 0,
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
       availability: openAvailability(),
       nowUtcIso: "2026-03-03T10:00:00.000Z",
       settings: baseSettings(),
@@ -120,7 +122,8 @@ describe("policyEngine.decide", () => {
         lateNow: 3,
         unassignedNow: 0,
       },
-      lastHourPickers: 0,
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
       availability: tempCloseAvailability(),
       runtime: {
         lastUpuseCloseReason: "UNASSIGNED",
@@ -139,7 +142,8 @@ describe("policyEngine.decide", () => {
         lateNow: 2,
         unassignedNow: 0,
       },
-      lastHourPickers: 0,
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
       availability: tempCloseAvailability(),
       runtime: {
         lastUpuseCloseReason: "LATE",
@@ -164,7 +168,8 @@ describe("policyEngine.decide", () => {
         ...baseMetrics(),
         unassignedNow: 7,
       },
-      lastHourPickers: 0,
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
       availability: openAvailability(),
       runtime: {
         lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
@@ -182,7 +187,8 @@ describe("policyEngine.decide", () => {
         ...baseMetrics(),
         unassignedNow: 7,
       },
-      lastHourPickers: 0,
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
       availability: openAvailability(),
       runtime: {
         lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
@@ -211,7 +217,8 @@ describe("policyEngine.decide", () => {
         lateNow: 6,
         unassignedNow: 8,
       },
-      lastHourPickers: 0,
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
       availability: openAvailability(),
       nowUtcIso: "2026-03-03T10:00:00.000Z",
       settings: {
@@ -230,7 +237,8 @@ describe("policyEngine.decide", () => {
         ...baseMetrics(),
         unassignedNow: 8,
       },
-      lastHourPickers: 0,
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
       availability: openAvailability(),
       runtime: {
         lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
@@ -251,7 +259,8 @@ describe("policyEngine.decide", () => {
         ...baseMetrics(),
         unassignedNow: 7,
       },
-      lastHourPickers: 0,
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
       availability: openAvailability(),
       runtime: {
         lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
@@ -274,7 +283,8 @@ describe("policyEngine.decide", () => {
         lateNow: 7,
         unassignedNow: 7,
       },
-      lastHourPickers: 0,
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
       availability: unknownAvailability(),
       nowUtcIso: "2026-03-03T10:08:00.000Z",
       settings: baseSettings(),
@@ -283,14 +293,15 @@ describe("policyEngine.decide", () => {
     expect(decision).toEqual({ type: "NOOP" });
   });
 
-  it("closes on capacity when active orders exceed twice the last-hour picker count", () => {
+  it("closes on capacity when active orders exceed three times the recent-active picker count", () => {
     const decision = decide({
       branch: baseBranch(),
       metrics: {
         ...baseMetrics(),
-        activeNow: 7,
+        activeNow: 10,
       },
-      lastHourPickers: 3,
+      recentActivePickers: 3,
+      recentActiveAvailable: true,
       availability: openAvailability(),
       nowUtcIso: "2026-03-03T10:00:00.000Z",
       settings: baseSettings(),
@@ -299,14 +310,15 @@ describe("policyEngine.decide", () => {
     expect(decision).toEqual({ type: "CLOSE", reason: "CAPACITY" });
   });
 
-  it("ignores capacity when there are no last-hour pickers", () => {
+  it("ignores capacity when recent activity is unavailable", () => {
     const decision = decide({
       branch: baseBranch(),
       metrics: {
         ...baseMetrics(),
         activeNow: 7,
       },
-      lastHourPickers: 0,
+      recentActivePickers: 3,
+      recentActiveAvailable: false,
       availability: openAvailability(),
       nowUtcIso: "2026-03-03T10:00:00.000Z",
       settings: baseSettings(),
@@ -315,14 +327,32 @@ describe("policyEngine.decide", () => {
     expect(decision).toEqual({ type: "NOOP" });
   });
 
+  it("treats a fresh zero recent-active signal as zero capacity", () => {
+    const decision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        activeNow: 1,
+      },
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
+      availability: openAvailability(),
+      nowUtcIso: "2026-03-03T10:00:00.000Z",
+      settings: baseSettings(),
+    });
+
+    expect(decision).toEqual({ type: "CLOSE", reason: "CAPACITY" });
+  });
+
   it("does not close on capacity when active orders only meet the cap", () => {
     const decision = decide({
       branch: baseBranch(),
       metrics: {
         ...baseMetrics(),
-        activeNow: 6,
+        activeNow: 9,
       },
-      lastHourPickers: 3,
+      recentActivePickers: 3,
+      recentActiveAvailable: true,
       availability: openAvailability(),
       nowUtcIso: "2026-03-03T10:00:00.000Z",
       settings: baseSettings(),
@@ -341,7 +371,8 @@ describe("policyEngine.decide", () => {
         ...baseMetrics(),
         activeNow: 10,
       },
-      lastHourPickers: 3,
+      recentActivePickers: 3,
+      recentActiveAvailable: true,
       availability: openAvailability(),
       nowUtcIso: "2026-03-03T10:00:00.000Z",
       settings: {
@@ -364,7 +395,8 @@ describe("policyEngine.decide", () => {
         ...baseMetrics(),
         activeNow: 10,
       },
-      lastHourPickers: 3,
+      recentActivePickers: 3,
+      recentActiveAvailable: true,
       availability: openAvailability(),
       nowUtcIso: "2026-03-03T10:00:00.000Z",
       settings: {
@@ -384,7 +416,8 @@ describe("policyEngine.decide", () => {
         activeNow: 10,
         lateNow: 5,
       },
-      lastHourPickers: 3,
+      recentActivePickers: 3,
+      recentActiveAvailable: true,
       availability: openAvailability(),
       nowUtcIso: "2026-03-03T10:00:00.000Z",
       settings: baseSettings(),
@@ -400,7 +433,8 @@ describe("policyEngine.decide", () => {
         ...baseMetrics(),
         activeNow: 3,
       },
-      lastHourPickers: 3,
+      recentActivePickers: 3,
+      recentActiveAvailable: true,
       availability: tempCloseAvailability(),
       runtime: {
         lastUpuseCloseReason: "CAPACITY",
@@ -415,14 +449,15 @@ describe("policyEngine.decide", () => {
     expect(decision).toEqual({ type: "EARLY_OPEN", reason: "CAPACITY" });
   });
 
-  it("reopens capacity-owned closes when last-hour picker signal disappears", () => {
+  it("does not reopen capacity-owned closes when recent activity is unavailable", () => {
     const decision = decide({
       branch: baseBranch(),
       metrics: {
         ...baseMetrics(),
         activeNow: 5,
       },
-      lastHourPickers: 0,
+      recentActivePickers: 0,
+      recentActiveAvailable: false,
       availability: tempCloseAvailability(),
       runtime: {
         lastUpuseCloseReason: "CAPACITY",
@@ -434,7 +469,7 @@ describe("policyEngine.decide", () => {
       settings: baseSettings(),
     });
 
-    expect(decision).toEqual({ type: "EARLY_OPEN", reason: "CAPACITY" });
+    expect(decision).toEqual({ type: "NOOP" });
   });
 
   it("reopens capacity-owned closes when the rule gets disabled", () => {
@@ -447,7 +482,8 @@ describe("policyEngine.decide", () => {
         ...baseMetrics(),
         activeNow: 5,
       },
-      lastHourPickers: 3,
+      recentActivePickers: 3,
+      recentActiveAvailable: true,
       availability: tempCloseAvailability(),
       runtime: {
         lastUpuseCloseReason: "CAPACITY",
@@ -472,7 +508,8 @@ describe("policyEngine.decide", () => {
         ...baseMetrics(),
         activeNow: 10,
       },
-      lastHourPickers: 3,
+      recentActivePickers: 3,
+      recentActiveAvailable: true,
       availability: openAvailability(),
       runtime: {
         lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",

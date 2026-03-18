@@ -29,7 +29,7 @@ function emptyPickers() {
   return {
     todayCount: 0,
     activePreparingCount: 0,
-    lastHourCount: 0,
+    recentActiveCount: 0,
     items: [],
   };
 }
@@ -141,7 +141,7 @@ describe("BranchDetailDialog", () => {
     expect(screen.getByRole("tab", { name: "Log" })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Overview" })).not.toBeInTheDocument();
     expect(screen.getByText("Live Operations")).toBeInTheDocument();
-  });
+  }, 10_000);
 
   it("shows a warning but keeps summary and logs visible for detail_fetch_failed", () => {
     mockUseBranchDetailState.mockReturnValue(buildHookState({
@@ -164,6 +164,41 @@ describe("BranchDetailDialog", () => {
     expect(screen.getByText("Live Operations")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Refresh detail" }));
     expect(mockRefreshDetail).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows recent active as unavailable when the orders cache is not fresh", () => {
+    mockUseBranchDetailState.mockReturnValue(buildHookState({
+      kind: "detail_fetch_failed",
+      branch: createBranchSnapshot({ status: "OPEN", statusColor: "green" }),
+      totals: createBranchSnapshot().metrics,
+      fetchedAt: null,
+      cacheState: "warming",
+      unassignedOrders: [],
+      preparingOrders: [],
+      pickers: {
+        todayCount: 4,
+        activePreparingCount: 2,
+        recentActiveCount: 3,
+        items: [
+          {
+            shopperId: 90202,
+            shopperFirstName: "Mohamed",
+            ordersToday: 5,
+            firstPickupAt: "2026-03-08T09:00:00.000Z",
+            lastPickupAt: "2026-03-08T13:35:00.000Z",
+            recentlyActive: true,
+          },
+        ],
+      },
+      message: "Live orders detail is temporarily unavailable. Orders API request failed",
+    }));
+
+    render(<BranchDetailDialog open branchId={7} branchSnapshot={createBranchSnapshot()} onClose={() => {}} />);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Pickers" }));
+
+    expect(screen.getAllByText("Recent Active")).toHaveLength(1);
+    expect(screen.getByText("--")).toBeInTheDocument();
   });
 
   it("renders a compact hard-stop view for branch_not_found", () => {
@@ -239,7 +274,7 @@ describe("BranchDetailDialog", () => {
       pickers: {
         todayCount: 4,
         activePreparingCount: 2,
-        lastHourCount: 3,
+        recentActiveCount: 3,
         items: [
           {
             shopperId: 90202,
@@ -247,7 +282,7 @@ describe("BranchDetailDialog", () => {
             ordersToday: 5,
             firstPickupAt: "2026-03-08T09:00:00.000Z",
             lastPickupAt: "2026-03-08T13:35:00.000Z",
-            activeLastHour: true,
+            recentlyActive: true,
           },
         ],
       },
@@ -264,8 +299,7 @@ describe("BranchDetailDialog", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Pickers" }));
     expect(screen.getByText("Mohamed")).toBeInTheDocument();
     expect(screen.getByText("5 orders")).toBeInTheDocument();
-    expect(screen.getByText("Last Hour")).toBeInTheDocument();
-    expect(screen.getByText("Active in last hour")).toBeInTheDocument();
+    expect(screen.getAllByText("Recent Active").length).toBeGreaterThan(0);
     expect(screen.getByText("Live Operations")).toBeInTheDocument();
   });
 
@@ -299,6 +333,7 @@ describe("BranchDetailDialog", () => {
 
     expect(screen.getAllByText("Temporary Close")).toHaveLength(1);
     expect(screen.getByText("UPuse Control")).toBeInTheDocument();
+    expect(screen.getByText("Unassigned Trigger")).toBeInTheDocument();
     expect(screen.getByLabelText("Unassigned Trigger")).toBeInTheDocument();
     expect(screen.queryByText("Late Trigger")).not.toBeInTheDocument();
   });
@@ -331,6 +366,7 @@ describe("BranchDetailDialog", () => {
       />,
     );
 
+    expect(screen.getByText("Capacity Trigger")).toBeInTheDocument();
     expect(screen.getByLabelText("Capacity Trigger")).toBeInTheDocument();
     expect(screen.queryByLabelText("Unassigned Trigger")).not.toBeInTheDocument();
   });

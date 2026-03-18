@@ -3,7 +3,7 @@ import GroupsRoundedIcon from "@mui/icons-material/GroupsRounded";
 import PersonOffRoundedIcon from "@mui/icons-material/PersonOffRounded";
 import SettingsSuggestRoundedIcon from "@mui/icons-material/SettingsSuggestRounded";
 import StorefrontRoundedIcon from "@mui/icons-material/StorefrontRounded";
-import { Box, Chip, Divider, LinearProgress, Stack, Tooltip, Typography } from "@mui/material";
+import { Box, Chip, Divider, LinearProgress, Stack, Typography } from "@mui/material";
 import type { BranchSnapshot } from "../../../api/types";
 import { closureProgress, hasDeadlinePassed } from "../../../shared/lib/progress/closureProgress";
 import { fmtCountdown, fmtTimeCairo } from "../../../utils/format";
@@ -94,84 +94,90 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
       {source || (reason && reasonIcon) ? (
         <Stack
           direction={{ xs: "column", sm: "row" }}
-          spacing={0.8}
-          sx={{ mt: 0.9, alignItems: { sm: "stretch" } }}
+          spacing={0.7}
+          sx={{ mt: 0.95, alignItems: { sm: "stretch" } }}
         >
           {source ? (
             <Box
               sx={{
                 flex: 1,
                 minWidth: 0,
-                borderRadius: 2,
-                px: 0.95,
-                py: 0.8,
-                bgcolor: source.background,
-                border: `1px solid ${source.border}`,
+                borderRadius: 1.9,
+                px: 0.9,
+                py: 0.78,
+                bgcolor: "rgba(248,250,252,0.9)",
+                border: "1px solid rgba(226,232,240,0.92)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.55)",
               }}
             >
-              <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 800 }}>
-                {source.title}
-              </Typography>
-              <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 0.45 }}>
+              <Stack direction="row" spacing={0.8} alignItems="center">
                 <Box
                   sx={{
-                    width: 26,
-                    height: 26,
-                    borderRadius: "9px",
-                    display: "grid",
-                    placeItems: "center",
-                    bgcolor: "rgba(255,255,255,0.68)",
-                    color: source.tone,
-                    border: "1px solid rgba(255,255,255,0.7)",
-                    flexShrink: 0,
-                  }}
-                >
-                  {source.icon}
-                </Box>
-                <Typography sx={{ fontWeight: 800, color: source.tone, lineHeight: 1.2, fontSize: 13 }}>
-                  {source.label}
-                </Typography>
-              </Stack>
-            </Box>
-          ) : null}
-
-          {reason && reasonIcon ? (
-            <Tooltip title={reason.label}>
-              <Box
-                aria-label={reason.label}
-                sx={{
-                  width: { xs: "100%", sm: 92 },
-                  borderRadius: 2,
-                  px: 0.95,
-                  py: 0.8,
-                  bgcolor: reason.background,
-                  border: `1px solid ${reason.border}`,
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 800 }}>
-                  Trigger
-                </Typography>
-                <Box
-                  sx={{
-                    mt: 0.45,
                     width: 30,
                     height: 30,
                     borderRadius: "10px",
                     display: "grid",
                     placeItems: "center",
-                    bgcolor: "rgba(255,255,255,0.66)",
+                    bgcolor: source.background,
+                    color: source.tone,
+                    border: `1px solid ${source.border}`,
+                    flexShrink: 0,
+                  }}
+                >
+                  {source.icon}
+                </Box>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="caption" sx={{ color: "#64748b", fontWeight: 800, lineHeight: 1.1 }}>
+                    {source.title}
+                  </Typography>
+                  <Typography sx={{ mt: 0.16, fontWeight: 800, color: "#0f172a", lineHeight: 1.22, fontSize: 13 }}>
+                    {source.label}
+                  </Typography>
+                </Box>
+              </Stack>
+            </Box>
+          ) : null}
+
+          {reason && reasonIcon ? (
+            <Box
+              aria-label={reason.label}
+              sx={{
+                flex: source ? { sm: "0 1 44%" } : 1,
+                minWidth: 0,
+                borderRadius: 1.9,
+                px: 0.9,
+                py: 0.78,
+                bgcolor: "rgba(248,250,252,0.9)",
+                border: "1px solid rgba(226,232,240,0.92)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.55)",
+              }}
+            >
+              <Stack direction="row" spacing={0.8} alignItems="center">
+                <Box
+                  sx={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: "10px",
+                    display: "grid",
+                    placeItems: "center",
+                    bgcolor: reason.background,
                     color: reason.tone,
-                    border: "1px solid rgba(255,255,255,0.72)",
+                    border: `1px solid ${reason.border}`,
+                    flexShrink: 0,
                   }}
                 >
                   {reasonIcon}
                 </Box>
-              </Box>
-            </Tooltip>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="caption" sx={{ color: "#64748b", fontWeight: 800, lineHeight: 1.1 }}>
+                    Trigger
+                  </Typography>
+                  <Typography sx={{ mt: 0.16, fontWeight: 800, color: "#0f172a", lineHeight: 1.22, fontSize: 13 }}>
+                    {reason.label}
+                  </Typography>
+                </Box>
+              </Stack>
+            </Box>
           ) : null}
         </Stack>
       ) : null}

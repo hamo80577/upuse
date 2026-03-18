@@ -38,27 +38,24 @@ type ScheduledCycleState = {
 type OrdersPressureSummary = {
   preparingNow: number;
   preparingPickersNow: number;
-  lastHourPickers: number;
+  recentActivePickers: number;
+  recentActiveAvailable: boolean;
 };
 
-function normalizeLastHourPickers(value: number) {
+function normalizeRecentActivePickers(value: number) {
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
-function capacityLimit(lastHourPickers: number) {
-  return normalizeLastHourPickers(lastHourPickers) * 2;
+function capacityLimit(recentActivePickers: number) {
+  return normalizeRecentActivePickers(recentActivePickers) * 3;
 }
 
-function hasCapacitySignal(lastHourPickers: number) {
-  return normalizeLastHourPickers(lastHourPickers) > 0;
-}
-
-function closeReasonLogTag(reason: CloseReason, metrics: OrdersMetrics, lastHourPickers: number) {
+function closeReasonLogTag(reason: CloseReason, metrics: OrdersMetrics, recentActivePickers: number) {
   if (reason === "LATE") return `Late=${metrics.lateNow}`;
   if (reason === "UNASSIGNED") return `Unassigned=${metrics.unassignedNow}`;
 
-  const pickers = normalizeLastHourPickers(lastHourPickers);
-  return `Capacity active=${metrics.activeNow} cap=${capacityLimit(pickers)} pickers=${pickers}`;
+  const pickers = normalizeRecentActivePickers(recentActivePickers);
+  return `Capacity active=${metrics.activeNow} cap=${capacityLimit(pickers)} recentActivePickers=${pickers}`;
 }
 
 function collapseWhitespace(value: string) {
@@ -451,11 +448,21 @@ export class MonitorEngine {
     return metrics;
   }
 
-  private currentPreparation(preparation?: OrdersPressureSummary) {
-    return preparation ?? {
-      preparingNow: 0,
-      preparingPickersNow: 0,
-      lastHourPickers: 0,
+  private currentPreparation(
+    preparation?: Partial<OrdersPressureSummary> & { lastHourPickers?: number },
+    recentActiveAvailableFallback = false,
+  ): OrdersPressureSummary {
+    return {
+      preparingNow: preparation?.preparingNow ?? 0,
+      preparingPickersNow: preparation?.preparingPickersNow ?? 0,
+      recentActivePickers: normalizeRecentActivePickers(
+        preparation?.recentActivePickers ?? preparation?.lastHourPickers ?? 0,
+      ),
+      recentActiveAvailable:
+        preparation?.recentActiveAvailable ??
+        (preparation?.recentActivePickers != null || preparation?.lastHourPickers != null
+          ? true
+          : recentActiveAvailableFallback),
     };
   }
 
@@ -470,14 +477,15 @@ export class MonitorEngine {
     branch: ResolvedBranchMapping,
     metrics: OrdersMetrics,
     settings: Settings,
-    lastHourPickers: number,
+    recentActivePickers: number,
+    recentActiveAvailable: boolean,
   ): CloseReason | undefined {
     const thresholds = this.resolveThresholds(branch, settings);
     const exceedLate = metrics.lateNow >= thresholds.lateThreshold && thresholds.lateThreshold > 0;
     const exceedUnassigned = metrics.unassignedNow >= thresholds.unassignedThreshold && thresholds.unassignedThreshold > 0;
     const exceedCapacity = thresholds.capacityRuleEnabled !== false
-      && hasCapacitySignal(lastHourPickers)
-      && metrics.activeNow > capacityLimit(lastHourPickers);
+      && recentActiveAvailable
+      && metrics.activeNow > capacityLimit(recentActivePickers);
 
     if (exceedLate) return "LATE";
     if (exceedUnassigned) return "UNASSIGNED";
@@ -582,7 +590,8 @@ export class MonitorEngine {
   private syncTrackedMonitorRuntime(
     branch: ResolvedBranchMapping,
     metrics: OrdersMetrics,
-    lastHourPickers: number,
+    recentActivePickers: number,
+    recentActiveAvailable: boolean,
     runtime: RuntimeRow | undefined,
     closedUntil: string,
     settings: Settings,
@@ -601,7 +610,13 @@ export class MonitorEngine {
     }
 
     if (!runtime?.lastUpuseCloseReason) {
-      const inferredReason = this.inferMonitorCloseReason(branch, metrics, settings, lastHourPickers);
+      const inferredReason = this.inferMonitorCloseReason(
+        branch,
+        metrics,
+        settings,
+        recentActivePickers,
+        recentActiveAvailable,
+      );
       if (inferredReason) {
         patch.lastUpuseCloseReason = inferredReason;
       }
@@ -656,7 +671,10 @@ export class MonitorEngine {
         lateNow: 0,
         unassignedNow: 0,
       };
-      const preparation = this.currentPreparation(this.preparationByVendor.get(branch.ordersVendorId));
+      const preparation = this.currentPreparation(
+        this.preparationByVendor.get(branch.ordersVendorId),
+        this.ordersDataStateByVendor.get(branch.ordersVendorId) === "fresh",
+      );
       if (!availability) {
         continue;
       }
@@ -689,7 +707,8 @@ export class MonitorEngine {
         runtime = this.syncTrackedMonitorRuntime(
           branch,
           metrics,
-          preparation.lastHourPickers,
+          preparation.recentActivePickers,
+          preparation.recentActiveAvailable,
           runtime,
           availability.closedUntil,
           settings,
@@ -772,6 +791,7 @@ export class MonitorEngine {
 
     const branchSnapshots = monitoredBranches.map((b) => {
       const thresholds = this.resolveThresholds(b, settings);
+      const ordersDataState = this.ordersDataStateByVendor.get(b.ordersVendorId) ?? "warming";
       const rawMetrics = this.ordersByVendor.get(b.ordersVendorId) ?? {
         totalToday: 0,
         cancelledToday: 0,
@@ -784,10 +804,11 @@ export class MonitorEngine {
         this.preparationByVendor.get(b.ordersVendorId) ?? {
           preparingNow: Math.max(0, rawMetrics.activeNow - rawMetrics.unassignedNow),
           preparingPickersNow: 0,
-          lastHourPickers: 0,
+          recentActivePickers: 0,
+          recentActiveAvailable: ordersDataState === "fresh",
         },
+        ordersDataState === "fresh",
       );
-      const ordersDataState = this.ordersDataStateByVendor.get(b.ordersVendorId) ?? "warming";
       const ordersLastSyncedAt = this.ordersLastSyncedAtByVendor.get(b.ordersVendorId);
       const metrics = this.currentMetrics(rawMetrics);
       totals.ordersToday += metrics.totalToday;
@@ -828,7 +849,13 @@ export class MonitorEngine {
           if (closedByUpuse) {
             closeReason =
               (runtime?.lastUpuseCloseReason as DashboardSnapshot["branches"][number]["closeReason"]) ??
-              this.inferMonitorCloseReason(b, rawMetrics, settings, preparation.lastHourPickers);
+              this.inferMonitorCloseReason(
+                b,
+                rawMetrics,
+                settings,
+                preparation.recentActivePickers,
+                preparation.recentActiveAvailable,
+              );
           } else {
             closeReason = undefined;
           }
@@ -1002,7 +1029,8 @@ export class MonitorEngine {
           mergedPreparationByVendor.set(branch.ordersVendorId, {
             preparingNow: detail.preparingOrders.length,
             preparingPickersNow: detail.pickers.activePreparingCount,
-            lastHourPickers: detail.pickers.lastHourCount,
+            recentActivePickers: detail.pickers.recentActiveCount,
+            recentActiveAvailable: detail.cacheState === "fresh",
           });
           mergedDataStateByVendor.set(branch.ordersVendorId, detail.cacheState);
           mergedLastSyncedAtByVendor.set(branch.ordersVendorId, detail.fetchedAt ?? undefined);
@@ -1123,7 +1151,7 @@ export class MonitorEngine {
         lateNow: 0,
         unassignedNow: 0,
       };
-      const preparation = this.currentPreparation(this.preparationByVendor.get(branch.ordersVendorId));
+      const preparation = this.currentPreparation(this.preparationByVendor.get(branch.ordersVendorId), true);
 
       const avCached = this.availabilityByVendor.get(branch.availabilityVendorId);
       let runtime = getRuntime(branch.id) as RuntimeRow | undefined;
@@ -1136,7 +1164,8 @@ export class MonitorEngine {
         runtime = this.syncTrackedMonitorRuntime(
           branch,
           metrics,
-          preparation.lastHourPickers,
+          preparation.recentActivePickers,
+          preparation.recentActiveAvailable,
           runtime,
           avCached.closedUntil,
           settings,
@@ -1180,7 +1209,8 @@ export class MonitorEngine {
       const decision = decide({
         branch,
         metrics,
-        lastHourPickers: preparation.lastHourPickers,
+        recentActivePickers: preparation.recentActivePickers,
+        recentActiveAvailable: preparation.recentActiveAvailable,
         availability: avCached,
         runtime: runtime as any,
         nowUtcIso: nowIso,
@@ -1297,7 +1327,7 @@ export class MonitorEngine {
             lastActionAt: nowIso,
           });
 
-          const tag = closeReasonLogTag(decision.reason, metrics, preparation.lastHourPickers);
+          const tag = closeReasonLogTag(decision.reason, metrics, preparation.recentActivePickers);
           log(
             branch.id,
             "INFO",
@@ -1324,7 +1354,8 @@ export class MonitorEngine {
             rt = this.syncTrackedMonitorRuntime(
               branch,
               metrics,
-              preparation.lastHourPickers,
+              preparation.recentActivePickers,
+              preparation.recentActiveAvailable,
               rt,
               current.closedUntil,
               settings,
