@@ -367,6 +367,30 @@ export interface PerformanceSummaryResponse {
   cacheState: BranchDetailCacheState;
 }
 
+export type PerformanceTrendResolutionMinutes = 15 | 30 | 60;
+
+export interface PerformanceTrendBucket {
+  bucketStartUtcIso: string;
+  bucketEndUtcIso: string;
+  label: string;
+  ordersCount: number;
+  vendorCancelledCount: number;
+  transportCancelledCount: number;
+  vfr: number;
+  lfr: number;
+  vlfr: number;
+}
+
+export interface PerformanceTrendResponse {
+  scope: PerformanceSummaryResponse["scope"];
+  fetchedAt: string | null;
+  cacheState: BranchDetailCacheState;
+  resolutionMinutes: PerformanceTrendResolutionMinutes;
+  startMinute: number;
+  endMinute: number;
+  buckets: PerformanceTrendBucket[];
+}
+
 export type PerformanceDeliveryTypeFilter = "logistics" | "vendor_delivery";
 export type PerformanceBranchFilter = "vendor" | "transport" | "late" | "on_hold" | "unassigned" | "in_prep" | "ready";
 export type PerformanceNumericSortKey = "orders" | "vfr" | "lfr" | "vlfr" | "active" | "late" | "on_hold" | "unassigned" | "in_prep" | "ready";

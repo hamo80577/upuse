@@ -3,8 +3,11 @@ import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 import type { SecurityConfig } from "../config/security.js";
 import { getSessionUserByToken } from "../services/authStore.js";
+import type { MonitorEngine } from "../services/monitorEngine.js";
+import { getCurrentCairoDayKey, getPerformanceSummary } from "../services/performanceStore.js";
+import { buildPerformanceStatusColorMap } from "../services/performanceStatusColors.js";
 import { subscribeOrdersMirrorEntitySync, type OrdersMirrorEntitySyncStatus } from "../services/ordersMirrorStore.js";
-import type { AppUser } from "../types/models.js";
+import type { AppUser, PerformanceSummaryResponse } from "../types/models.js";
 import { readAuthSessionTokenFromCookieHeader } from "./sessionCookie.js";
 import { isTrustedOrigin, parseCorsOrigins } from "./security.js";
 
@@ -12,8 +15,8 @@ const PERFORMANCE_WEBSOCKET_PATH = "/api/ws/performance";
 const HEARTBEAT_INTERVAL_MS = 20_000;
 
 interface PerformanceWebSocketEnvelope {
-  type: "sync" | "ping";
-  data: OrdersMirrorEntitySyncStatus | { at: string };
+  type: "summary" | "sync" | "ping";
+  data: PerformanceSummaryResponse | OrdersMirrorEntitySyncStatus | { at: string };
 }
 
 function writeUpgradeError(socket: Duplex, statusCode: number, message: string) {
@@ -64,13 +67,20 @@ function sendMessage(ws: WebSocket, payload: PerformanceWebSocketEnvelope) {
 
 export function attachPerformanceWebSocketServer(options: {
   server: HttpServer;
+  engine: MonitorEngine;
   securityConfig: SecurityConfig;
 }) {
   const webSocketServer = new WebSocketServer({ noServer: true });
   const allowedOrigins = parseCorsOrigins(process.env.UPUSE_CORS_ORIGINS);
   const activeConnectionsByUserId = new Map<number, number>();
+  const activeSockets = new Set<WebSocket>();
   const aliveBySocket = new WeakMap<WebSocket, boolean>();
   let activeConnectionsTotal = 0;
+  let unsubscribeSync = () => {};
+  let syncSubscribed = false;
+  let lastSummarySnapshot: PerformanceSummaryResponse | null = null;
+  let summaryBuildPromise: Promise<PerformanceSummaryResponse | null> | null = null;
+  let pendingSummaryBroadcast = false;
 
   const releaseConnectionSlot = (userId: number) => {
     const nextUserCount = (activeConnectionsByUserId.get(userId) ?? 1) - 1;
@@ -96,6 +106,103 @@ export function attachPerformanceWebSocketServer(options: {
     activeConnectionsByUserId.set(user.id, userConnectionCount + 1);
     activeConnectionsTotal += 1;
     return { ok: true as const };
+  };
+
+  const getCachedSummarySnapshot = () => {
+    if (!lastSummarySnapshot) return null;
+    return lastSummarySnapshot.scope.dayKey === getCurrentCairoDayKey() ? lastSummarySnapshot : null;
+  };
+
+  const buildSummarySnapshot = async () => {
+    try {
+      const summary = await getPerformanceSummary(buildPerformanceStatusColorMap(options.engine));
+      lastSummarySnapshot = summary.scope.dayKey === getCurrentCairoDayKey() ? summary : null;
+      return summary;
+    } catch (error) {
+      console.error("Performance websocket summary build failed", error);
+      return null;
+    }
+  };
+
+  const loadSummarySnapshot = () => {
+    if (summaryBuildPromise) {
+      return summaryBuildPromise;
+    }
+
+    summaryBuildPromise = buildSummarySnapshot().finally(() => {
+      summaryBuildPromise = null;
+      if (pendingSummaryBroadcast && activeSockets.size) {
+        pendingSummaryBroadcast = false;
+        void refreshSummaryAndBroadcast();
+      } else {
+        pendingSummaryBroadcast = false;
+      }
+    });
+
+    return summaryBuildPromise;
+  };
+
+  const broadcastSummarySnapshot = (summary: PerformanceSummaryResponse) => {
+    for (const socket of activeSockets) {
+      sendMessage(socket, {
+        type: "summary",
+        data: summary,
+      });
+    }
+  };
+
+  const refreshSummaryAndBroadcast = async () => {
+    if (summaryBuildPromise) {
+      pendingSummaryBroadcast = true;
+      return summaryBuildPromise;
+    }
+
+    const summary = await loadSummarySnapshot();
+    if (summary) {
+      broadcastSummarySnapshot(summary);
+    }
+    return summary;
+  };
+
+  const releaseSyncSubscriptionIfIdle = () => {
+    if (!syncSubscribed || activeSockets.size > 0) return;
+    unsubscribeSync();
+    unsubscribeSync = () => {};
+    syncSubscribed = false;
+    pendingSummaryBroadcast = false;
+  };
+
+  const ensureSyncSubscription = () => {
+    if (syncSubscribed || !activeSockets.size) return;
+
+    unsubscribeSync = subscribeOrdersMirrorEntitySync((status) => {
+      for (const socket of activeSockets) {
+        sendMessage(socket, {
+          type: "sync",
+          data: status,
+        });
+      }
+      void refreshSummaryAndBroadcast();
+    });
+    syncSubscribed = true;
+  };
+
+  const sendInitialSummarySnapshot = async (ws: WebSocket) => {
+    const cachedSummary = getCachedSummarySnapshot();
+    if (cachedSummary) {
+      sendMessage(ws, {
+        type: "summary",
+        data: cachedSummary,
+      });
+      return;
+    }
+
+    const summary = await loadSummarySnapshot();
+    if (!summary || ws.readyState !== WebSocket.OPEN) return;
+    sendMessage(ws, {
+      type: "summary",
+      data: summary,
+    });
   };
 
   options.server.on("upgrade", (req, socket, head) => {
@@ -129,18 +236,14 @@ export function attachPerformanceWebSocketServer(options: {
 
   webSocketServer.on("connection", (ws: WebSocket, _req: IncomingMessage, user: AppUser) => {
     let cleaned = false;
+    activeSockets.add(ws);
     aliveBySocket.set(ws, true);
 
-    let unsubscribe = () => {};
     try {
-      unsubscribe = subscribeOrdersMirrorEntitySync((status) => {
-        sendMessage(ws, {
-          type: "sync",
-          data: status,
-        });
-      });
+      ensureSyncSubscription();
     } catch (error) {
       console.error("Performance WebSocket subscription failed", error);
+      activeSockets.delete(ws);
       releaseConnectionSlot(user.id);
       try {
         ws.close(1011, "Failed to initialize live performance stream");
@@ -149,6 +252,8 @@ export function attachPerformanceWebSocketServer(options: {
       }
       return;
     }
+
+    void sendInitialSummarySnapshot(ws);
 
     const heartbeat = setInterval(() => {
       if (aliveBySocket.get(ws) === false) {
@@ -170,8 +275,9 @@ export function attachPerformanceWebSocketServer(options: {
     const cleanup = () => {
       if (cleaned) return;
       cleaned = true;
+      activeSockets.delete(ws);
       clearInterval(heartbeat);
-      unsubscribe();
+      releaseSyncSubscriptionIfIdle();
       releaseConnectionSlot(user.id);
     };
 
@@ -183,6 +289,7 @@ export function attachPerformanceWebSocketServer(options: {
   });
 
   options.server.on("close", () => {
+    unsubscribeSync();
     webSocketServer.close();
   });
 }

@@ -4,14 +4,19 @@ import type {
   BranchLiveOrder,
   BranchPickersSummary,
   BranchSnapshot,
+  PerformanceBranchFilter,
   PerformanceBranchCard,
   PerformanceBranchDetailResponse,
   PerformanceCancelledOrderItem,
   PerformanceChainGroup,
+  PerformanceDeliveryTypeFilter,
   PerformanceEntityBranchCard,
   PerformanceOwnerCoverage,
   PerformanceStatusCount,
   PerformanceSummaryResponse,
+  PerformanceTrendBucket,
+  PerformanceTrendResolutionMinutes,
+  PerformanceTrendResponse,
   PerformanceUnmappedVendorCard,
   PerformanceVendorDetailResponse,
   ResolvedBranchMapping,
@@ -153,6 +158,15 @@ interface PerformanceDataset {
   vendorDetailsById: Map<number, PerformanceVendorDetailResponse>;
 }
 
+interface PerformanceTrendBucketAccumulator {
+  bucketStartUtcIso: string;
+  bucketEndUtcIso: string;
+  label: string;
+  ordersCount: number;
+  vendorCancelledCount: number;
+  transportCancelledCount: number;
+}
+
 function emptyPickers(): BranchPickersSummary {
   return {
     todayCount: 0,
@@ -162,7 +176,7 @@ function emptyPickers(): BranchPickersSummary {
   };
 }
 
-function getCurrentCairoDayKey(now = DateTime.utc()) {
+export function getCurrentCairoDayKey(now = DateTime.utc()) {
   return now.setZone(TZ).toFormat("yyyy-LL-dd");
 }
 
@@ -374,6 +388,39 @@ function calculateVlfr(vendorOwnerCancelledCount: number, transportOwnerCancelle
   return ((vendorOwnerCancelledCount + transportOwnerCancelledCount) / totalOrders) * 100;
 }
 
+function createTrendBuckets(scope: PerformanceScope, resolutionMinutes: PerformanceTrendResolutionMinutes, startMinute: number, endMinute: number) {
+  const dayStart = DateTime.fromISO(scope.startUtcIso, { zone: "utc" }).setZone(TZ).startOf("day");
+  const buckets: PerformanceTrendBucketAccumulator[] = [];
+
+  for (let minute = startMinute; minute < endMinute; minute += resolutionMinutes) {
+    const bucketStart = dayStart.plus({ minutes: minute });
+    const bucketEnd = dayStart.plus({ minutes: Math.min(minute + resolutionMinutes, endMinute) });
+    buckets.push({
+      bucketStartUtcIso: bucketStart.toUTC().toISO({ suppressMilliseconds: false })!,
+      bucketEndUtcIso: bucketEnd.toUTC().toISO({ suppressMilliseconds: false })!,
+      label: bucketStart.toFormat("HH:mm"),
+      ordersCount: 0,
+      vendorCancelledCount: 0,
+      transportCancelledCount: 0,
+    });
+  }
+
+  return buckets;
+}
+
+function toCairoMinuteOfDay(iso: string | null | undefined) {
+  if (!iso) return null;
+  const value = DateTime.fromISO(iso, { zone: "utc" }).setZone(TZ);
+  if (!value.isValid) return null;
+  return (value.hour * 60) + value.minute;
+}
+
+function matchesTrendScope(scope: PerformanceScope, iso: string | null | undefined) {
+  if (!iso) return false;
+  const value = DateTime.fromISO(iso, { zone: "utc" }).setZone(TZ);
+  return value.isValid && value.toFormat("yyyy-LL-dd") === scope.dayKey;
+}
+
 function createAggregateMetrics(): PerformanceAggregateMetrics {
   return {
     totalOrders: 0,
@@ -389,6 +436,89 @@ function createAggregateMetrics(): PerformanceAggregateMetrics {
     sawKnownNonLogisticsDelivery: false,
     sawShopperAssignment: false,
   };
+}
+
+function normalizeTrendSearchQuery(searchQuery: string | null | undefined) {
+  return searchQuery?.trim().toLowerCase() ?? "";
+}
+
+function trendBranchMatches(branch: PerformanceEntityBranchCard, searchQuery: string) {
+  if (!searchQuery) return true;
+  return `${branch.name} ${branch.vendorId}`.toLowerCase().includes(searchQuery);
+}
+
+function trendDeliveryTypeMatches(
+  branch: PerformanceEntityBranchCard,
+  selectedDeliveryTypes: PerformanceDeliveryTypeFilter[],
+) {
+  if (!selectedDeliveryTypes.length || selectedDeliveryTypes.length >= 2) {
+    return true;
+  }
+
+  return selectedDeliveryTypes.some((filter) => {
+    if (filter === "logistics") {
+      return branch.deliveryMode === "logistics" || branch.deliveryMode === "mixed";
+    }
+
+    return branch.deliveryMode === "self";
+  });
+}
+
+function trendBranchPassesAllFilters(
+  branch: PerformanceEntityBranchCard,
+  selectedFilters: PerformanceBranchFilter[],
+) {
+  if (!selectedFilters.length) return true;
+
+  return selectedFilters.every((filter) => {
+    switch (filter) {
+      case "vendor":
+        return branch.vendorOwnerCancelledCount > 0;
+      case "transport":
+        return branch.transportOwnerCancelledCount > 0 && branch.lfrApplicable;
+      case "late":
+        return branch.lateNow > 0;
+      case "on_hold":
+        return branch.onHoldOrders > 0;
+      case "unassigned":
+        return branch.unassignedOrders > 0;
+      case "in_prep":
+        return branch.inPrepOrders > 0;
+      case "ready":
+        return branch.readyToPickupOrders > 0;
+      default:
+        return true;
+    }
+  });
+}
+
+function resolveTrendVendorIds(params: {
+  branches: PerformanceEntityBranchCard[];
+  vendorIds?: number[];
+  searchQuery?: string;
+  selectedDeliveryTypes?: PerformanceDeliveryTypeFilter[];
+  selectedBranchFilters?: PerformanceBranchFilter[];
+}) {
+  const normalizedSearchQuery = normalizeTrendSearchQuery(params.searchQuery);
+  const selectedDeliveryTypes = params.selectedDeliveryTypes ?? [];
+  const selectedBranchFilters = params.selectedBranchFilters ?? [];
+  const vendorFilter = params.vendorIds == null ? null : new Set(params.vendorIds);
+  const requiresScopedFiltering =
+    vendorFilter != null
+    || normalizedSearchQuery.length > 0
+    || selectedDeliveryTypes.length > 0
+    || selectedBranchFilters.length > 0;
+
+  if (!requiresScopedFiltering) {
+    return undefined;
+  }
+
+  return params.branches
+    .filter((branch) => !vendorFilter || vendorFilter.has(branch.vendorId))
+    .filter((branch) => trendBranchMatches(branch, normalizedSearchQuery))
+    .filter((branch) => trendDeliveryTypeMatches(branch, selectedDeliveryTypes))
+    .filter((branch) => trendBranchPassesAllFilters(branch, selectedBranchFilters))
+    .map((branch) => branch.vendorId);
 }
 
 function applyAggregateRow(
@@ -911,6 +1041,62 @@ export function buildPerformanceDataset(params: {
   });
 }
 
+export function buildPerformanceTrendResponse(params: {
+  dayKey?: string;
+  rows: PerformanceMirrorRow[];
+  resolutionMinutes: PerformanceTrendResolutionMinutes;
+  startMinute: number;
+  endMinute: number;
+  fetchedAt?: string | null;
+  cacheState?: PerformanceTrendResponse["cacheState"];
+  vendorIds?: number[];
+}) {
+  const scope = resolvePerformanceScope(params.dayKey);
+  const vendorFilter = params.vendorIds == null ? null : new Set(params.vendorIds);
+  const buckets = createTrendBuckets(scope, params.resolutionMinutes, params.startMinute, params.endMinute);
+
+  for (const row of params.rows) {
+    if (vendorFilter && !vendorFilter.has(row.vendorId)) {
+      continue;
+    }
+    if (!matchesTrendScope(scope, row.placedAt)) {
+      continue;
+    }
+
+    const minuteOfDay = toCairoMinuteOfDay(row.placedAt);
+    if (minuteOfDay == null || minuteOfDay < params.startMinute || minuteOfDay >= params.endMinute) {
+      continue;
+    }
+
+    const bucketIndex = Math.floor((minuteOfDay - params.startMinute) / params.resolutionMinutes);
+    const bucket = buckets[bucketIndex];
+    if (!bucket) continue;
+
+    bucket.ordersCount += 1;
+    if (row.cancellationOwner === "VENDOR") {
+      bucket.vendorCancelledCount += 1;
+    }
+    if (row.cancellationOwner === "TRANSPORT") {
+      bucket.transportCancelledCount += 1;
+    }
+  }
+
+  return {
+    scope,
+    fetchedAt: params.fetchedAt ?? null,
+    cacheState: params.cacheState ?? "warming",
+    resolutionMinutes: params.resolutionMinutes,
+    startMinute: params.startMinute,
+    endMinute: params.endMinute,
+    buckets: buckets.map<PerformanceTrendBucket>((bucket) => ({
+      ...bucket,
+      vfr: calculateVfr(bucket.vendorCancelledCount, bucket.ordersCount),
+      lfr: calculateLfr(bucket.transportCancelledCount, bucket.ordersCount),
+      vlfr: calculateVlfr(bucket.vendorCancelledCount, bucket.transportCancelledCount, bucket.ordersCount),
+    })),
+  } satisfies PerformanceTrendResponse;
+}
+
 export async function getPerformanceSummary(statusColorByBranchId?: Map<number, StatusColor>) {
   const globalEntityId = getGlobalEntityId();
   const scope = resolvePerformanceScope();
@@ -929,6 +1115,56 @@ export async function getPerformanceSummary(statusColorByBranchId?: Map<number, 
     fetchedAt: syncStatus.fetchedAt,
     cacheState: syncStatus.cacheState,
   }).summary;
+}
+
+export async function getPerformanceTrend(params: {
+  resolutionMinutes: PerformanceTrendResolutionMinutes;
+  startMinute: number;
+  endMinute: number;
+  vendorIds?: number[];
+  searchQuery?: string;
+  selectedDeliveryTypes?: PerformanceDeliveryTypeFilter[];
+  selectedBranchFilters?: PerformanceBranchFilter[];
+}) {
+  const globalEntityId = getGlobalEntityId();
+  const scope = resolvePerformanceScope();
+  const branches = listResolvedBranches();
+  const rows = loadPerformanceRows(scope.dayKey, globalEntityId);
+  const syncStatus = getOrdersMirrorEntitySyncStatus({
+    dayKey: scope.dayKey,
+    globalEntityId,
+  });
+  const shouldResolveScopedVendorIds =
+    normalizeTrendSearchQuery(params.searchQuery).length > 0
+    || Boolean(params.selectedDeliveryTypes?.length)
+    || Boolean(params.selectedBranchFilters?.length);
+  const effectiveVendorIds = shouldResolveScopedVendorIds
+    ? resolveTrendVendorIds({
+        branches: aggregatePerformanceData({
+          scope,
+          globalEntityId,
+          branches,
+          rows,
+          fetchedAt: syncStatus.fetchedAt,
+          cacheState: syncStatus.cacheState,
+        }).summary.branches,
+        vendorIds: params.vendorIds,
+        searchQuery: params.searchQuery,
+        selectedDeliveryTypes: params.selectedDeliveryTypes,
+        selectedBranchFilters: params.selectedBranchFilters,
+      })
+    : params.vendorIds;
+
+  return buildPerformanceTrendResponse({
+    dayKey: scope.dayKey,
+    rows,
+    resolutionMinutes: params.resolutionMinutes,
+    startMinute: params.startMinute,
+    endMinute: params.endMinute,
+    fetchedAt: syncStatus.fetchedAt,
+    cacheState: syncStatus.cacheState,
+    vendorIds: effectiveVendorIds,
+  });
 }
 
 export async function getPerformanceBranchDetail(

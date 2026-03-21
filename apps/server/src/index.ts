@@ -32,7 +32,7 @@ import { getSettingsRoute, getTokenTestRoute, putSettingsRoute, testTokensRoute 
 import { listBranchesRoute, listVendorSourceRoute, addBranchRoute, updateBranchThresholdOverridesRoute, updateBranchMonitoringRoute, branchDetailRoute, branchPickersRoute, deleteBranchRoute } from "./routes/branches.js";
 import { dashboardRoute } from "./routes/dashboard.js";
 import { clearLogsRoute, logsRoute } from "./routes/logs.js";
-import { performanceBranchDetailRoute, performanceSummaryRoute, performanceVendorDetailRoute } from "./routes/performance.js";
+import { performanceBranchDetailRoute, performanceSummaryRoute, performanceTrendRoute, performanceVendorDetailRoute } from "./routes/performance.js";
 import {
   createPerformanceGroupRoute,
   createPerformanceViewRoute,
@@ -112,6 +112,7 @@ app.delete("/api/branches/:id", requireCapability("delete_branch_mappings"), del
 
 app.get("/api/dashboard", dashboardRoute(engine));
 app.get("/api/performance", performanceSummaryRoute(engine));
+app.get("/api/performance/trends", performanceTrendRoute());
 app.get("/api/performance/branches/:id", performanceBranchDetailRoute(engine));
 app.get("/api/performance/vendors/:id", performanceVendorDetailRoute());
 app.get("/api/performance/preferences", getPerformancePreferencesRoute);
@@ -241,5 +242,6 @@ attachDashboardWebSocketServer({
 
 attachPerformanceWebSocketServer({
   server,
+  engine,
   securityConfig,
 });

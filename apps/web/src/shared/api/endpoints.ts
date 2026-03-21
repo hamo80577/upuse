@@ -5,13 +5,18 @@ import type {
   LoginResponse,
   AppUserRole,
   BranchDetailResult,
+  PerformanceBranchFilter,
   PerformanceBranchDetailResponse,
+  PerformanceDeliveryTypeFilter,
   PerformancePreferencesResponse,
   PerformancePreferencesState,
   PerformanceSavedGroup,
   PerformanceSavedView,
+  PerformanceLiveMessage,
   PerformanceLiveUpdate,
   PerformanceSummaryResponse,
+  PerformanceTrendResolutionMinutes,
+  PerformanceTrendResponse,
   PerformanceVendorDetailResponse,
   BranchMappingItem,
   BranchPickersSummary,
@@ -117,6 +122,37 @@ export const api = {
   dashboard: () => requestJson<DashboardSnapshot>("/api/dashboard", undefined, { timeoutMs: 20_000 }),
   performanceSummary: (options?: { signal?: AbortSignal }) =>
     requestJson<PerformanceSummaryResponse>("/api/performance", { signal: options?.signal }, { timeoutMs: 20_000 }),
+  performanceTrend: (
+    payload: {
+      resolutionMinutes: PerformanceTrendResolutionMinutes;
+      startMinute: number;
+      endMinute: number;
+      vendorIds?: number[];
+      searchQuery?: string;
+      selectedDeliveryTypes?: PerformanceDeliveryTypeFilter[];
+      selectedBranchFilters?: PerformanceBranchFilter[];
+    },
+    options?: { signal?: AbortSignal },
+  ) => {
+    const query = new URLSearchParams({
+      resolutionMinutes: String(payload.resolutionMinutes),
+      startMinute: String(payload.startMinute),
+      endMinute: String(payload.endMinute),
+    });
+    if (payload.searchQuery) {
+      query.set("searchQuery", payload.searchQuery);
+    }
+    for (const vendorId of payload.vendorIds ?? []) {
+      query.append("vendorId", String(vendorId));
+    }
+    for (const deliveryType of payload.selectedDeliveryTypes ?? []) {
+      query.append("deliveryType", deliveryType);
+    }
+    for (const branchFilter of payload.selectedBranchFilters ?? []) {
+      query.append("branchFilter", branchFilter);
+    }
+    return requestJson<PerformanceTrendResponse>(`/api/performance/trends?${query.toString()}`, { signal: options?.signal }, { timeoutMs: 20_000 });
+  },
   performanceBranchDetail: (branchId: number, options?: { signal?: AbortSignal }) =>
     requestJson<PerformanceBranchDetailResponse>(`/api/performance/branches/${branchId}`, { signal: options?.signal }, { timeoutMs: 20_000 }),
   performanceVendorDetail: (vendorId: number, options?: { signal?: AbortSignal }) =>
@@ -171,15 +207,20 @@ export const api = {
   streamPerformance: (options: {
     signal?: AbortSignal;
     onOpen?: () => void;
-    onSync: (update: PerformanceLiveUpdate) => void;
+    onSummary: (summary: PerformanceSummaryResponse) => void;
+    onSync?: (update: PerformanceLiveUpdate) => void;
     onPing?: (payload: { at: string }) => void;
   }) =>
     requestJsonWebSocket("/api/ws/performance", {
       signal: options.signal,
       onOpen: options.onOpen,
       onMessage: (eventName, data) => {
+        if (eventName === "summary") {
+          options.onSummary((data as PerformanceLiveMessage["data"]) as PerformanceSummaryResponse);
+          return;
+        }
         if (eventName === "sync") {
-          options.onSync(data as PerformanceLiveUpdate);
+          options.onSync?.(data as PerformanceLiveUpdate);
           return;
         }
         if (eventName === "ping") {

@@ -3,11 +3,14 @@ import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import FilterAltRoundedIcon from "@mui/icons-material/FilterAltRounded";
+import FilterAltOffRoundedIcon from "@mui/icons-material/FilterAltOffRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
+import InsightsRoundedIcon from "@mui/icons-material/InsightsRounded";
 import LocalShippingRoundedIcon from "@mui/icons-material/LocalShippingRounded";
 import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import SortRoundedIcon from "@mui/icons-material/SortRounded";
+import SpaceDashboardRoundedIcon from "@mui/icons-material/SpaceDashboardRounded";
 import StorefrontRoundedIcon from "@mui/icons-material/StorefrontRounded";
 import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
 import {
@@ -32,6 +35,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { type MouseEventHandler, type ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { api, describeApiError } from "../../../api/client";
 import type {
@@ -42,20 +46,24 @@ import type {
   PerformancePreferencesState,
   PerformanceSavedGroup,
   PerformanceSummaryResponse,
+  PerformanceTrendResolutionMinutes,
+  PerformanceTrendResponse,
   PerformanceVendorDetailResponse,
 } from "../../../api/types";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useMonitorStatus } from "../../../app/providers/MonitorStatusProvider";
 import { TopBar } from "../../../widgets/top-bar/ui/TopBar";
 import { PerformanceBranchDialog } from "./PerformanceBranchDialog";
+import { PerformanceTrendPanel } from "./PerformanceTrendPanel";
 
-const AUTO_REFRESH_MS = 60_000;
-const LIVE_RECONNECT_DELAYS_MS = [1_000, 3_000, 5_000, 10_000] as const;
 const PAGE_SIZE = 10;
+const FULL_DAY_END_MINUTE = 1_440;
+const LIVE_RECONNECT_DELAYS_MS = [1_000, 3_000, 5_000, 10_000] as const;
 
 type NumericSortKey = PerformanceNumericSortKey;
 type BranchFilterKey = PerformanceBranchFilter;
 type DeliveryTypeFilterKey = PerformanceDeliveryTypeFilter;
+type HeroPanel = "summary" | "trend";
 
 const DEFAULT_PREFERENCES_STATE: PerformancePreferencesState = {
   searchQuery: "",
@@ -100,6 +108,91 @@ const NAME_SORT_LABEL = "Branch Name";
 
 const metric = (value: number) => value.toLocaleString("en-US");
 const percent = (value: number) => `${value.toFixed(value >= 10 ? 1 : 2)}%`;
+const cairoTimeFormatter = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Africa/Cairo",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+function toUnixMillis(value: string | null | undefined) {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function shouldReplaceSummarySnapshot(
+  current: PerformanceSummaryResponse | null,
+  next: PerformanceSummaryResponse,
+) {
+  if (!current) return true;
+
+  const currentFetchedAt = toUnixMillis(current.fetchedAt);
+  const nextFetchedAt = toUnixMillis(next.fetchedAt);
+
+  if (currentFetchedAt == null) return true;
+  if (nextFetchedAt == null) return false;
+  if (nextFetchedAt !== currentFetchedAt) {
+    return nextFetchedAt > currentFetchedAt;
+  }
+
+  return next.scope.dayKey !== current.scope.dayKey || next.cacheState !== current.cacheState;
+}
+
+function buildTrendRequestKey(
+  dayKey: string,
+  resolutionMinutes: PerformanceTrendResolutionMinutes,
+  startMinute: number,
+  endMinute: number,
+  scopeKey: string,
+) {
+  return [dayKey, resolutionMinutes, startMinute, endMinute, scopeKey].join("|");
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function buildEmptyTrendResponse(
+  scope: PerformanceSummaryResponse["scope"],
+  resolutionMinutes: PerformanceTrendResolutionMinutes,
+  startMinute: number,
+  endMinute: number,
+  fetchedAt: string | null,
+  cacheState: PerformanceTrendResponse["cacheState"],
+): PerformanceTrendResponse {
+  const startUtcMs = new Date(scope.startUtcIso).getTime();
+  const buckets = [];
+  for (let minute = startMinute; minute < endMinute; minute += resolutionMinutes) {
+    const bucketStartMs = startUtcMs + (minute * 60_000);
+    const bucketEndMs = startUtcMs + (Math.min(minute + resolutionMinutes, endMinute) * 60_000);
+    buckets.push({
+      bucketStartUtcIso: new Date(bucketStartMs).toISOString(),
+      bucketEndUtcIso: new Date(bucketEndMs).toISOString(),
+      label: cairoTimeFormatter.format(new Date(bucketStartMs)),
+      ordersCount: 0,
+      vendorCancelledCount: 0,
+      transportCancelledCount: 0,
+      vfr: 0,
+      lfr: 0,
+      vlfr: 0,
+    });
+  }
+
+  return {
+    scope,
+    fetchedAt,
+    cacheState,
+    resolutionMinutes,
+    startMinute,
+    endMinute,
+    buckets,
+  };
+}
+
+function clampTrendMinute(value: number) {
+  const rounded = Math.round(value / 15) * 15;
+  return Math.max(0, Math.min(FULL_DAY_END_MINUTE, rounded));
+}
 
 const accent = (statusColor: PerformanceEntityBranchCard["statusColor"]) =>
   statusColor === "red"
@@ -117,6 +210,22 @@ function branchMatches(branch: PerformanceEntityBranchCard, query: string) {
 
 function dedupeSelections<T extends string | number>(values: T[]) {
   return Array.from(new Set(values));
+}
+
+function normalizeVendorSelections(values: number[]) {
+  return dedupeSelections(values).sort((left, right) => left - right);
+}
+
+function resolveExplicitVendorSelections(groupVendorIds: number[], selectedVendorIds: number[]) {
+  const normalizedGroupVendorIds = normalizeVendorSelections(groupVendorIds);
+  const normalizedSelectedVendorIds = normalizeVendorSelections(selectedVendorIds);
+
+  if (normalizedGroupVendorIds.length && normalizedSelectedVendorIds.length) {
+    const selectedVendorIdSet = new Set(normalizedSelectedVendorIds);
+    return normalizedGroupVendorIds.filter((vendorId) => selectedVendorIdSet.has(vendorId));
+  }
+
+  return normalizedGroupVendorIds.length ? normalizedGroupVendorIds : normalizedSelectedVendorIds;
 }
 
 function normalizePreferencesState(input: Partial<PerformancePreferencesState> | PerformancePreferencesState | null | undefined): PerformancePreferencesState {
@@ -861,10 +970,18 @@ function BranchCard(props: {
 export function PerformancePage() {
   const { canManageMonitor } = useAuth();
   const { monitoring, startMonitoring, stopMonitoring } = useMonitorStatus();
+  const [heroPanel, setHeroPanel] = useState<HeroPanel>("summary");
   const [summary, setSummary] = useState<PerformanceSummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [trend, setTrend] = useState<PerformanceTrendResponse | null>(null);
+  const [trendLoading, setTrendLoading] = useState(false);
+  const [trendRefreshing, setTrendRefreshing] = useState(false);
+  const [trendError, setTrendError] = useState<string | null>(null);
+  const [trendResolutionMinutes, setTrendResolutionMinutes] = useState<PerformanceTrendResolutionMinutes>(60);
+  const [trendStartMinute, setTrendStartMinute] = useState(0);
+  const [trendEndMinute, setTrendEndMinute] = useState(FULL_DAY_END_MINUTE);
   const [currentState, setCurrentState] = useState<PerformancePreferencesState>(DEFAULT_PREFERENCES_STATE);
   const [savedGroups, setSavedGroups] = useState<PerformanceSavedGroup[]>([]);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
@@ -891,19 +1008,22 @@ export function PerformancePage() {
   const deferredSearchQuery = useDeferredValue(currentState.searchQuery.trim().toLowerCase());
   const summaryRequestIdRef = useRef(0);
   const summaryAbortRef = useRef<AbortController | null>(null);
+  const summaryStateRef = useRef<PerformanceSummaryResponse | null>(null);
+  const trendRequestIdRef = useRef(0);
+  const trendAbortRef = useRef<AbortController | null>(null);
+  const liveAbortRef = useRef<AbortController | null>(null);
+  const liveReconnectTimerRef = useRef<number | null>(null);
+  const liveReconnectAttemptRef = useRef(0);
+  const liveSessionRef = useRef(0);
   const preferencesLoadAbortRef = useRef<AbortController | null>(null);
   const preferencesAbortRef = useRef<AbortController | null>(null);
   const preferencesSaveTimerRef = useRef<number | null>(null);
   const skipNextPreferencesAutosaveRef = useRef(false);
   const detailRequestIdRef = useRef(0);
   const detailAbortRef = useRef<AbortController | null>(null);
-  const detailOpenRef = useRef(false);
-  const detailSubjectRef = useRef<PerformanceEntityBranchCard | null>(null);
-  const liveAbortRef = useRef<AbortController | null>(null);
-  const liveReconnectTimerRef = useRef<number | null>(null);
-  const liveReconnectAttemptRef = useRef(0);
-  const liveSessionRef = useRef(0);
+  const [trendFreshKey, setTrendFreshKey] = useState<string | null>(null);
   const controlsDisabled = (loading && !summary) || !preferencesLoaded;
+  const trendPanelOpen = heroPanel === "trend";
   const activeGroup = useMemo(
     () => savedGroups.find((group) => group.id === currentState.activeGroupId) ?? null,
     [currentState.activeGroupId, savedGroups],
@@ -933,7 +1053,6 @@ export function PerformancePage() {
         })),
     [activeGroup, allBranches, currentState.nameSortEnabled, currentState.selectedBranchFilters, currentState.selectedDeliveryTypes, currentState.selectedSortKeys, currentState.selectedVendorIds, deferredSearchQuery],
   );
-
   const visibleSummary = useMemo(
     () => buildVisibleSummary(visibleBranches),
     [visibleBranches],
@@ -1007,6 +1126,64 @@ export function PerformancePage() {
     () => visibleBranches.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
     [page, visibleBranches],
   );
+  const explicitTrendVendorIds = useMemo(
+    () => resolveExplicitVendorSelections(activeGroup?.vendorIds ?? [], currentState.selectedVendorIds),
+    [activeGroup?.vendorIds, currentState.selectedVendorIds],
+  );
+  const hasExplicitTrendVendorScope = Boolean((activeGroup?.vendorIds.length ?? 0) || currentState.selectedVendorIds.length);
+  const trendDeliveryTypes = useMemo(
+    () =>
+      currentState.selectedDeliveryTypes.length >= DELIVERY_TYPE_OPTIONS.length
+        ? []
+        : dedupeSelections(currentState.selectedDeliveryTypes).sort(),
+    [currentState.selectedDeliveryTypes],
+  );
+  const trendBranchFilters = useMemo(
+    () => dedupeSelections(currentState.selectedBranchFilters).sort(),
+    [currentState.selectedBranchFilters],
+  );
+  const trendScopeKey = useMemo(
+    () => [
+      hasExplicitTrendVendorScope ? "scoped" : "all",
+      explicitTrendVendorIds.join(","),
+      deferredSearchQuery,
+      trendDeliveryTypes.join(","),
+      trendBranchFilters.join(","),
+    ].join("|"),
+    [deferredSearchQuery, explicitTrendVendorIds, hasExplicitTrendVendorScope, trendBranchFilters, trendDeliveryTypes],
+  );
+  const currentTrendRequestKey = useMemo(
+    () =>
+      summary
+        ? buildTrendRequestKey(summary.scope.dayKey, trendResolutionMinutes, trendStartMinute, trendEndMinute, trendScopeKey)
+        : null,
+    [summary, trendEndMinute, trendResolutionMinutes, trendScopeKey, trendStartMinute],
+  );
+  const trendStale = useMemo(() => {
+    if (!summary || !trend || !trendFreshKey || !currentTrendRequestKey) {
+      return false;
+    }
+
+    if (trendFreshKey !== currentTrendRequestKey) {
+      return true;
+    }
+
+    if (summary.scope.dayKey !== trend.scope.dayKey) {
+      return true;
+    }
+
+    const summaryFetchedAt = toUnixMillis(summary.fetchedAt);
+    const trendFetchedAt = toUnixMillis(trend.fetchedAt);
+    if (summaryFetchedAt == null || trendFetchedAt == null) {
+      return false;
+    }
+
+    return summaryFetchedAt > trendFetchedAt;
+  }, [currentTrendRequestKey, summary, trend, trendFreshKey]);
+
+  useEffect(() => {
+    summaryStateRef.current = summary;
+  }, [summary]);
 
   useEffect(() => {
     setPage(1);
@@ -1042,11 +1219,6 @@ export function PerformancePage() {
       }
     };
   }, [currentState, preferencesLoaded]);
-
-  useEffect(() => {
-    detailOpenRef.current = detailOpen;
-    detailSubjectRef.current = detailSubject;
-  }, [detailOpen, detailSubject]);
 
   const expandedBranchIdSet = useMemo(
     () => new Set(expandedBranchIds),
@@ -1145,10 +1317,16 @@ export function PerformancePage() {
 
     try {
       const nextSummary = await api.performanceSummary({ signal: abortController.signal });
-      if (requestId !== summaryRequestIdRef.current) return null;
-      setSummary(nextSummary);
+      if (requestId !== summaryRequestIdRef.current) return summaryStateRef.current;
+      const committedSummary = shouldReplaceSummarySnapshot(summaryStateRef.current, nextSummary)
+        ? nextSummary
+        : summaryStateRef.current;
+      if (committedSummary !== summaryStateRef.current) {
+        summaryStateRef.current = committedSummary;
+        setSummary(committedSummary);
+      }
       setError(null);
-      return nextSummary;
+      return committedSummary;
     } catch (nextError) {
       if (abortController.signal.aborted) {
         return null;
@@ -1167,6 +1345,162 @@ export function PerformancePage() {
     }
   }
 
+  async function loadTrend(options?: { background?: boolean; summaryOverride?: PerformanceSummaryResponse | null }) {
+    const trendSummary = options?.summaryOverride ?? summary;
+    if (!trendSummary) return null;
+    const requestKey = buildTrendRequestKey(
+      trendSummary.scope.dayKey,
+      trendResolutionMinutes,
+      trendStartMinute,
+      trendEndMinute,
+      trendScopeKey,
+    );
+
+    const requestId = trendRequestIdRef.current + 1;
+    trendRequestIdRef.current = requestId;
+    trendAbortRef.current?.abort();
+    const abortController = new AbortController();
+    trendAbortRef.current = abortController;
+    options?.background ? setTrendRefreshing(true) : setTrendLoading(true);
+
+    try {
+      if (!visibleBranches.length) {
+        const emptyTrend = buildEmptyTrendResponse(
+          trendSummary.scope,
+          trendResolutionMinutes,
+          trendStartMinute,
+          trendEndMinute,
+          trendSummary.fetchedAt,
+          trendSummary.cacheState,
+        );
+        if (requestId !== trendRequestIdRef.current) return null;
+        setTrend(emptyTrend);
+        setTrendFreshKey(requestKey);
+        setTrendError(null);
+        return emptyTrend;
+      }
+
+      const nextTrend = await api.performanceTrend({
+        resolutionMinutes: trendResolutionMinutes,
+        startMinute: trendStartMinute,
+        endMinute: trendEndMinute,
+        vendorIds: hasExplicitTrendVendorScope ? explicitTrendVendorIds : undefined,
+        searchQuery: deferredSearchQuery || undefined,
+        selectedDeliveryTypes: trendDeliveryTypes.length ? trendDeliveryTypes : undefined,
+        selectedBranchFilters: trendBranchFilters.length ? trendBranchFilters : undefined,
+      }, {
+        signal: abortController.signal,
+      });
+      if (requestId !== trendRequestIdRef.current) return null;
+      setTrend(nextTrend);
+      setTrendFreshKey(requestKey);
+      setTrendError(null);
+      return nextTrend;
+    } catch (nextError) {
+      if (abortController.signal.aborted) {
+        return null;
+      }
+      if (requestId !== trendRequestIdRef.current) return null;
+      setTrendError(describeApiError(nextError, "Failed to load performance trend."));
+      return null;
+    } finally {
+      if (trendAbortRef.current === abortController) {
+        trendAbortRef.current = null;
+      }
+      if (requestId === trendRequestIdRef.current) {
+        setTrendLoading(false);
+        setTrendRefreshing(false);
+      }
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+
+    const stopReconnectTimer = () => {
+      if (liveReconnectTimerRef.current == null) return;
+      window.clearTimeout(liveReconnectTimerRef.current);
+      liveReconnectTimerRef.current = null;
+    };
+
+    const stopStream = () => {
+      stopReconnectTimer();
+      liveAbortRef.current?.abort();
+      liveAbortRef.current = null;
+    };
+
+    const scheduleReconnect = (connectStream: () => void) => {
+      stopReconnectTimer();
+      const delay = LIVE_RECONNECT_DELAYS_MS[Math.min(liveReconnectAttemptRef.current, LIVE_RECONNECT_DELAYS_MS.length - 1)];
+      liveReconnectAttemptRef.current = Math.min(
+        liveReconnectAttemptRef.current + 1,
+        LIVE_RECONNECT_DELAYS_MS.length - 1,
+      );
+      liveReconnectTimerRef.current = window.setTimeout(() => {
+        liveReconnectTimerRef.current = null;
+        connectStream();
+      }, delay);
+    };
+
+    const connectStream = () => {
+      if (!active) return;
+      stopStream();
+
+      const sessionId = liveSessionRef.current + 1;
+      liveSessionRef.current = sessionId;
+      const controller = new AbortController();
+      liveAbortRef.current = controller;
+
+      void api
+        .streamPerformance({
+          signal: controller.signal,
+          onOpen: () => {
+            if (!active || liveSessionRef.current !== sessionId) return;
+            liveReconnectAttemptRef.current = 0;
+          },
+          onSummary: (nextSummary) => {
+            if (!active || liveSessionRef.current !== sessionId) return;
+            if (!shouldReplaceSummarySnapshot(summaryStateRef.current, nextSummary)) {
+              return;
+            }
+            summaryStateRef.current = nextSummary;
+            setSummary(nextSummary);
+            setError(null);
+          },
+        })
+        .then(() => {
+          if (!active || liveSessionRef.current !== sessionId || controller.signal.aborted) return;
+          scheduleReconnect(connectStream);
+        })
+        .catch((nextError) => {
+          if (!active || liveSessionRef.current !== sessionId || controller.signal.aborted || isAbortError(nextError)) {
+            return;
+          }
+          scheduleReconnect(connectStream);
+        });
+    };
+
+    connectStream();
+
+    return () => {
+      active = false;
+      stopStream();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!summary || !trendPanelOpen) return;
+    void loadTrend({ background: Boolean(trend) });
+  }, [Boolean(summary), trendEndMinute, trendPanelOpen, trendResolutionMinutes, trendScopeKey, trendStartMinute]);
+
+  useEffect(() => {
+    if (trendPanelOpen) return;
+    trendAbortRef.current?.abort();
+    trendAbortRef.current = null;
+    setTrendLoading(false);
+    setTrendRefreshing(false);
+  }, [trendPanelOpen]);
+
   useEffect(() => {
     const preferencesAbortController = new AbortController();
     preferencesLoadAbortRef.current?.abort();
@@ -1176,86 +1510,23 @@ export function PerformancePage() {
       loadSummary(),
       loadPreferences({ signal: preferencesAbortController.signal }),
     ]);
-
-    const intervalId = window.setInterval(() => {
-      void loadSummary({ background: true });
-      if (detailOpenRef.current && detailSubjectRef.current) {
-        void loadDetail(detailSubjectRef.current.vendorId, { background: true });
-      }
-    }, AUTO_REFRESH_MS);
     return () => {
-      window.clearInterval(intervalId);
       summaryAbortRef.current?.abort();
       summaryAbortRef.current = null;
+      trendAbortRef.current?.abort();
+      trendAbortRef.current = null;
       preferencesLoadAbortRef.current?.abort();
       preferencesLoadAbortRef.current = null;
       preferencesAbortRef.current?.abort();
       preferencesAbortRef.current = null;
       detailAbortRef.current?.abort();
       detailAbortRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    let mounted = true;
-
-    const clearReconnectTimer = () => {
-      if (liveReconnectTimerRef.current == null) return;
-      window.clearTimeout(liveReconnectTimerRef.current);
-      liveReconnectTimerRef.current = null;
-    };
-
-    const stopLiveStream = () => {
       liveAbortRef.current?.abort();
       liveAbortRef.current = null;
-    };
-
-    const scheduleReconnect = () => {
-      clearReconnectTimer();
-      const delay = LIVE_RECONNECT_DELAYS_MS[Math.min(liveReconnectAttemptRef.current, LIVE_RECONNECT_DELAYS_MS.length - 1)];
-      liveReconnectAttemptRef.current = Math.min(liveReconnectAttemptRef.current + 1, LIVE_RECONNECT_DELAYS_MS.length - 1);
-      liveReconnectTimerRef.current = window.setTimeout(() => {
+      if (liveReconnectTimerRef.current != null) {
+        window.clearTimeout(liveReconnectTimerRef.current);
         liveReconnectTimerRef.current = null;
-        connectLiveStream();
-      }, delay);
-    };
-
-    const connectLiveStream = () => {
-      if (!mounted) return;
-
-      stopLiveStream();
-      const sessionId = liveSessionRef.current + 1;
-      liveSessionRef.current = sessionId;
-      const abortController = new AbortController();
-      liveAbortRef.current = abortController;
-
-      void api.streamPerformance({
-        signal: abortController.signal,
-        onOpen: () => {
-          liveReconnectAttemptRef.current = 0;
-        },
-        onSync: () => {
-          if (!mounted || sessionId !== liveSessionRef.current) return;
-          void loadSummary({ background: true });
-          if (detailOpenRef.current && detailSubjectRef.current) {
-            void loadDetail(detailSubjectRef.current.vendorId, { background: true });
-          }
-        },
-      }).then(() => {
-        if (!mounted || abortController.signal.aborted || sessionId !== liveSessionRef.current) return;
-        scheduleReconnect();
-      }).catch(() => {
-        if (!mounted || abortController.signal.aborted || sessionId !== liveSessionRef.current) return;
-        scheduleReconnect();
-      });
-    };
-
-    connectLiveStream();
-
-    return () => {
-      mounted = false;
-      clearReconnectTimer();
-      stopLiveStream();
+      }
     };
   }, []);
 
@@ -1286,6 +1557,62 @@ export function PerformancePage() {
     : optionLabel(NUMERIC_SORT_OPTIONS, currentState.selectedSortKeys[0] ?? "orders");
   const branchButtonActive = Boolean(activeGroup) || currentState.selectedVendorIds.length > 0;
   const branchButtonText = activeGroup?.name ?? summarizeBranchSelection(allBranches, currentState.selectedVendorIds);
+  const hasCustomSort = currentState.nameSortEnabled
+    || currentState.selectedSortKeys.join(",") !== DEFAULT_PREFERENCES_STATE.selectedSortKeys.join(",");
+  const hasClearableFilters = Boolean(
+    currentState.searchQuery.trim()
+    || currentState.selectedVendorIds.length
+    || currentState.selectedDeliveryTypes.length
+    || currentState.selectedBranchFilters.length
+    || currentState.activeGroupId
+    || currentState.activeViewId
+    || hasCustomSort,
+  );
+
+  function openHeroPanel(panel: HeroPanel) {
+    setHeroPanel(panel);
+  }
+
+  function updateTrendWindow(next: {
+    resolutionMinutes?: PerformanceTrendResolutionMinutes;
+    startMinute?: number;
+    endMinute?: number;
+  }) {
+    let nextStartMinute = next.startMinute == null ? trendStartMinute : clampTrendMinute(next.startMinute);
+    let nextEndMinute = next.endMinute == null ? trendEndMinute : clampTrendMinute(next.endMinute);
+
+    nextStartMinute = Math.min(nextStartMinute, FULL_DAY_END_MINUTE - 15);
+    nextEndMinute = Math.max(15, nextEndMinute);
+
+    if (nextStartMinute >= nextEndMinute) {
+      if (next.startMinute != null && next.endMinute == null) {
+        nextEndMinute = Math.min(FULL_DAY_END_MINUTE, nextStartMinute + 15);
+      } else if (next.endMinute != null && next.startMinute == null) {
+        nextStartMinute = Math.max(0, nextEndMinute - 15);
+      } else {
+        nextEndMinute = Math.min(FULL_DAY_END_MINUTE, nextStartMinute + 15);
+        if (nextStartMinute >= nextEndMinute) {
+          nextStartMinute = Math.max(0, nextEndMinute - 15);
+        }
+      }
+    }
+
+    if (next.resolutionMinutes != null) {
+      setTrendResolutionMinutes(next.resolutionMinutes);
+    }
+    setTrendStartMinute(nextStartMinute);
+    setTrendEndMinute(nextEndMinute);
+  }
+
+  function clearAllFilters() {
+    setCurrentState(DEFAULT_PREFERENCES_STATE);
+    setGroupQuickAnchorEl(null);
+    setTransportAnchorEl(null);
+    setFilterAnchorEl(null);
+    setSortAnchorEl(null);
+    setBranchesDialogQuery("");
+    setBranchDraftVendorIds([]);
+  }
 
   function setSearchQuery(nextQuery: string) {
     setCurrentState((current) => normalizePreferencesState({
@@ -1507,43 +1834,212 @@ export function PerformancePage() {
                 variant="outlined"
                 startIcon={<RefreshRoundedIcon />}
                 onClick={() => {
-                  void loadSummary({ background: Boolean(summary) });
-                  if (detailOpen && detailSubject) {
-                    void loadDetail(detailSubject.vendorId, { background: Boolean(detail) });
-                  }
+                  void (async () => {
+                    const nextSummary = await loadSummary({ background: Boolean(summary) });
+                    if (trendPanelOpen) {
+                      await loadTrend({
+                        background: Boolean(trend),
+                        summaryOverride: nextSummary ?? summaryStateRef.current,
+                      });
+                    }
+                    if (detailOpen && detailSubject) {
+                      await loadDetail(detailSubject.vendorId, { background: Boolean(detail) });
+                    }
+                  })();
                 }}
                 disabled={loading || refreshing}
-                sx={{ borderRadius: 999, px: 1.6, bgcolor: "rgba(255,255,255,0.92)" }}
+                sx={{
+                  borderRadius: 999,
+                  px: 1.8,
+                  borderColor: "rgba(14,165,233,0.28)",
+                  bgcolor: "rgba(255,255,255,0.96)",
+                  boxShadow: "0 12px 24px rgba(14,165,233,0.08)",
+                  "&:hover": {
+                    borderColor: "rgba(14,165,233,0.4)",
+                    bgcolor: "white",
+                  },
+                }}
               >
                 Refresh
               </Button>
             </Stack>
 
-            {summarySections.length ? (
+            <LayoutGroup id="performance-hero-tabs">
+              <Stack
+                direction="row"
+                spacing={0.6}
+                sx={{
+                  mt: 1.25,
+                  width: "fit-content",
+                  p: 0.45,
+                  borderRadius: 999,
+                  border: "1px solid rgba(148,163,184,0.12)",
+                  bgcolor: "rgba(241,245,249,0.82)",
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.72), 0 10px 24px rgba(15,23,42,0.04)",
+                }}
+                role="tablist"
+                aria-label="Performance hero panels"
+              >
+                {[
+                  {
+                    value: "summary" as const,
+                    label: "Summary",
+                    icon: <SpaceDashboardRoundedIcon sx={{ fontSize: 17 }} />,
+                  },
+                  {
+                    value: "trend" as const,
+                    label: "Trend",
+                    icon: <InsightsRoundedIcon sx={{ fontSize: 17 }} />,
+                  },
+                ].map((tab) => {
+                  const active = heroPanel === tab.value;
+                  return (
+                    <Box
+                      key={tab.value}
+                      component="button"
+                      type="button"
+                      onClick={() => openHeroPanel(tab.value)}
+                      role="tab"
+                      aria-selected={active}
+                      aria-label={`Show ${tab.label} panel`}
+                      sx={{
+                        position: "relative",
+                        appearance: "none",
+                        px: 1.5,
+                        py: 0.78,
+                        borderRadius: 999,
+                        border: "1px solid transparent",
+                        bgcolor: "transparent",
+                        color: active ? "#0f172a" : "#475569",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 0.65,
+                        fontSize: 12.5,
+                        fontWeight: 900,
+                        cursor: "pointer",
+                        overflow: "hidden",
+                        transition: "color 180ms ease, transform 180ms ease",
+                        "&:hover": {
+                          color: "#0f172a",
+                          transform: "translateY(-1px)",
+                        },
+                      }}
+                    >
+                      {active ? (
+                        <motion.span
+                          layoutId="performance-hero-tab-highlight"
+                          style={{
+                            position: "absolute",
+                            inset: 0,
+                            borderRadius: 999,
+                            background: "linear-gradient(135deg, rgba(14,165,233,0.18), rgba(255,255,255,0.98) 46%, rgba(226,232,240,0.95) 100%)",
+                            boxShadow: "0 10px 24px rgba(14,165,233,0.12)",
+                            border: "1px solid rgba(14,165,233,0.14)",
+                          }}
+                          transition={{ type: "spring", stiffness: 320, damping: 28 }}
+                        />
+                      ) : null}
+                      <Box sx={{ position: "relative", zIndex: 1, display: "inline-flex", alignItems: "center", gap: 0.65 }}>
+                        {tab.icon}
+                        {tab.label}
+                        {tab.value === "trend" && trendStale ? (
+                          <Box
+                            component="span"
+                            data-testid="performance-trend-stale-indicator"
+                            sx={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              px: 0.7,
+                              py: 0.15,
+                              borderRadius: 999,
+                              bgcolor: "rgba(245,158,11,0.14)",
+                              color: "#b45309",
+                              fontSize: 10.5,
+                              fontWeight: 900,
+                              letterSpacing: 0.1,
+                            }}
+                          >
+                            Update
+                          </Box>
+                        ) : null}
+                      </Box>
+                    </Box>
+                  );
+                })}
+              </Stack>
+
               <Box
                 sx={{
-                  mt: 1.3,
-                  display: "grid",
-                  gap: 0.8,
-                  gridTemplateColumns: {
-                    xs: "1fr",
-                    md: "minmax(220px, 0.9fr) minmax(320px, 1.2fr) minmax(320px, 1.2fr)",
-                  },
-                  alignItems: "stretch",
+                  mt: 1.15,
+                  minHeight: { xs: 336, md: 352 },
+                  p: { xs: 0.9, md: 1.05 },
+                  borderRadius: 3.4,
+                  border: "1px solid rgba(148,163,184,0.12)",
+                  bgcolor: "rgba(248,250,252,0.72)",
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.7)",
                 }}
               >
-                {summarySections.map((section) => (
-                  <SummarySection
-                    key={section.title}
-                    title={section.title}
-                    accentColor={section.accentColor}
-                    background={section.background}
-                    gridTemplateColumns={section.gridTemplateColumns}
-                    tiles={section.tiles}
-                  />
-                ))}
+                <AnimatePresence mode="wait" initial={false}>
+                  {heroPanel === "summary" ? (
+                    <motion.div
+                      key="summary-panel"
+                      initial={{ opacity: 0, y: 10, filter: "blur(6px)" }}
+                      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                      exit={{ opacity: 0, y: -8, filter: "blur(6px)" }}
+                      transition={{ duration: 0.32, ease: "easeOut" }}
+                      style={{ height: "100%" }}
+                    >
+                      {summarySections.length ? (
+                        <Box
+                          sx={{
+                            display: "grid",
+                            gap: 0.8,
+                            gridTemplateColumns: {
+                              xs: "1fr",
+                              md: "minmax(220px, 0.9fr) minmax(320px, 1.2fr) minmax(320px, 1.2fr)",
+                            },
+                            alignItems: "stretch",
+                          }}
+                        >
+                          {summarySections.map((section) => (
+                            <SummarySection
+                              key={section.title}
+                              title={section.title}
+                              accentColor={section.accentColor}
+                              background={section.background}
+                              gridTemplateColumns={section.gridTemplateColumns}
+                              tiles={section.tiles}
+                            />
+                          ))}
+                        </Box>
+                      ) : null}
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="trend-panel"
+                      initial={{ opacity: 0, y: 10, scale: 0.985, filter: "blur(8px)" }}
+                      animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+                      exit={{ opacity: 0, y: -10, scale: 0.99, filter: "blur(8px)" }}
+                      transition={{ duration: 0.34, ease: "easeOut" }}
+                      style={{ height: "100%" }}
+                    >
+                      <PerformanceTrendPanel
+                        trend={trend}
+                        loading={trendLoading}
+                        refreshing={trendRefreshing}
+                        error={trendError}
+                        resolutionMinutes={trendResolutionMinutes}
+                        startMinute={trendStartMinute}
+                        endMinute={trendEndMinute}
+                        onResolutionChange={(value) => updateTrendWindow({ resolutionMinutes: value })}
+                        onRangeChange={(startMinute, endMinute) => updateTrendWindow({ startMinute, endMinute })}
+                        onInteract={() => {}}
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </Box>
-            ) : null}
+            </LayoutGroup>
           </Box>
 
           <Box
@@ -1642,6 +2138,41 @@ export function PerformancePage() {
                   disabled={controlsDisabled}
                   icon={<SortRoundedIcon />}
                 />
+
+                {hasClearableFilters ? (
+                  <Button
+                    aria-label="Clear all filters"
+                    title="Clear all filters"
+                    onClick={clearAllFilters}
+                    disabled={controlsDisabled}
+                    startIcon={<FilterAltOffRoundedIcon />}
+                    sx={{
+                      minWidth: 0,
+                      height: 40,
+                      px: 1.2,
+                      borderRadius: 999,
+                      color: "#b91c1c",
+                      bgcolor: "rgba(254,242,242,0.96)",
+                      border: "1px solid rgba(239,68,68,0.16)",
+                      boxShadow: "0 10px 22px rgba(239,68,68,0.10)",
+                      fontSize: 12.5,
+                      fontWeight: 900,
+                      transform: "translateY(0)",
+                      transition: "transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease, border-color 160ms ease",
+                      "&:hover": {
+                        bgcolor: "rgba(254,226,226,0.98)",
+                        borderColor: "rgba(239,68,68,0.24)",
+                        boxShadow: "0 14px 28px rgba(239,68,68,0.12)",
+                        transform: "translateY(-1px)",
+                      },
+                      "&:active": {
+                        transform: "scale(0.98)",
+                      },
+                    }}
+                  >
+                    Clear
+                  </Button>
+                ) : null}
 
               </Stack>
 

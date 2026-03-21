@@ -81,11 +81,13 @@ vi.mock("./ordersMirrorStore.js", () => ({
 
 import {
   buildPerformanceDataset,
+  buildPerformanceTrendResponse,
   extractCancellationDetail,
   extractCancellationOwner,
   extractTransportType,
   getPerformanceBranchDetail,
   getPerformanceSummary,
+  getPerformanceTrend,
   getPerformanceVendorDetail,
 } from "./performanceStore.js";
 
@@ -481,6 +483,240 @@ describe("performanceStore", () => {
         totalCancelledOrders: 1,
       },
     });
+  });
+
+  it("builds hourly performance trends with vendor filtering and rate calculations", () => {
+    const trend = buildPerformanceTrendResponse({
+      dayKey: "2026-03-20",
+      resolutionMinutes: 60,
+      startMinute: 480,
+      endMinute: 600,
+      vendorIds: [101],
+      rows: [
+        createMirrorRow({
+          vendorId: 101,
+          orderId: "trend-1",
+          externalId: "8001",
+          placedAt: "2026-03-20T06:05:00.000Z",
+          cancellationOwner: "VENDOR",
+        }),
+        createMirrorRow({
+          vendorId: 101,
+          orderId: "trend-2",
+          externalId: "8002",
+          placedAt: "2026-03-20T06:25:00.000Z",
+          cancellationOwner: "TRANSPORT",
+        }),
+        createMirrorRow({
+          vendorId: 202,
+          orderId: "trend-3",
+          externalId: "8003",
+          placedAt: "2026-03-20T06:40:00.000Z",
+          cancellationOwner: "VENDOR",
+        }),
+      ],
+      fetchedAt: "2026-03-20T12:00:00.000Z",
+      cacheState: "fresh",
+    });
+
+    expect(trend).toMatchObject({
+      resolutionMinutes: 60,
+      startMinute: 480,
+      endMinute: 600,
+      fetchedAt: "2026-03-20T12:00:00.000Z",
+      cacheState: "fresh",
+    });
+    expect(trend.buckets).toEqual([
+      expect.objectContaining({
+        label: "08:00",
+        ordersCount: 2,
+        vendorCancelledCount: 1,
+        transportCancelledCount: 1,
+        vfr: 50,
+        lfr: 50,
+        vlfr: 100,
+      }),
+      expect.objectContaining({
+        label: "09:00",
+        ordersCount: 0,
+        vendorCancelledCount: 0,
+        transportCancelledCount: 0,
+        vfr: 0,
+        lfr: 0,
+        vlfr: 0,
+      }),
+    ]);
+  });
+
+  it("returns empty trend buckets when the effective vendor scope is explicitly empty", () => {
+    const trend = buildPerformanceTrendResponse({
+      dayKey: "2026-03-20",
+      resolutionMinutes: 60,
+      startMinute: 480,
+      endMinute: 540,
+      vendorIds: [],
+      rows: [
+        createMirrorRow({
+          vendorId: 101,
+          orderId: "trend-empty-1",
+          externalId: "8101",
+          placedAt: "2026-03-20T06:05:00.000Z",
+          cancellationOwner: "VENDOR",
+        }),
+      ],
+    });
+
+    expect(trend.buckets).toEqual([
+      expect.objectContaining({
+        label: "08:00",
+        ordersCount: 0,
+        vendorCancelledCount: 0,
+        transportCancelledCount: 0,
+        vfr: 0,
+        lfr: 0,
+        vlfr: 0,
+      }),
+    ]);
+  });
+
+  it("builds 30-minute and 15-minute trends within the selected time window", () => {
+    const rows = [
+      createMirrorRow({
+        orderId: "trend-30-a",
+        externalId: "8301",
+        placedAt: "2026-03-20T06:05:00.000Z",
+      }),
+      createMirrorRow({
+        orderId: "trend-30-b",
+        externalId: "8302",
+        placedAt: "2026-03-20T06:35:00.000Z",
+        cancellationOwner: "VENDOR",
+      }),
+      createMirrorRow({
+        orderId: "trend-15-a",
+        externalId: "8311",
+        placedAt: "2026-03-20T06:20:00.000Z",
+      }),
+      createMirrorRow({
+        orderId: "trend-15-b",
+        externalId: "8312",
+        placedAt: "2026-03-20T06:50:00.000Z",
+        cancellationOwner: "TRANSPORT",
+      }),
+      createMirrorRow({
+        orderId: "trend-outside",
+        externalId: "8399",
+        placedAt: "2026-03-20T07:20:00.000Z",
+      }),
+    ];
+
+    const halfHourTrend = buildPerformanceTrendResponse({
+      dayKey: "2026-03-20",
+      resolutionMinutes: 30,
+      startMinute: 480,
+      endMinute: 540,
+      rows,
+    });
+    const fifteenMinuteTrend = buildPerformanceTrendResponse({
+      dayKey: "2026-03-20",
+      resolutionMinutes: 15,
+      startMinute: 480,
+      endMinute: 540,
+      rows,
+    });
+
+    expect(halfHourTrend.buckets).toEqual([
+      expect.objectContaining({ label: "08:00", ordersCount: 2 }),
+      expect.objectContaining({ label: "08:30", ordersCount: 2, vendorCancelledCount: 1, transportCancelledCount: 1 }),
+    ]);
+    expect(fifteenMinuteTrend.buckets).toEqual([
+      expect.objectContaining({ label: "08:00", ordersCount: 1 }),
+      expect.objectContaining({ label: "08:15", ordersCount: 1 }),
+      expect.objectContaining({ label: "08:30", ordersCount: 1, vendorCancelledCount: 1 }),
+      expect.objectContaining({ label: "08:45", ordersCount: 1, transportCancelledCount: 1 }),
+    ]);
+  });
+
+  it("derives trend vendor scope from server-side search and branch filters instead of requiring vendor ids", async () => {
+    mockListResolvedBranches.mockReturnValue([
+      createBranch({
+        id: 1,
+        name: "Nasr City",
+        ordersVendorId: 101,
+      }),
+      createBranch({
+        id: 2,
+        name: "Heliopolis",
+        ordersVendorId: 102,
+        availabilityVendorId: "202",
+      }),
+    ]);
+    mockPrepare.mockImplementation(() => ({
+      all: vi.fn(() => [
+        createMirrorRow({
+          dayKey: "2026-03-21",
+          vendorId: 101,
+          vendorName: "Nasr City",
+          orderId: "scope-1",
+          externalId: "8201",
+          placedAt: "2026-03-21T06:05:00.000Z",
+          status: "STARTED",
+          transportType: "LOGISTICS_DELIVERY",
+          isCancelled: 0,
+          isCompleted: 0,
+          isActiveNow: 1,
+        }),
+        createMirrorRow({
+          dayKey: "2026-03-21",
+          vendorId: 101,
+          vendorName: "Nasr City",
+          orderId: "scope-2",
+          externalId: "8202",
+          placedAt: "2026-03-21T06:20:00.000Z",
+          status: "CANCELLED",
+          transportType: "LOGISTICS_DELIVERY",
+          isCancelled: 1,
+          isCompleted: 1,
+          isActiveNow: 0,
+          cancellationOwner: "VENDOR",
+          cancellationOwnerLookupAt: "2026-03-21T06:25:00.000Z",
+        }),
+        createMirrorRow({
+          dayKey: "2026-03-21",
+          vendorId: 102,
+          vendorName: "Heliopolis",
+          orderId: "scope-3",
+          externalId: "8203",
+          placedAt: "2026-03-21T06:35:00.000Z",
+          status: "STARTED",
+          transportType: "VENDOR_DELIVERY",
+          isCancelled: 0,
+          isCompleted: 0,
+          isActiveNow: 1,
+        }),
+      ]),
+    }));
+
+    const trend = await getPerformanceTrend({
+      resolutionMinutes: 60,
+      startMinute: 480,
+      endMinute: 540,
+      searchQuery: "nasr",
+      selectedDeliveryTypes: ["logistics"],
+      selectedBranchFilters: ["vendor"],
+    });
+
+    expect(trend.buckets).toEqual([
+      expect.objectContaining({
+        label: "08:00",
+        ordersCount: 2,
+        vendorCancelledCount: 1,
+        transportCancelledCount: 0,
+        vfr: 50,
+        lfr: 0,
+        vlfr: 50,
+      }),
+    ]);
   });
 
   it("returns performance summary for all resolved branches and exposes unmapped vendors", async () => {

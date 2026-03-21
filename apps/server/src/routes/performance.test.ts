@@ -4,16 +4,19 @@ import type { Server } from "node:http";
 
 const {
   mockGetPerformanceSummary,
+  mockGetPerformanceTrend,
   mockGetPerformanceBranchDetail,
   mockGetPerformanceVendorDetail,
 } = vi.hoisted(() => ({
   mockGetPerformanceSummary: vi.fn(),
+  mockGetPerformanceTrend: vi.fn(),
   mockGetPerformanceBranchDetail: vi.fn(),
   mockGetPerformanceVendorDetail: vi.fn(),
 }));
 
 vi.mock("../services/performanceStore.js", () => ({
   getPerformanceSummary: mockGetPerformanceSummary,
+  getPerformanceTrend: mockGetPerformanceTrend,
   getPerformanceBranchDetail: mockGetPerformanceBranchDetail,
   getPerformanceVendorDetail: mockGetPerformanceVendorDetail,
 }));
@@ -23,7 +26,7 @@ vi.mock("../services/authStore.js", () => ({
 }));
 
 import { requireAuthenticatedApi } from "../http/auth.js";
-import { performanceBranchDetailRoute, performanceSummaryRoute, performanceVendorDetailRoute } from "./performance.js";
+import { performanceBranchDetailRoute, performanceSummaryRoute, performanceTrendRoute, performanceVendorDetailRoute } from "./performance.js";
 
 function createEngine() {
   return {
@@ -56,6 +59,7 @@ function createApp() {
   });
   app.use(requireAuthenticatedApi());
   app.get("/api/performance", performanceSummaryRoute(createEngine()));
+  app.get("/api/performance/trends", performanceTrendRoute());
   app.get("/api/performance/branches/:id", performanceBranchDetailRoute(createEngine()));
   app.get("/api/performance/vendors/:id", performanceVendorDetailRoute());
   return app;
@@ -83,6 +87,7 @@ describe("performance routes", () => {
 
   beforeEach(async () => {
     mockGetPerformanceSummary.mockReset();
+    mockGetPerformanceTrend.mockReset();
     mockGetPerformanceBranchDetail.mockReset();
     mockGetPerformanceVendorDetail.mockReset();
 
@@ -165,6 +170,85 @@ describe("performance routes", () => {
     expect(userResponse.status).toBe(200);
     expect(adminResponse.status).toBe(200);
     expect(mockGetPerformanceSummary).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns performance trend data for authenticated callers without requiring vendor ids", async () => {
+    mockGetPerformanceTrend.mockResolvedValue({
+      scope: {
+        dayKey: "2026-03-20",
+        timezone: "Africa/Cairo",
+        startUtcIso: "2026-03-19T22:00:00.000Z",
+        endUtcIso: "2026-03-20T21:59:59.999Z",
+      },
+      fetchedAt: "2026-03-20T10:00:00.000Z",
+      cacheState: "fresh",
+      resolutionMinutes: 60,
+      startMinute: 0,
+      endMinute: 120,
+      buckets: [
+        {
+          bucketStartUtcIso: "2026-03-19T22:00:00.000Z",
+          bucketEndUtcIso: "2026-03-19T23:00:00.000Z",
+          label: "00:00",
+          ordersCount: 4,
+          vendorCancelledCount: 1,
+          transportCancelledCount: 0,
+          vfr: 25,
+          lfr: 0,
+          vlfr: 25,
+        },
+      ],
+    });
+
+    const response = await fetch(`${baseUrl}/api/performance/trends?resolutionMinutes=60&startMinute=0&endMinute=120`, {
+      headers: { "x-role": "user" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockGetPerformanceTrend).toHaveBeenCalledWith({
+      resolutionMinutes: 60,
+      startMinute: 0,
+      endMinute: 120,
+      vendorIds: undefined,
+      searchQuery: undefined,
+      selectedDeliveryTypes: undefined,
+      selectedBranchFilters: undefined,
+    });
+  });
+
+  it("parses trend scope filters for authenticated callers", async () => {
+    mockGetPerformanceTrend.mockResolvedValue({
+      scope: {
+        dayKey: "2026-03-20",
+        timezone: "Africa/Cairo",
+        startUtcIso: "2026-03-19T22:00:00.000Z",
+        endUtcIso: "2026-03-20T21:59:59.999Z",
+      },
+      fetchedAt: "2026-03-20T10:00:00.000Z",
+      cacheState: "fresh",
+      resolutionMinutes: 60,
+      startMinute: 0,
+      endMinute: 120,
+      buckets: [],
+    });
+
+    const response = await fetch(
+      `${baseUrl}/api/performance/trends?resolutionMinutes=60&startMinute=0&endMinute=120&searchQuery=nasr&deliveryType=logistics&branchFilter=vendor&vendorId=111`,
+      {
+        headers: { "x-role": "user" },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockGetPerformanceTrend).toHaveBeenCalledWith({
+      resolutionMinutes: 60,
+      startMinute: 0,
+      endMinute: 120,
+      vendorIds: [111],
+      searchQuery: "nasr",
+      selectedDeliveryTypes: ["logistics"],
+      selectedBranchFilters: ["vendor"],
+    });
   });
 
   it("returns branch performance detail for authenticated callers", async () => {
@@ -308,6 +392,34 @@ describe("performance routes", () => {
 
     expect(branchResponse.status).toBe(400);
     expect(vendorResponse.status).toBe(400);
+  });
+
+  it("returns 400 for invalid trend queries", async () => {
+    const invalidResolutionResponse = await fetch(`${baseUrl}/api/performance/trends?resolutionMinutes=10`, {
+      headers: { "x-role": "user" },
+    });
+    const invalidMinuteResponse = await fetch(`${baseUrl}/api/performance/trends?startMinute=7&endMinute=120`, {
+      headers: { "x-role": "user" },
+    });
+    const invalidRangeResponse = await fetch(`${baseUrl}/api/performance/trends?startMinute=120&endMinute=120`, {
+      headers: { "x-role": "user" },
+    });
+    const invalidVendorResponse = await fetch(`${baseUrl}/api/performance/trends?vendorId=oops`, {
+      headers: { "x-role": "user" },
+    });
+    const invalidDeliveryTypeResponse = await fetch(`${baseUrl}/api/performance/trends?deliveryType=invalid`, {
+      headers: { "x-role": "user" },
+    });
+    const invalidBranchFilterResponse = await fetch(`${baseUrl}/api/performance/trends?branchFilter=invalid`, {
+      headers: { "x-role": "user" },
+    });
+
+    expect(invalidResolutionResponse.status).toBe(400);
+    expect(invalidMinuteResponse.status).toBe(400);
+    expect(invalidRangeResponse.status).toBe(400);
+    expect(invalidVendorResponse.status).toBe(400);
+    expect(invalidDeliveryTypeResponse.status).toBe(400);
+    expect(invalidBranchFilterResponse.status).toBe(400);
   });
 
   it("returns 404 when a branch or vendor detail cannot be found", async () => {

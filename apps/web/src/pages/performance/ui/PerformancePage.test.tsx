@@ -1,8 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   mockPerformanceSummary,
+  mockPerformanceTrend,
   mockPerformanceVendorDetail,
   mockPerformancePreferences,
   mockSavePerformanceCurrentPreferences,
@@ -15,6 +17,7 @@ const {
   mockStreamPerformance,
 } = vi.hoisted(() => ({
   mockPerformanceSummary: vi.fn(),
+  mockPerformanceTrend: vi.fn(),
   mockPerformanceVendorDetail: vi.fn(),
   mockPerformancePreferences: vi.fn(),
   mockSavePerformanceCurrentPreferences: vi.fn(),
@@ -30,6 +33,7 @@ const {
 vi.mock("../../../api/client", () => ({
   api: {
     performanceSummary: mockPerformanceSummary,
+    performanceTrend: mockPerformanceTrend,
     performanceVendorDetail: mockPerformanceVendorDetail,
     performancePreferences: mockPerformancePreferences,
     savePerformanceCurrentPreferences: mockSavePerformanceCurrentPreferences,
@@ -64,6 +68,63 @@ vi.mock("../../../app/providers/MonitorStatusProvider", () => ({
 
 vi.mock("../../../widgets/top-bar/ui/TopBar", () => ({
   TopBar: () => <div>TopBar</div>,
+}));
+
+vi.mock("motion/react", () => ({
+  AnimatePresence: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  LayoutGroup: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  motion: {
+    div: ({
+      children,
+      initial: _initial,
+      animate: _animate,
+      exit: _exit,
+      transition: _transition,
+      ...props
+    }: Record<string, unknown> & {
+      children?: ReactNode;
+      initial?: unknown;
+      animate?: unknown;
+      exit?: unknown;
+      transition?: unknown;
+    }) => <div {...(props as Record<string, unknown>)}>{children}</div>,
+    span: ({
+      children,
+      layoutId: _layoutId,
+      transition: _transition,
+      ...props
+    }: Record<string, unknown> & {
+      children?: ReactNode;
+      layoutId?: string;
+      transition?: unknown;
+    }) => <span {...(props as Record<string, unknown>)}>{children}</span>,
+  },
+  useReducedMotion: () => false,
+}));
+
+vi.mock("echarts-for-react", () => ({
+  default: (props: {
+    option?: { xAxis?: { data?: string[] } };
+    onEvents?: Record<string, (event: unknown) => void>;
+    onMouseEnter?: () => void;
+  }) => (
+    <div
+      data-testid="performance-trend-chart"
+      onMouseEnter={props.onMouseEnter}
+      onMouseLeave={() => props.onEvents?.globalout?.({})}
+    >
+      {(props.option?.xAxis?.data ?? []).map((label, index) => (
+        <button
+          key={label}
+          type="button"
+          onMouseEnter={() => props.onEvents?.updateAxisPointer?.({ axesInfo: [{ value: index }] })}
+          onClick={() => props.onEvents?.click?.({ dataIndex: index, name: label })}
+        >
+          bucket-{label}
+        </button>
+      ))}
+    </div>
+  ),
 }));
 
 import { PerformancePage } from "./PerformancePage";
@@ -294,6 +355,50 @@ const baseSummary = {
   cacheState: "fresh" as const,
 };
 
+const baseTrend = {
+  scope: baseSummary.scope,
+  fetchedAt: "2026-03-20T12:05:00.000Z",
+  cacheState: "fresh" as const,
+  resolutionMinutes: 60 as const,
+  startMinute: 480,
+  endMinute: 660,
+  buckets: [
+    {
+      bucketStartUtcIso: "2026-03-20T06:00:00.000Z",
+      bucketEndUtcIso: "2026-03-20T07:00:00.000Z",
+      label: "08:00",
+      ordersCount: 8,
+      vendorCancelledCount: 1,
+      transportCancelledCount: 0,
+      vfr: 12.5,
+      lfr: 0,
+      vlfr: 12.5,
+    },
+    {
+      bucketStartUtcIso: "2026-03-20T07:00:00.000Z",
+      bucketEndUtcIso: "2026-03-20T08:00:00.000Z",
+      label: "09:00",
+      ordersCount: 10,
+      vendorCancelledCount: 1,
+      transportCancelledCount: 1,
+      vfr: 10,
+      lfr: 10,
+      vlfr: 20,
+    },
+    {
+      bucketStartUtcIso: "2026-03-20T08:00:00.000Z",
+      bucketEndUtcIso: "2026-03-20T09:00:00.000Z",
+      label: "10:00",
+      ordersCount: 4,
+      vendorCancelledCount: 0,
+      transportCancelledCount: 0,
+      vfr: 0,
+      lfr: 0,
+      vlfr: 0,
+    },
+  ],
+};
+
 const baseVendorDetail = {
   kind: "vendor" as const,
   vendor: {
@@ -510,6 +615,7 @@ const basePreferences = {
 describe("PerformancePage", () => {
   beforeEach(() => {
     mockPerformanceSummary.mockReset();
+    mockPerformanceTrend.mockReset();
     mockPerformanceVendorDetail.mockReset();
     mockPerformancePreferences.mockReset();
     mockSavePerformanceCurrentPreferences.mockReset();
@@ -521,6 +627,7 @@ describe("PerformancePage", () => {
     mockDeletePerformanceView.mockReset();
     mockStreamPerformance.mockReset();
     mockStreamPerformance.mockImplementation(() => new Promise<void>(() => {}));
+    mockPerformanceTrend.mockResolvedValue(baseTrend);
     mockPerformanceVendorDetail.mockResolvedValue(baseVendorDetail);
     mockPerformancePreferences.mockResolvedValue(basePreferences);
     mockSavePerformanceCurrentPreferences.mockResolvedValue({
@@ -738,7 +845,6 @@ describe("PerformancePage", () => {
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Nasr City" })).toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: "Heliopolis" })).not.toBeInTheDocument();
-      expect(mockSavePerformanceCurrentPreferences).toHaveBeenCalled();
     });
   }, TEST_TIMEOUT_MS);
 
@@ -751,6 +857,7 @@ describe("PerformancePage", () => {
       expect(screen.getByRole("heading", { name: "Nasr City" })).toBeInTheDocument();
     });
 
+    mockPerformanceTrend.mockClear();
     fireEvent.click(screen.getByRole("button", { name: "Open saved branch groups" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Nasr only" }));
 
@@ -759,6 +866,16 @@ describe("PerformancePage", () => {
       expect(screen.getByRole("heading", { name: "Nasr City" })).toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: "Heliopolis" })).not.toBeInTheDocument();
       expect(mockSavePerformanceCurrentPreferences).toHaveBeenCalled();
+    });
+
+    expect(mockPerformanceTrend).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Show Trend panel" }));
+
+    await waitFor(() => {
+      expect(mockPerformanceTrend).toHaveBeenCalledWith(expect.objectContaining({
+        vendorIds: [111],
+      }), expect.any(Object));
     });
   }, TEST_TIMEOUT_MS);
 
@@ -805,7 +922,7 @@ describe("PerformancePage", () => {
     expect(screen.getByRole("button", { name: "Pick branches" })).toBeEnabled();
   }, TEST_TIMEOUT_MS);
 
-  it("auto-refreshes every 60 seconds without breaking the initial render", async () => {
+  it("does not auto-refresh performance data in the background", async () => {
     vi.useFakeTimers();
     mockPerformanceSummary.mockResolvedValue(baseSummary);
 
@@ -817,49 +934,24 @@ describe("PerformancePage", () => {
 
     expect(screen.getByText("TopBar")).toBeInTheDocument();
     expect(mockPerformanceSummary).toHaveBeenCalledTimes(1);
+    expect(mockStreamPerformance).toHaveBeenCalledTimes(1);
+    expect(mockPerformanceTrend).not.toHaveBeenCalled();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(60_000);
       await Promise.resolve();
     });
 
-    expect(mockPerformanceSummary).toHaveBeenCalledTimes(2);
+    expect(mockPerformanceSummary).toHaveBeenCalledTimes(1);
+    expect(mockStreamPerformance).toHaveBeenCalledTimes(1);
+    expect(mockPerformanceTrend).not.toHaveBeenCalled();
     expect(screen.getByRole("heading", { name: "Performance" })).toBeInTheDocument();
   }, TEST_TIMEOUT_MS);
 
-  it("refreshes immediately when the live performance stream receives a sync event", async () => {
-    let streamOptions: {
-      onSync: (payload: unknown) => void;
-    } | null = null;
-
-    mockPerformanceSummary
-      .mockResolvedValueOnce(baseSummary)
-      .mockResolvedValueOnce({
-        ...baseSummary,
-        cards: {
-          ...baseSummary.cards,
-          totalOrders: 25,
-        },
-        branches: baseSummary.branches.map((branch) =>
-          branch.vendorId === 112
-            ? {
-                ...branch,
-                totalOrders: 15,
-              }
-            : branch,
-        ),
-      });
-    mockPerformanceVendorDetail
-      .mockResolvedValueOnce(baseVendorDetail)
-      .mockResolvedValueOnce({
-        ...baseVendorDetail,
-        summary: {
-          ...baseVendorDetail.summary,
-          totalOrders: 15,
-          totalCancelledOrders: 3,
-        },
-      });
-    mockStreamPerformance.mockImplementation((options) => {
+  it("subscribes to live performance summary updates without issuing extra summary requests", async () => {
+    mockPerformanceSummary.mockResolvedValue(baseSummary);
+    let streamOptions: { onSummary?: (summary: typeof baseSummary) => void } | null = null;
+    mockStreamPerformance.mockImplementation((options: { onSummary?: (summary: typeof baseSummary) => void }) => {
       streamOptions = options;
       return new Promise<void>(() => {});
     });
@@ -867,41 +959,40 @@ describe("PerformancePage", () => {
     render(<PerformancePage />);
 
     await waitFor(() => {
-      expect(screen.getByText("22")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Performance" })).toBeInTheDocument();
     });
 
     expect(mockPerformanceSummary).toHaveBeenCalledTimes(1);
+    expect(mockStreamPerformance).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Open details for Heliopolis" }));
-
-    await waitFor(() => {
-      expect(mockPerformanceVendorDetail).toHaveBeenCalledTimes(1);
-      expect(screen.getByRole("tab", { name: "Overview" })).toBeInTheDocument();
-    });
-
-    await act(async () => {
-      streamOptions?.onSync({
-        dayKey: "2026-03-20",
-        globalEntityId: "TB_EG",
-        cacheState: "fresh",
-        fetchedAt: "2026-03-20T12:05:00.000Z",
-        lastSuccessfulSyncAt: "2026-03-20T12:05:00.000Z",
-        consecutiveFailures: 0,
-        lastErrorMessage: null,
-        bootstrapCompleted: true,
+    act(() => {
+      streamOptions?.onSummary?.({
+        ...baseSummary,
+        cards: {
+          ...baseSummary.cards,
+          branchCount: 1,
+          totalOrders: 9,
+        },
+        branches: [
+          {
+            ...baseSummary.branches[0],
+            name: "Dokki",
+            totalOrders: 9,
+          },
+        ],
+        fetchedAt: "2026-03-20T12:10:00.000Z",
       });
-      await Promise.resolve();
     });
 
     await waitFor(() => {
-      expect(mockPerformanceSummary).toHaveBeenCalledTimes(2);
-      expect(mockPerformanceVendorDetail).toHaveBeenCalledTimes(2);
-      expectSummaryTileValues("Total Orders", ["25"]);
-      expect(screen.getAllByText("15").length).toBeGreaterThan(0);
+      expect(screen.getByRole("heading", { name: "Dokki" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Heliopolis" })).not.toBeInTheDocument();
     });
+
+    expect(mockPerformanceSummary).toHaveBeenCalledTimes(1);
   }, TEST_TIMEOUT_MS);
 
-  it("shows 10 branches per page and allows moving to the next page", async () => {
+  it("shows 10 branches per page without refetching trend data when pagination changes", async () => {
     const manyBranches = Array.from({ length: 12 }, (_, index) => ({
       vendorId: 200 + index,
       name: `Branch ${index + 1}`,
@@ -949,8 +1040,12 @@ describe("PerformancePage", () => {
       expect(screen.getByRole("heading", { name: "Branch 1" })).toBeInTheDocument();
     });
 
+    expect(mockPerformanceTrend).not.toHaveBeenCalled();
+
     expect(screen.getByRole("heading", { name: "Branch 10" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Branch 11" })).not.toBeInTheDocument();
+
+    mockPerformanceTrend.mockClear();
 
     fireEvent.click(screen.getAllByRole("button", { name: "Go to page 2" })[0]!);
 
@@ -958,6 +1053,7 @@ describe("PerformancePage", () => {
       expect(screen.getByRole("heading", { name: "Branch 11" })).toBeInTheDocument();
       expect(screen.getByRole("heading", { name: "Branch 12" })).toBeInTheDocument();
     });
+    expect(mockPerformanceTrend).not.toHaveBeenCalled();
   }, TEST_TIMEOUT_MS);
 
   it("restores saved preferences and can apply a saved group from branches", async () => {
@@ -986,5 +1082,380 @@ describe("PerformancePage", () => {
       expect(screen.getByText("Nasr only")).toBeInTheDocument();
       expect(mockSavePerformanceCurrentPreferences).toHaveBeenCalled();
     });
+  }, TEST_TIMEOUT_MS);
+
+  it("loads trend data only after opening the trend panel and updates hover insights", async () => {
+    mockPerformanceSummary.mockResolvedValue(baseSummary);
+
+    render(<PerformancePage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Performance" })).toBeInTheDocument();
+    });
+
+    expect(mockPerformanceTrend).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Show Trend panel" }));
+
+    await waitFor(() => {
+      expect(mockPerformanceTrend).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("performance-trend-chart")).toBeInTheDocument();
+      expect(within(screen.getByTestId("trend-details-table")).getAllByText("All Candles").length).toBeGreaterThan(0);
+      expect(screen.getByRole("button", { name: "bucket-09:00" })).toBeInTheDocument();
+      expect(screen.queryByRole("radiogroup", { name: "Trend resolution" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Open trend edit menu" })).toBeInTheDocument();
+    });
+
+    const trendPayload = mockPerformanceTrend.mock.calls[0]?.[0];
+    expect(trendPayload).toMatchObject({
+      resolutionMinutes: 60,
+      startMinute: 0,
+      endMinute: 1440,
+    });
+    expect(trendPayload?.vendorIds).toBeUndefined();
+    expect(trendPayload?.searchQuery).toBeUndefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "bucket-09:00" }));
+
+    await waitFor(() => {
+      const detailsTable = screen.getByTestId("trend-details-table");
+      expect(within(detailsTable).getAllByText("Selected Candle")).toHaveLength(1);
+      expect(within(detailsTable).getAllByText(/09:00:00 to 20 Mar, 10:00:00/).length).toBeGreaterThan(0);
+      expect(within(detailsTable).getAllByText("10.0%")).toHaveLength(2);
+      expect(within(detailsTable).getAllByText("20.0%").length).toBeGreaterThan(0);
+      expect(within(detailsTable).getByText("2")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open trend edit menu" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Adjust trend candles" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Adjust trend range" })).toBeInTheDocument();
+      expect(screen.queryByRole("radiogroup", { name: "Trend resolution" })).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Adjust trend candles" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("radiogroup", { name: "Trend resolution" })).toBeInTheDocument();
+      expect(screen.getByTestId("trend-candles-submenu")).toHaveAttribute("data-popper-placement", "left-start");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Adjust trend range" }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Trend from time")).toBeInTheDocument();
+      expect(screen.getByTestId("trend-range-submenu")).toHaveAttribute("data-popper-placement", "left-start");
+    });
+  }, TEST_TIMEOUT_MS);
+
+  it("preserves the selected candle during trend refreshes", async () => {
+    const refreshTrendDeferred: { resolve: (value: typeof baseTrend) => void } = {
+      resolve: () => {
+        throw new Error("Expected a pending refreshed trend resolver.");
+      },
+    };
+    const refreshedTrendPromise = new Promise<typeof baseTrend>((resolve) => {
+      refreshTrendDeferred.resolve = resolve;
+    });
+
+    mockPerformanceSummary
+      .mockResolvedValueOnce(baseSummary)
+      .mockResolvedValueOnce(baseSummary);
+    mockPerformanceTrend
+      .mockResolvedValueOnce(baseTrend)
+      .mockImplementationOnce(() => refreshedTrendPromise);
+
+    render(<PerformancePage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Performance" })).toBeInTheDocument();
+    });
+
+    expect(mockPerformanceTrend).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Show Trend panel" }));
+
+    await waitFor(() => {
+      expect(mockPerformanceTrend).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("performance-trend-chart")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "bucket-09:00" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "bucket-09:00" }));
+
+    await waitFor(() => {
+      const detailsTable = screen.getByTestId("trend-details-table");
+      expect(within(detailsTable).getAllByText("Selected Candle")).toHaveLength(1);
+      expect(within(detailsTable).getByText("10")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() => {
+      expect(mockPerformanceTrend).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId("trend-chart-refresh-indicator")).toBeInTheDocument();
+    });
+
+    refreshTrendDeferred.resolve({
+      ...baseTrend,
+      fetchedAt: "2026-03-20T12:10:00.000Z",
+      buckets: baseTrend.buckets.map((bucket) =>
+        bucket.label === "09:00"
+          ? {
+              ...bucket,
+              ordersCount: 17,
+              vendorCancelledCount: 2,
+              vfr: 11.76,
+              vlfr: 21.76,
+            }
+          : bucket,
+      ),
+    });
+
+    await waitFor(() => {
+      const detailsTable = screen.getByTestId("trend-details-table");
+      expect(within(detailsTable).getAllByText("Selected Candle")).toHaveLength(1);
+      expect(within(detailsTable).getByText("17")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Show all candles" })).toBeInTheDocument();
+      expect(screen.queryByTestId("trend-chart-refresh-indicator")).not.toBeInTheDocument();
+    });
+  }, TEST_TIMEOUT_MS);
+
+  it("keeps hero panel switching manual without auto-rotation", async () => {
+    mockPerformanceSummary.mockResolvedValue(baseSummary);
+    vi.useFakeTimers();
+
+    render(<PerformancePage />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("tab", { name: "Show Summary panel" })).toHaveAttribute("aria-selected", "true");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+
+    expect(screen.getByRole("tab", { name: "Show Summary panel" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByTestId("performance-trend-chart")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Show Trend panel" }));
+
+    expect(screen.getByRole("tab", { name: "Show Trend panel" })).toHaveAttribute("aria-selected", "true");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+
+    expect(screen.getByRole("tab", { name: "Show Trend panel" })).toHaveAttribute("aria-selected", "true");
+  }, TEST_TIMEOUT_MS);
+
+  it("shows clear filters and resets active selections back to default", async () => {
+    mockPerformanceSummary.mockResolvedValue(baseSummary);
+
+    render(<PerformancePage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Nasr City" })).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Search branches"), {
+      target: { value: "heliopolis" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Clear all filters" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Nasr City" })).not.toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Heliopolis" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear all filters" }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Search branches")).toHaveValue("");
+      expect(screen.getByRole("heading", { name: "Nasr City" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Heliopolis" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Clear all filters" })).not.toBeInTheDocument();
+    });
+  }, TEST_TIMEOUT_MS);
+
+  it("marks trend as stale on live summary updates without refetching it until requested", async () => {
+    const liveSummary = {
+      ...baseSummary,
+      cards: {
+        ...baseSummary.cards,
+        totalOrders: 28,
+      },
+      fetchedAt: "2026-03-20T12:15:00.000Z",
+    };
+    let streamOptions: { onSummary?: (summary: typeof baseSummary) => void } | null = null;
+    mockPerformanceSummary
+      .mockResolvedValueOnce(baseSummary)
+      .mockResolvedValueOnce(liveSummary);
+    mockStreamPerformance.mockImplementation((options: { onSummary?: (summary: typeof baseSummary) => void }) => {
+      streamOptions = options;
+      return new Promise<void>(() => {});
+    });
+    mockPerformanceTrend
+      .mockResolvedValueOnce(baseTrend)
+      .mockResolvedValueOnce({
+        ...baseTrend,
+        fetchedAt: liveSummary.fetchedAt,
+      });
+
+    render(<PerformancePage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Performance" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Show Trend panel" }));
+
+    await waitFor(() => {
+      expect(mockPerformanceTrend).toHaveBeenCalledTimes(1);
+    });
+
+    mockPerformanceTrend.mockClear();
+
+    act(() => {
+      streamOptions?.onSummary?.(liveSummary);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("performance-trend-stale-indicator")).toBeInTheDocument();
+    });
+    expect(mockPerformanceTrend).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() => {
+      expect(mockPerformanceTrend).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId("performance-trend-stale-indicator")).not.toBeInTheDocument();
+    });
+  }, TEST_TIMEOUT_MS);
+
+  it("reloads the trend when the interval or time window changes", async () => {
+    mockPerformanceSummary.mockResolvedValue(baseSummary);
+
+    render(<PerformancePage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Performance" })).toBeInTheDocument();
+    });
+
+    expect(mockPerformanceTrend).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Show Trend panel" }));
+
+    await waitFor(() => {
+      expect(mockPerformanceTrend).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("performance-trend-chart")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Open trend edit menu" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open trend edit menu" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Adjust trend candles" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Adjust trend range" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Adjust trend candles" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("radiogroup", { name: "Trend resolution" })).toBeInTheDocument();
+      expect(screen.getByTestId("trend-candles-submenu")).toHaveAttribute("data-popper-placement", "left-start");
+    });
+
+    mockPerformanceTrend.mockClear();
+
+    fireEvent.click(screen.getByRole("radio", { name: "30m" }));
+
+    await waitFor(() => {
+      expect(mockPerformanceTrend).toHaveBeenCalledWith(expect.objectContaining({
+        resolutionMinutes: 30,
+        startMinute: 0,
+        endMinute: 1440,
+      }), expect.any(Object));
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Adjust trend range" }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Trend from time")).toBeInTheDocument();
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+      expect(screen.getByTestId("trend-range-submenu")).toHaveAttribute("data-popper-placement", "left-start");
+    });
+
+    const fromInput = screen.getByLabelText("Trend from time");
+    fireEvent.focus(fromInput);
+    fireEvent.change(fromInput, {
+      target: { value: "9:00 AM" },
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "9:00 AM" })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("option", { name: "9:00 AM" }));
+
+    const toInput = screen.getByLabelText("Trend to time");
+    fireEvent.focus(toInput);
+    fireEvent.change(toInput, {
+      target: { value: "10:30 AM" },
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "10:30 AM" })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("option", { name: "10:30 AM" }));
+
+    expect(screen.getByRole("button", { name: "Adjust trend range" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Trend from time")).toBeInTheDocument();
+    expect(screen.getByLabelText("Trend to time")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(mockPerformanceTrend).toHaveBeenLastCalledWith(expect.objectContaining({
+        resolutionMinutes: 30,
+        startMinute: 540,
+        endMinute: 630,
+      }), expect.any(Object));
+    });
+  }, TEST_TIMEOUT_MS);
+
+  it("sends search scope to trend queries without expanding it into vendor ids", async () => {
+    mockPerformanceSummary.mockResolvedValue(baseSummary);
+
+    render(<PerformancePage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Nasr City" })).toBeInTheDocument();
+    });
+
+    expect(mockPerformanceTrend).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("Search branches"), {
+      target: { value: "nasr" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Nasr City" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Heliopolis" })).not.toBeInTheDocument();
+    });
+
+    expect(mockPerformanceTrend).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Show Trend panel" }));
+
+    await waitFor(() => {
+      expect(mockPerformanceTrend).toHaveBeenCalledTimes(1);
+    });
+
+    const trendPayload = mockPerformanceTrend.mock.calls[0]?.[0];
+    expect(trendPayload).toMatchObject({
+      resolutionMinutes: 60,
+      startMinute: 0,
+      endMinute: 1440,
+      searchQuery: "nasr",
+    });
+    expect(trendPayload?.vendorIds).toBeUndefined();
   }, TEST_TIMEOUT_MS);
 });
