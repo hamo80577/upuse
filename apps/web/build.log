@@ -1,0 +1,7 @@
+
+> @upuse/web@0.1.0 build
+> node -e "require('node:fs').rmSync('dist', { recursive: true, force: true })" && tsc -p tsconfig.json && vite build
+
+vite v5.4.21 building for production...
+transforming...
+✓ 2082 modules transformed.

@@ -200,7 +200,7 @@ const accent = (statusColor: PerformanceEntityBranchCard["statusColor"]) =>
     : statusColor === "green"
       ? { line: "#22c55e", glow: "rgba(34,197,94,0.16)", border: "rgba(34,197,94,0.14)" }
       : statusColor === "orange"
-      ? { line: "#f97316", glow: "rgba(249,115,22,0.16)", border: "rgba(249,115,22,0.14)" }
+        ? { line: "#f97316", glow: "rgba(249,115,22,0.16)", border: "rgba(249,115,22,0.14)" }
         : { line: "#94a3b8", glow: "rgba(148,163,184,0.16)", border: "rgba(148,163,184,0.14)" };
 
 function branchMatches(branch: PerformanceEntityBranchCard, query: string) {
@@ -497,6 +497,8 @@ function SummarySection(props: {
         bgcolor: props.background,
         boxShadow: "inset 0 1px 0 rgba(255,255,255,0.55)",
         minHeight: "100%",
+        display: "flex",
+        flexDirection: "column",
       }}
     >
       <Stack direction="row" spacing={0.8} alignItems="center" sx={{ mb: 0.75 }}>
@@ -512,13 +514,6 @@ function SummarySection(props: {
         >
           {props.title}
         </Typography>
-        <Box
-          sx={{
-            flex: 1,
-            height: 1,
-            bgcolor: "rgba(148,163,184,0.18)",
-          }}
-        />
       </Stack>
 
       <Box
@@ -526,6 +521,8 @@ function SummarySection(props: {
           display: "grid",
           gap: 0.7,
           gridTemplateColumns: props.gridTemplateColumns,
+          flex: 1,
+          alignItems: "stretch",
         }}
       >
         {props.tiles.map((tile) => (
@@ -620,9 +617,9 @@ function ToolbarChipButton(props: {
         "&:hover": props.disabled
           ? undefined
           : {
-              bgcolor: props.active ? props.activeBg : "white",
-              boxShadow: "0 10px 20px rgba(15,23,42,0.08)",
-            },
+            bgcolor: props.active ? props.activeBg : "white",
+            boxShadow: "0 10px 20px rgba(15,23,42,0.08)",
+          },
         "&:disabled": {
           opacity: 0.55,
           boxShadow: "none",
@@ -1062,61 +1059,61 @@ export function PerformancePage() {
     () =>
       summary
         ? [
-            {
-              title: "Scope",
-              accentColor: "#0369a1",
-              background: "linear-gradient(180deg, rgba(239,246,255,0.88) 0%, rgba(255,255,255,0.96) 100%)",
-              gridTemplateColumns: {
-                xs: "repeat(2, minmax(0, 1fr))",
-                md: "repeat(2, minmax(0, 1fr))",
-              },
-              tiles: [
-                { label: "Branches", value: metric(visibleSummary.branchCount), tone: "info" as const, featured: true },
-                { label: "Total Orders", value: metric(visibleSummary.totalOrders), featured: true },
-              ],
+          {
+            title: "Scope",
+            accentColor: "#0369a1",
+            background: "linear-gradient(180deg, rgba(239,246,255,0.88) 0%, rgba(255,255,255,0.96) 100%)",
+            gridTemplateColumns: {
+              xs: "repeat(2, minmax(0, 1fr))",
+              md: "repeat(2, minmax(0, 1fr))",
             },
-            {
-              title: "Cancellation",
-              accentColor: "#b91c1c",
-              background: "linear-gradient(180deg, rgba(254,242,242,0.85) 0%, rgba(255,255,255,0.96) 100%)",
-              gridTemplateColumns: {
-                xs: "repeat(2, minmax(0, 1fr))",
-                sm: "repeat(3, minmax(0, 1fr))",
-                xl: "repeat(3, minmax(0, 1fr))",
-              },
-              tiles: [
-                { label: "Total Cancels", value: metric(visibleSummary.totalCancelledOrders), tone: "warning" as const },
-                { label: "Vendor Cancels", value: metric(visibleSummary.vendorOwnerCancelledCount), tone: "warning" as const },
-                { label: "Transport Cancels", value: metric(visibleSummary.transportOwnerCancelledCount), tone: "warning" as const },
-                { label: "VFR", value: metric(visibleSummary.vendorOwnerCancelledCount), secondaryValue: percent(visibleSummary.vfr), tone: "danger" as const },
-                { label: "LFR", value: metric(visibleSummary.transportOwnerCancelledCount), secondaryValue: percent(visibleSummary.lfr), tone: "danger" as const },
-                {
-                  label: "V+L FR",
-                  value: metric(visibleSummary.vendorOwnerCancelledCount + visibleSummary.transportOwnerCancelledCount),
-                  secondaryValue: percent(visibleSummary.vlfr),
-                  tone: "danger" as const,
-                },
-              ],
+            tiles: [
+              { label: "Branches", value: metric(visibleSummary.branchCount), tone: "info" as const, featured: true },
+              { label: "Total Orders", value: metric(visibleSummary.totalOrders), featured: true },
+            ],
+          },
+          {
+            title: "Cancellation",
+            accentColor: "#b91c1c",
+            background: "linear-gradient(180deg, rgba(254,242,242,0.85) 0%, rgba(255,255,255,0.96) 100%)",
+            gridTemplateColumns: {
+              xs: "repeat(2, minmax(0, 1fr))",
+              sm: "repeat(3, minmax(0, 1fr))",
+              xl: "repeat(3, minmax(0, 1fr))",
             },
-            {
-              title: "Flow",
-              accentColor: "#075985",
-              background: "linear-gradient(180deg, rgba(239,246,255,0.72) 0%, rgba(255,255,255,0.96) 100%)",
-              gridTemplateColumns: {
-                xs: "repeat(2, minmax(0, 1fr))",
-                sm: "repeat(3, minmax(0, 1fr))",
-                xl: "repeat(3, minmax(0, 1fr))",
+            tiles: [
+              { label: "Total Cancels", value: metric(visibleSummary.totalCancelledOrders), tone: "warning" as const },
+              { label: "Vendor Cancels", value: metric(visibleSummary.vendorOwnerCancelledCount), tone: "warning" as const },
+              { label: "Transport Cancels", value: metric(visibleSummary.transportOwnerCancelledCount), tone: "warning" as const },
+              { label: "VFR", value: metric(visibleSummary.vendorOwnerCancelledCount), secondaryValue: percent(visibleSummary.vfr), tone: "danger" as const },
+              { label: "LFR", value: metric(visibleSummary.transportOwnerCancelledCount), secondaryValue: percent(visibleSummary.lfr), tone: "danger" as const },
+              {
+                label: "V+L FR",
+                value: metric(visibleSummary.vendorOwnerCancelledCount + visibleSummary.transportOwnerCancelledCount),
+                secondaryValue: percent(visibleSummary.vlfr),
+                tone: "danger" as const,
               },
-              tiles: [
-                { label: "Active", value: metric(visibleSummary.activeOrders), tone: "info" as const },
-                { label: "Late", value: metric(visibleSummary.lateNow), tone: "warning" as const },
-                { label: "On Hold", value: metric(visibleSummary.onHoldOrders), tone: "warning" as const },
-                { label: "Unassigned", value: metric(visibleSummary.unassignedOrders), tone: "warning" as const },
-                { label: "In Prep", value: metric(visibleSummary.inPrepOrders), tone: "info" as const },
-                { label: "Ready to Pickup", value: metric(visibleSummary.readyToPickupOrders), tone: "info" as const },
-              ],
+            ],
+          },
+          {
+            title: "Flow",
+            accentColor: "#075985",
+            background: "linear-gradient(180deg, rgba(239,246,255,0.72) 0%, rgba(255,255,255,0.96) 100%)",
+            gridTemplateColumns: {
+              xs: "repeat(2, minmax(0, 1fr))",
+              sm: "repeat(3, minmax(0, 1fr))",
+              xl: "repeat(3, minmax(0, 1fr))",
             },
-          ]
+            tiles: [
+              { label: "Active", value: metric(visibleSummary.activeOrders), tone: "info" as const },
+              { label: "Late", value: metric(visibleSummary.lateNow), tone: "warning" as const },
+              { label: "On Hold", value: metric(visibleSummary.onHoldOrders), tone: "warning" as const },
+              { label: "Unassigned", value: metric(visibleSummary.unassignedOrders), tone: "warning" as const },
+              { label: "In Prep", value: metric(visibleSummary.inPrepOrders), tone: "info" as const },
+              { label: "Ready to Pickup", value: metric(visibleSummary.readyToPickupOrders), tone: "info" as const },
+            ],
+          },
+        ]
         : [],
     [summary, visibleSummary],
   );
@@ -1209,7 +1206,7 @@ export function PerformancePage() {
       const controller = new AbortController();
       preferencesAbortRef.current?.abort();
       preferencesAbortRef.current = controller;
-      void api.savePerformanceCurrentPreferences(currentState, { signal: controller.signal }).catch(() => {});
+      void api.savePerformanceCurrentPreferences(currentState, { signal: controller.signal }).catch(() => { });
     }, 350);
 
     return () => {
@@ -1730,13 +1727,13 @@ export function PerformancePage() {
     try {
       const response = groupDraftId == null
         ? await api.createPerformanceGroup({
-            name: groupDraftName,
-            vendorIds: groupDraftVendorIds,
-          })
+          name: groupDraftName,
+          vendorIds: groupDraftVendorIds,
+        })
         : await api.updatePerformanceGroup(groupDraftId, {
-            name: groupDraftName,
-            vendorIds: groupDraftVendorIds,
-          });
+          name: groupDraftName,
+          vendorIds: groupDraftVendorIds,
+        });
       setSavedGroups((current) => sortSavedGroups([
         response.group,
         ...current.filter((item) => item.id !== response.group.id),
@@ -2033,7 +2030,7 @@ export function PerformancePage() {
                         endMinute={trendEndMinute}
                         onResolutionChange={(value) => updateTrendWindow({ resolutionMinutes: value })}
                         onRangeChange={(startMinute, endMinute) => updateTrendWindow({ startMinute, endMinute })}
-                        onInteract={() => {}}
+                        onInteract={() => { }}
                       />
                     </motion.div>
                   )}

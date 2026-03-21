@@ -521,6 +521,76 @@ function resolveTrendVendorIds(params: {
     .map((branch) => branch.vendorId);
 }
 
+function buildLightweightBranchAggregates(
+  rows: PerformanceMirrorRow[],
+  globalEntityId: string,
+  nowIso: string,
+): PerformanceEntityBranchCard[] {
+  const entityBranchByVendorKey = new Map<string, PerformanceEntityBranchAggregate>();
+  const vendorRowsByKey = new Map<string, PerformanceMirrorRow[]>();
+
+  // First pass: organize rows by vendor
+  for (const row of rows) {
+    const key = `${globalEntityId}::${row.vendorId}`;
+    if (!vendorRowsByKey.has(key)) {
+      vendorRowsByKey.set(key, []);
+    }
+    vendorRowsByKey.get(key)!.push(row);
+  }
+
+  // Build minimal aggregates for each vendor
+  for (const [key, vendorRows] of vendorRowsByKey) {
+    const [, vendorIdStr] = key.split("::");
+    const vendorId = Number(vendorIdStr);
+    const aggregate: PerformanceEntityBranchAggregate = {
+      vendorId,
+      vendorName: vendorRows[0]?.vendorName ?? "Unknown",
+      statusColor: "grey",
+      ...createAggregateMetrics(),
+    };
+
+    for (const row of vendorRows) {
+      const cancelledOrder = row.isCancelled === 1 || row.status === "CANCELLED" ? toCancelledOrderItem(row) : null;
+      applyAggregateRow(aggregate, row, cancelledOrder, nowIso);
+    }
+
+    entityBranchByVendorKey.set(key, aggregate);
+  }
+
+  // Convert aggregates to branch cards for filtering
+  const result: PerformanceEntityBranchCard[] = [];
+  for (const aggregate of entityBranchByVendorKey.values()) {
+    const cancelled = buildAggregateCoverage(aggregate.cancelledOrders);
+    const deliveryMode = resolveDeliveryMode(aggregate, cancelled.coverage.transportOwnerCancelledCount);
+    const lfrApplicable = isLfrApplicable(deliveryMode);
+    const statusCounts = sortStatusCounts(aggregate.statusCounts);
+
+    result.push({
+      vendorId: aggregate.vendorId,
+      name: aggregate.vendorName,
+      statusColor: aggregate.statusColor,
+      totalOrders: aggregate.totalOrders,
+      activeOrders: aggregate.activeOrders,
+      lateNow: aggregate.lateNow,
+      onHoldOrders: aggregate.onHoldOrders,
+      unassignedOrders: aggregate.unassignedOrders,
+      inPrepOrders: aggregate.inPrepOrders,
+      readyToPickupOrders: aggregate.readyToPickupOrders,
+      deliveryMode,
+      lfrApplicable,
+      vendorOwnerCancelledCount: cancelled.coverage.vendorOwnerCancelledCount,
+      transportOwnerCancelledCount: cancelled.coverage.transportOwnerCancelledCount,
+      vfr: 0,
+      lfr: 0,
+      vlfr: 0,
+      statusCounts,
+      ownerCoverage: cancelled.coverage,
+    });
+  }
+
+  return result;
+}
+
 function applyAggregateRow(
   aggregate: PerformanceAggregateMetrics,
   row: PerformanceMirrorRow,
@@ -774,11 +844,11 @@ function aggregatePerformanceData(params: {
         },
         mappedBranch: mappedAggregate
           ? {
-              branchId: mappedAggregate.branch.id,
-              name: mappedAggregate.branch.name,
-              chainName: mappedAggregate.branch.chainName,
-              availabilityVendorId: mappedAggregate.branch.availabilityVendorId,
-            }
+            branchId: mappedAggregate.branch.id,
+            name: mappedAggregate.branch.name,
+            chainName: mappedAggregate.branch.chainName,
+            availabilityVendorId: mappedAggregate.branch.availabilityVendorId,
+          }
           : null,
         summary: detailSummary,
         statusCounts,
@@ -1140,19 +1210,16 @@ export async function getPerformanceTrend(params: {
     || Boolean(params.selectedBranchFilters?.length);
   const effectiveVendorIds = shouldResolveScopedVendorIds
     ? resolveTrendVendorIds({
-        branches: aggregatePerformanceData({
-          scope,
-          globalEntityId,
-          branches,
-          rows,
-          fetchedAt: syncStatus.fetchedAt,
-          cacheState: syncStatus.cacheState,
-        }).summary.branches,
-        vendorIds: params.vendorIds,
-        searchQuery: params.searchQuery,
-        selectedDeliveryTypes: params.selectedDeliveryTypes,
-        selectedBranchFilters: params.selectedBranchFilters,
-      })
+      branches: buildLightweightBranchAggregates(
+        rows,
+        globalEntityId,
+        new Date().toISOString(),
+      ),
+      vendorIds: params.vendorIds,
+      searchQuery: params.searchQuery,
+      selectedDeliveryTypes: params.selectedDeliveryTypes,
+      selectedBranchFilters: params.selectedBranchFilters,
+    })
     : params.vendorIds;
 
   return buildPerformanceTrendResponse({
