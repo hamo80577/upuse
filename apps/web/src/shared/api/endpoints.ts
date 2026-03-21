@@ -5,6 +5,14 @@ import type {
   LoginResponse,
   AppUserRole,
   BranchDetailResult,
+  PerformanceBranchDetailResponse,
+  PerformancePreferencesResponse,
+  PerformancePreferencesState,
+  PerformanceSavedGroup,
+  PerformanceSavedView,
+  PerformanceLiveUpdate,
+  PerformanceSummaryResponse,
+  PerformanceVendorDetailResponse,
   BranchMappingItem,
   BranchPickersSummary,
   DashboardSnapshot,
@@ -107,6 +115,78 @@ export const api = {
       method: "DELETE",
     }),
   dashboard: () => requestJson<DashboardSnapshot>("/api/dashboard", undefined, { timeoutMs: 20_000 }),
+  performanceSummary: (options?: { signal?: AbortSignal }) =>
+    requestJson<PerformanceSummaryResponse>("/api/performance", { signal: options?.signal }, { timeoutMs: 20_000 }),
+  performanceBranchDetail: (branchId: number, options?: { signal?: AbortSignal }) =>
+    requestJson<PerformanceBranchDetailResponse>(`/api/performance/branches/${branchId}`, { signal: options?.signal }, { timeoutMs: 20_000 }),
+  performanceVendorDetail: (vendorId: number, options?: { signal?: AbortSignal }) =>
+    requestJson<PerformanceVendorDetailResponse>(`/api/performance/vendors/${vendorId}`, { signal: options?.signal }, { timeoutMs: 20_000 }),
+  performancePreferences: (options?: { signal?: AbortSignal }) =>
+    requestJson<PerformancePreferencesResponse>("/api/performance/preferences", { signal: options?.signal }, { timeoutMs: 20_000 }),
+  savePerformanceCurrentPreferences: (payload: PerformancePreferencesState, options?: { signal?: AbortSignal }) =>
+    requestJson<{ ok: true; current: PerformancePreferencesState }>("/api/performance/preferences/current", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: options?.signal,
+    }, { timeoutMs: 20_000 }),
+  createPerformanceGroup: (payload: { name: string; vendorIds: number[] }, options?: { signal?: AbortSignal }) =>
+    requestJson<{ ok: true; group: PerformanceSavedGroup }>("/api/performance/preferences/groups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: options?.signal,
+    }, { timeoutMs: 20_000 }),
+  updatePerformanceGroup: (id: number, payload: { name?: string; vendorIds?: number[] }, options?: { signal?: AbortSignal }) =>
+    requestJson<{ ok: true; group: PerformanceSavedGroup }>(`/api/performance/preferences/groups/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: options?.signal,
+    }, { timeoutMs: 20_000 }),
+  deletePerformanceGroup: (id: number, options?: { signal?: AbortSignal }) =>
+    requestJson<{ ok: true }>(`/api/performance/preferences/groups/${id}`, {
+      method: "DELETE",
+      signal: options?.signal,
+    }, { timeoutMs: 20_000 }),
+  createPerformanceView: (payload: { name: string; state: PerformanceSavedView["state"] }, options?: { signal?: AbortSignal }) =>
+    requestJson<{ ok: true; view: PerformanceSavedView }>("/api/performance/preferences/views", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: options?.signal,
+    }, { timeoutMs: 20_000 }),
+  updatePerformanceView: (id: number, payload: { name?: string; state?: PerformanceSavedView["state"] }, options?: { signal?: AbortSignal }) =>
+    requestJson<{ ok: true; view: PerformanceSavedView }>(`/api/performance/preferences/views/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: options?.signal,
+    }, { timeoutMs: 20_000 }),
+  deletePerformanceView: (id: number, options?: { signal?: AbortSignal }) =>
+    requestJson<{ ok: true }>(`/api/performance/preferences/views/${id}`, {
+      method: "DELETE",
+      signal: options?.signal,
+    }, { timeoutMs: 20_000 }),
+  streamPerformance: (options: {
+    signal?: AbortSignal;
+    onOpen?: () => void;
+    onSync: (update: PerformanceLiveUpdate) => void;
+    onPing?: (payload: { at: string }) => void;
+  }) =>
+    requestJsonWebSocket("/api/ws/performance", {
+      signal: options.signal,
+      onOpen: options.onOpen,
+      onMessage: (eventName, data) => {
+        if (eventName === "sync") {
+          options.onSync(data as PerformanceLiveUpdate);
+          return;
+        }
+        if (eventName === "ping") {
+          options.onPing?.(data as { at: string });
+        }
+      },
+    }),
   streamDashboard: (options: {
     signal?: AbortSignal;
     onOpen?: () => void;

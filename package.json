@@ -10,7 +10,11 @@
     "dev:web": "npm --workspace apps/web run dev",
     "build": "npm --workspace apps/server run build && npm --workspace apps/web run build",
     "start": "node scripts/start-production.mjs",
-    "test:ops": "node --test scripts/start-production.test.mjs"
+    "test:ops": "node --test scripts/start-production.test.mjs",
+    "test:performance:audit": "npm --workspace apps/server run test -- src/services/performanceStore.test.ts src/services/performancePreferencesStore.test.ts src/routes/performance.test.ts src/routes/performancePreferences.test.ts src/http/performanceWebSocket.test.ts && npm --workspace apps/web run test -- src/pages/performance/ui/PerformancePage.test.tsx src/pages/performance/ui/PerformanceBranchDialog.test.tsx",
+    "audit:performance:summary-burst": "node scripts/performance-summary-burst.mjs",
+    "audit:performance:detail-burst": "node scripts/performance-detail-burst.mjs",
+    "audit:performance:ws-soak": "node scripts/performance-websocket-soak.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.0.1"

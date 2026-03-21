@@ -22,6 +22,7 @@ export function createPageLimitError(params: {
   windowStartUtc?: string;
   windowEndUtc?: string;
   splitDepth?: number;
+  maxPages?: number;
 }) {
   const error: any = new Error(
     params.scope === "orders_aggregate"
@@ -39,7 +40,7 @@ export function createPageLimitError(params: {
     windowStartUtc: params.windowStartUtc,
     windowEndUtc: params.windowEndUtc,
     splitDepth: params.splitDepth,
-    maxPages: params.scope === "orders_aggregate" ? ORDERS_AGG_MAX_PAGES : BRANCH_DETAIL_MAX_PAGES,
+    maxPages: params.maxPages ?? (params.scope === "orders_aggregate" ? ORDERS_AGG_MAX_PAGES : BRANCH_DETAIL_MAX_PAGES),
   };
   return error;
 }

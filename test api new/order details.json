@@ -1,0 +1,248 @@
+headers(
+Request URL
+https: //shopper-management-api-live-me.deliveryhero.io/orders/b9af8b7d-ee65-4c64-8aff-e72d51625454
+Request Method
+GET
+Status Code
+200 OK
+Remote Address
+104.19.167.109: 443
+Referrer Policy
+strict-origin-when-cross-origin
+access-control-allow-origin
+https: //portal.talabat.com
+alt-svc
+h3=":443"; ma=86400
+cf-cache-status
+DYNAMIC
+cf-ray
+9df5d05a290b7945-PMO
+content-encoding
+br
+content-type
+application/json; charset=utf-8
+date
+Fri,
+20 Mar 2026 15: 40: 11 GMT
+priority
+u=1,i
+server
+cloudflare
+server-timing
+cfExtPri
+set-cookie
+__cf_bm=YbI4UTcVinVk4L0spPoZP1OkA6kPxi8oAx97VhojywQ-1774021211-1.0.1.1-acz3uHh0TybxTxzQntm23Me9Ns_fKxEVYWrgIqJz9i0zsSR.7EBZPgumtiroSoQKRkaNqWbyyRNXRbA0FXuAWgPFJSM6ub6LDs1iPbhlQnI; path=/; expires=Fri,
+20-Mar-26 16: 10: 11 GMT; domain=.deliveryhero.io; HttpOnly; Secure; SameSite=None
+vary
+Origin
+x-envoy-upstream-service-time
+10
+:authority
+shopper-management-api-live-me.deliveryhero.io
+:method
+GET
+:path
+/orders/b9af8b7d-ee65-4c64-8aff-e72d51625454
+:scheme
+https
+accept
+application/json, text/plain, */*
+accept-encoding
+gzip, deflate, br, zstd
+accept-language
+en-US,en;q=0.9
+authorization
+Bearer eyJhbGciOiJQUzI1NiIsImtpZCI6ImlhbS16bGgwLXBzMjU2IiwidHlwIjoiSldUIn0.eyJhdWQiOiJvcHMtcG9ydGFsLWJhY2tvZmZpY2UiLCJleHAiOjE3NzQwMjY5MDIsImp0aSI6ImRkNWI1MTlkLTNiZjctNDhiYS1iODI5LThlOTQ1OTg4NWE4NSIsImlhdCI6MTc3NDAxOTcwMiwiaXNzIjoiaHR0cDovL3Jtcy5kZWxpdmVyeWhlcm8ubmV0LyIsInN1YiI6Im1vaGFtZWQubWFobW91ZC40MTI4NjBfaWJzLmV4dEB0YWxhYmF0LmNvbSIsInV1aWQiOiIxNWI4NDMzMS0zMzJmLTQwOTctYTI0YS0zYzAyNjJlMTBjMmEiLCJuYW1lIjoibW9oYW1lZCBtYWhtb3VkLjQxMjg2MF9pYnMiLCJuYW1lc3BhY2VzIjpbIkhGX0VHIiwiVEJfRUciXSwiYXBwbGljYXRpb25zIjp7Im9wcy1wb3J0YWwtb3JkZXItZnVsZmlsbWVudCI6Ik9yZGVyIEZ1bGZpbG1lbnQgZGFzaGJvYXJkIn0sInBlcm1pc3Npb25zIjp7Im9wcy1wb3J0YWwtb3JkZXItZnVsZmlsbWVudCI6eyJIRl9FRyI6WyJscyIsImxzOm9yZGVyX2NhbmNlbCIsImxzOm9yZGVyX3JlYWQiLCJsczpvcmRlcl9yZXZpZXciLCJ1c2VyIl0sIlRCX0VHIjpbInVzZXIiXX19fQ.X4UA_2opNV9iAZDKXLCD717CqjebEXtMEfBmdZlLxV2-M9F_BGSqP2lpZfnUa9a2y3IgxqEqzP3mNHcSha0_auJHoabjrkwSkvxGvFrWryS2XLYkHbncQxFd4TaKboBWj-I1UYsf14kSYJfmxROc0yjLa7FZs7wp3T_i20xjevu6ZqVV9Lo3bmublE7cdRgl-A_gdO6b0cUwP4psESwgBWQt-G1Wgu3swlJOttdbDhydA4SrxkbNnh3SGlgMVf2VJUNHsJaY9zdBpH6RyxBv4TUBTJMno24bPNiIo43_snqE8l8XRfy9o2atjTtRbhkTlgNDH0eCoKlPr5VTvLO7ww
+origin
+https://portal.talabat.com
+priority
+u=1, i
+referer
+https://portal.talabat.com/
+sec-ch-ua
+"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"
+sec-ch-ua-mobile
+?0
+sec-ch-ua-platform
+"Windows"
+sec-fetch-dest
+empty
+sec-fetch-mode
+cors
+sec-fetch-site
+cross-site
+user-agent
+Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36
+x-request-source
+ops-portal
+)
+response(
+{
+    "id": "b9af8b7d-ee65-4c64-8aff-e72d51625454",
+    "platformOrderId": "3516764190",
+    "shortCode": "8878",
+    "status": "CANCELLED",
+    "globalEntityId": "HF_EG",
+    "warehouseId": "aa84ab7c-e906-406b-8d33-ee2d0b6a0b32",
+    "vendorId": 59717,
+    "vendorName": "Sally Pharmacies, Heliopolis - Merryland 2   755694",
+    "pickerId": 81329,
+    "pickerName": "Mahmoud Reda",
+    "pickerPhone": "",
+    "riderName": "Mohamed AbdelRaouf Abdo Saleh _EBAD EL RAHMAN",
+    "placedAt": "2026-03-20T15:17:58.128Z",
+    "estimatedPickupTime": "2026-03-20T15:23:16.629Z",
+    "currency": "EGP",
+    "paymentTotalGross": 382.0000002288818,
+    "paymentFeesTotal": 0,
+    "paymentWalletAmount": 0,
+    "paymentDiscountTotal": 0,
+    "paymentType": "CASH_ON_DELIVERY",
+    "paymentTypeDetails": "CASH",
+    "checkoutConfirmedTotal": null,
+    "collectAtPickup": 382.0000002288818,
+    "checkoutReceiptImageKey": null,
+    "checkoutDiscount": null,
+    "isModified": false,
+    "isReconciled": false,
+    "isTest": false,
+    "isDryRun": false,
+    "lastProcessedEvent": 6270273449,
+    "lastProcessedEventTimestamp": "2026-03-20T15:38:56.777Z",
+    "customer": {
+        "id": "1510814431",
+        "email": null,
+        "phone": "+201108485486",
+        "taxId": null,
+        "lastName": "Han",
+        "firstName": "Nour",
+        "nationalId": null,
+        "deliveryAddress": null
+    },
+    "isPreOrder": false,
+    "comment": " ",
+    "isCompleted": true,
+    "isPendingReturn": false,
+    "transportType": "LOGISTICS_DELIVERY",
+    "isReviewed": false,
+    "reviewer": null,
+    "fulfilledFor": "HF_EG",
+    "dfEntityId": "HF_EG",
+    "createdAt": "2026-03-20T15:17:59.143Z",
+    "updatedAt": "2026-03-20T15:38:57.071Z",
+    "version": 6,
+    "products": [
+        {
+            "id": "97ed52c9-7bb3-4438-9695-d43c0bee217d",
+            "sku": "143908",
+            "orderId": "b9af8b7d-ee65-4c64-8aff-e72d51625454",
+            "imageUrl": "https://talabat.dhmedia.io/image/talabat-nv/SSC_PIM/6223002978342.PNG",
+            "name": "Merty Pharma Pinky Whitening Body Cream with Mulberry & Licorice Extracts for Sensitive Skin, 100g",
+            "status": "IN_CART",
+            "requestedQuantity": 1,
+            "unitPrice": 144,
+            "pickupQuantity": 1,
+            "pickupUnitPrice": 144,
+            "totalPrice": 144,
+            "pickupTotalPrice": 144,
+            "custom": false,
+            "comment": "",
+            "lastProcessedEvent": 6270259320,
+            "lastProcessedEventTimestamp": "2026-03-20T15:17:58.574Z",
+            "replacedProductId": null,
+            "pricingType": "UNIT",
+            "createdAt": "2026-03-20T15:17:59.146Z",
+            "updatedAt": "2026-03-20T15:36:33.509Z",
+            "replaces": null,
+            "quantity": 1,
+            "isCustom": false,
+            "replacedProduct": null
+        },
+        {
+            "id": "b6a71f6c-dd65-4579-9c7a-fb1fc92841c3",
+            "sku": "39301",
+            "orderId": "b9af8b7d-ee65-4c64-8aff-e72d51625454",
+            "imageUrl": "https://talabat.dhmedia.io/image/product-information-management/6914bd89676bbcd4df84fbf6.jpg",
+            "name": "Bepanthen Ointment Diaper Rash Protective Ointment for Babies, 30g",
+            "status": "IN_CART",
+            "requestedQuantity": 1,
+            "unitPrice": 193,
+            "pickupQuantity": 1,
+            "pickupUnitPrice": 193,
+            "totalPrice": 193,
+            "pickupTotalPrice": 193,
+            "custom": false,
+            "comment": "",
+            "lastProcessedEvent": 6270259320,
+            "lastProcessedEventTimestamp": "2026-03-20T15:17:58.574Z",
+            "replacedProductId": null,
+            "pricingType": "UNIT",
+            "createdAt": "2026-03-20T15:17:59.146Z",
+            "updatedAt": "2026-03-20T15:36:33.509Z",
+            "replaces": null,
+            "quantity": 1,
+            "isCustom": false,
+            "replacedProduct": null
+        },
+        {
+            "id": "15f11fa3-2985-4693-a660-abd998dcb0ed",
+            "sku": "142857",
+            "orderId": "b9af8b7d-ee65-4c64-8aff-e72d51625454",
+            "imageUrl": "https://talabat.dhmedia.io/image/product-information-management/68bdb387754b2cdae91ab0cd.jpg",
+            "name": "Baby Cream Skin Emollient with Zinc Oxide & Olive Oil, 30g",
+            "status": "IN_CART",
+            "requestedQuantity": 1,
+            "unitPrice": 45,
+            "pickupQuantity": 1,
+            "pickupUnitPrice": 45,
+            "totalPrice": 45,
+            "pickupTotalPrice": 45,
+            "custom": false,
+            "comment": "",
+            "lastProcessedEvent": 6270259320,
+            "lastProcessedEventTimestamp": "2026-03-20T15:17:58.574Z",
+            "replacedProductId": null,
+            "pricingType": "UNIT",
+            "createdAt": "2026-03-20T15:17:59.146Z",
+            "updatedAt": "2026-03-20T15:36:33.509Z",
+            "replaces": null,
+            "quantity": 1,
+            "isCustom": false,
+            "replacedProduct": null
+        }
+    ],
+    "cancellation": {
+        "orderId": "b9af8b7d-ee65-4c64-8aff-e72d51625454",
+        "owner": "CUSTOMER",
+        "reason": "FRAUD_PRANK",
+        "comment": null,
+        "stage": "PREPARATION",
+        "source": "CONTACT_CENTER",
+        "createdAt": "2026-03-20T15:38:57.071Z",
+        "updatedAt": "2026-03-20T15:38:57.071Z"
+    },
+    "shopper": {
+        "id": 81329,
+        "name": "Mahmoud Reda",
+        "firstName": "Mahmoud Reda",
+        "lastName": null,
+        "phone": ""
+    },
+    "vendor": {
+        "id": 59717,
+        "name": "Sally Pharmacies, Heliopolis - Merryland 2   755694"
+    },
+    "externalId": "3516764190",
+    "trackingRiderName": "Mohamed AbdelRaouf Abdo Saleh _EBAD EL RAHMAN",
+    "pickupAt": "2026-03-20T15:23:16.629Z",
+    "paymentCurrency": "EGP",
+    "paymentMethod": "CASH",
+    "isMetaModified": false,
+    "isMetaReconciled": false,
+    "customerId": "1510814431",
+    "customerFirstName": "Nour",
+    "customerLastName": "Han",
+    "customerPhone": "+201108485486",
+    "isCheckedOut": false
+}
+)

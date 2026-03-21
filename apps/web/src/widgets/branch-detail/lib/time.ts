@@ -25,3 +25,17 @@ export function fmtSignedPickupDiff(iso: string | undefined, nowMs: number) {
       : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   return { text: `${positive ? "+" : "-"}${core}`, positive };
 }
+
+export function fmtElapsedDuration(iso: string | undefined, nowMs: number) {
+  if (!iso) return "--";
+  const startMs = new Date(iso).getTime();
+  if (Number.isNaN(startMs)) return "--";
+  const diffMs = Math.max(0, nowMs - startMs);
+  const totalSeconds = Math.floor(diffMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+    : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}

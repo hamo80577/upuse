@@ -206,6 +206,241 @@ export interface DashboardSnapshot {
 
 export type BranchDetailCacheState = "fresh" | "warming" | "stale";
 
+export interface PerformanceStatusCount {
+  status: string;
+  count: number;
+}
+
+export interface PerformanceOwnerCoverage {
+  totalCancelledOrders: number;
+  resolvedOwnerCount: number;
+  unresolvedOwnerCount: number;
+  vendorOwnerCancelledCount: number;
+  transportOwnerCancelledCount: number;
+  lookupErrorCount: number;
+  coverageRatio: number;
+  warning: string | null;
+}
+
+export interface PerformanceBranchCard {
+  kind: "mapped_branch";
+  branchId: number;
+  name: string;
+  chainName: string;
+  ordersVendorId: OrdersVendorId;
+  availabilityVendorId: AvailabilityVendorId;
+  statusColor: BranchSnapshot["statusColor"];
+  totalOrders: number;
+  vendorOwnerCancelledCount: number;
+  transportOwnerCancelledCount: number;
+  vfr: number;
+  lfr: number;
+  vlfr: number;
+  statusCounts: PerformanceStatusCount[];
+  ownerCoverage: PerformanceOwnerCoverage;
+}
+
+export interface PerformanceUnmappedVendorCard {
+  kind: "unmapped_vendor";
+  vendorId: OrdersVendorId;
+  vendorName: string;
+  globalEntityId: string;
+  statusColor: BranchSnapshot["statusColor"];
+  totalOrders: number;
+  vendorOwnerCancelledCount: number;
+  transportOwnerCancelledCount: number;
+  vfr: number;
+  lfr: number;
+  vlfr: number;
+  statusCounts: PerformanceStatusCount[];
+  ownerCoverage: PerformanceOwnerCoverage;
+}
+
+export interface PerformanceEntityBranchCard {
+  vendorId: OrdersVendorId;
+  name: string;
+  statusColor: BranchSnapshot["statusColor"];
+  totalOrders: number;
+  activeOrders: number;
+  lateNow: number;
+  onHoldOrders: number;
+  unassignedOrders: number;
+  inPrepOrders: number;
+  readyToPickupOrders: number;
+  deliveryMode: "logistics" | "self" | "mixed" | "unknown";
+  lfrApplicable: boolean;
+  vendorOwnerCancelledCount: number;
+  transportOwnerCancelledCount: number;
+  vfr: number;
+  lfr: number;
+  vlfr: number;
+  statusCounts: PerformanceStatusCount[];
+  ownerCoverage: PerformanceOwnerCoverage;
+}
+
+export interface PerformanceChainGroup {
+  chainName: string;
+  branchCount: number;
+  totalOrders: number;
+  vendorOwnerCancelledCount: number;
+  transportOwnerCancelledCount: number;
+  vfr: number;
+  lfr: number;
+  vlfr: number;
+  ownerCoverage: PerformanceOwnerCoverage;
+  branches: PerformanceBranchCard[];
+}
+
+export interface PerformanceCancelledOrderItem {
+  orderId: string;
+  externalId: string;
+  status: string;
+  customerFirstName: string | null;
+  placedAt: string | null;
+  pickupAt: string | null;
+  cancellationOwner: string | null;
+  cancellationReason: string | null;
+  cancellationStage: string | null;
+  cancellationSource: string | null;
+  cancellationCreatedAt: string | null;
+  cancellationUpdatedAt: string | null;
+  cancellationOwnerLookupAt: string | null;
+  cancellationOwnerLookupError: string | null;
+}
+
+export interface PerformanceMappedBranchReference {
+  branchId: number;
+  name: string;
+  chainName: string;
+  availabilityVendorId: AvailabilityVendorId;
+}
+
+export interface PerformanceDetailSummary {
+  totalOrders: number;
+  totalCancelledOrders: number;
+  activeOrders: number;
+  lateNow: number;
+  onHoldOrders: number;
+  unassignedOrders: number;
+  inPrepOrders: number;
+  readyToPickupOrders: number;
+  vendorOwnerCancelledCount: number;
+  transportOwnerCancelledCount: number;
+  customerOwnerCancelledCount: number;
+  unknownOwnerCancelledCount: number;
+  vfr: number;
+  lfr: number;
+  vlfr: number;
+  deliveryMode: PerformanceEntityBranchCard["deliveryMode"];
+  lfrApplicable: boolean;
+}
+
+export interface PerformanceSummaryResponse {
+  scope: {
+    dayKey: string;
+    timezone: string;
+    startUtcIso: string;
+    endUtcIso: string;
+  };
+  cards: {
+    branchCount: number;
+    totalOrders: number;
+    totalCancelledOrders: number;
+    activeOrders: number;
+    lateNow: number;
+    onHoldOrders: number;
+    unassignedOrders: number;
+    inPrepOrders: number;
+    readyToPickupOrders: number;
+    vfr: number;
+    lfr: number;
+    vlfr: number;
+    vendorOwnerCancelledCount: number;
+    transportOwnerCancelledCount: number;
+  };
+  branches: PerformanceEntityBranchCard[];
+  statusCounts: PerformanceStatusCount[];
+  ownerCoverage: PerformanceOwnerCoverage;
+  chains: PerformanceChainGroup[];
+  unmappedVendors: PerformanceUnmappedVendorCard[];
+  fetchedAt: string | null;
+  cacheState: BranchDetailCacheState;
+}
+
+export type PerformanceDeliveryTypeFilter = "logistics" | "vendor_delivery";
+export type PerformanceBranchFilter = "vendor" | "transport" | "late" | "on_hold" | "unassigned" | "in_prep" | "ready";
+export type PerformanceNumericSortKey = "orders" | "vfr" | "lfr" | "vlfr" | "active" | "late" | "on_hold" | "unassigned" | "in_prep" | "ready";
+
+export interface PerformancePreferencesState {
+  searchQuery: string;
+  selectedVendorIds: number[];
+  selectedDeliveryTypes: PerformanceDeliveryTypeFilter[];
+  selectedBranchFilters: PerformanceBranchFilter[];
+  selectedSortKeys: PerformanceNumericSortKey[];
+  nameSortEnabled: boolean;
+  activeGroupId: number | null;
+  activeViewId: number | null;
+}
+
+export interface PerformanceSavedGroup {
+  id: number;
+  name: string;
+  vendorIds: number[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PerformanceSavedView {
+  id: number;
+  name: string;
+  state: Omit<PerformancePreferencesState, "activeGroupId" | "activeViewId">;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PerformancePreferencesResponse {
+  current: PerformancePreferencesState;
+  groups: PerformanceSavedGroup[];
+  views: PerformanceSavedView[];
+}
+
+export interface PerformanceBranchDetailResponse {
+  kind: "mapped_branch";
+  branch: Pick<PerformanceBranchCard, "branchId" | "name" | "chainName" | "ordersVendorId" | "availabilityVendorId" | "statusColor">;
+  summary: PerformanceDetailSummary;
+  statusCounts: PerformanceStatusCount[];
+  ownerCoverage: PerformanceOwnerCoverage;
+  onHoldOrders: BranchLiveOrder[];
+  unassignedOrders: BranchLiveOrder[];
+  inPrepOrders: BranchLiveOrder[];
+  readyToPickupOrders: BranchLiveOrder[];
+  cancelledOrders: PerformanceCancelledOrderItem[];
+  vendorOwnerCancelledOrders: PerformanceCancelledOrderItem[];
+  unknownOwnerCancelledOrders: PerformanceCancelledOrderItem[];
+  pickers: BranchPickersSummary;
+  fetchedAt: string | null;
+  cacheState: BranchDetailCacheState;
+}
+
+export interface PerformanceVendorDetailResponse {
+  kind: "vendor";
+  vendor: Pick<PerformanceUnmappedVendorCard, "vendorId" | "vendorName" | "globalEntityId" | "statusColor">;
+  mappedBranch: PerformanceMappedBranchReference | null;
+  summary: PerformanceDetailSummary;
+  statusCounts: PerformanceStatusCount[];
+  ownerCoverage: PerformanceOwnerCoverage;
+  onHoldOrders: BranchLiveOrder[];
+  unassignedOrders: BranchLiveOrder[];
+  inPrepOrders: BranchLiveOrder[];
+  readyToPickupOrders: BranchLiveOrder[];
+  cancelledOrders: PerformanceCancelledOrderItem[];
+  vendorOwnerCancelledOrders: PerformanceCancelledOrderItem[];
+  unknownOwnerCancelledOrders: PerformanceCancelledOrderItem[];
+  pickers: BranchPickersSummary;
+  fetchedAt: string | null;
+  cacheState: BranchDetailCacheState;
+}
+
 interface BranchDetailBase {
   branch: BranchSnapshot;
   totals: OrdersMetrics;

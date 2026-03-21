@@ -49,6 +49,12 @@ export function resolveOrdersWindowSplitMinSpanMs() {
   return Math.max(1000, Math.min(12 * 60 * 60 * 1000, Math.floor(raw)));
 }
 
+export function resolveOrdersEntitySyncMaxPages() {
+  const raw = Number(process.env.UPUSE_ORDERS_ENTITY_SYNC_MAX_PAGES ?? "20");
+  if (!Number.isFinite(raw)) return 20;
+  return Math.max(1, Math.min(200, Math.floor(raw)));
+}
+
 export function resolveOrdersWindowUtc(mode: OrdersMode) {
   // The monitor sync now uses local mirror incremental scheduling directly.
   // Keep the legacy window helper stable for detail and compatibility paths.

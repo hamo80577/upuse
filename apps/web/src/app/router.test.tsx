@@ -21,6 +21,10 @@ vi.mock("../pages/settings/ui/SettingsPage", () => ({
   SettingsPage: () => <div>settings-route</div>,
 }));
 
+vi.mock("../pages/performance/ui/PerformancePage", () => ({
+  PerformancePage: () => <div>performance-route</div>,
+}));
+
 vi.mock("../pages/branches/ui/BranchesPage", () => ({
   BranchesPage: () => <div>branches-route</div>,
 }));
@@ -46,7 +50,7 @@ function LocationProbe() {
 }
 
 describe("AppRouter", () => {
-  it("routes branches and threshold paths to their named pages", async () => {
+  it("routes performance, branches, and threshold paths to their named pages", async () => {
     mockUseAuth.mockReturnValue({
       status: "authenticated",
       isAdmin: true,
@@ -58,6 +62,14 @@ describe("AppRouter", () => {
         <AppRouter />
       </MemoryRouter>,
     );
+
+    const performanceView = renderAt("/performance");
+
+    await waitFor(() => {
+      expect(screen.getByText("performance-route")).toBeInTheDocument();
+    });
+
+    performanceView.unmount();
 
     const branchesView = renderAt("/branches");
 

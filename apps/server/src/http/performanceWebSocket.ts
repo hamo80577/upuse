@@ -3,17 +3,17 @@ import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 import type { SecurityConfig } from "../config/security.js";
 import { getSessionUserByToken } from "../services/authStore.js";
-import type { MonitorEngine } from "../services/monitorEngine.js";
-import type { AppUser, DashboardSnapshot } from "../types/models.js";
+import { subscribeOrdersMirrorEntitySync, type OrdersMirrorEntitySyncStatus } from "../services/ordersMirrorStore.js";
+import type { AppUser } from "../types/models.js";
 import { readAuthSessionTokenFromCookieHeader } from "./sessionCookie.js";
 import { isTrustedOrigin, parseCorsOrigins } from "./security.js";
 
-const DASHBOARD_WEBSOCKET_PATH = "/api/ws/dashboard";
+const PERFORMANCE_WEBSOCKET_PATH = "/api/ws/performance";
 const HEARTBEAT_INTERVAL_MS = 20_000;
 
-interface DashboardWebSocketEnvelope {
-  type: "snapshot" | "ping";
-  data: DashboardSnapshot | { at: string };
+interface PerformanceWebSocketEnvelope {
+  type: "sync" | "ping";
+  data: OrdersMirrorEntitySyncStatus | { at: string };
 }
 
 function writeUpgradeError(socket: Duplex, statusCode: number, message: string) {
@@ -57,14 +57,13 @@ function resolveAuthenticatedUser(req: IncomingMessage) {
   return auth?.user ?? null;
 }
 
-function sendMessage(ws: WebSocket, payload: DashboardWebSocketEnvelope) {
+function sendMessage(ws: WebSocket, payload: PerformanceWebSocketEnvelope) {
   if (ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify(payload));
 }
 
-export function attachDashboardWebSocketServer(options: {
+export function attachPerformanceWebSocketServer(options: {
   server: HttpServer;
-  engine: MonitorEngine;
   securityConfig: SecurityConfig;
 }) {
   const webSocketServer = new WebSocketServer({ noServer: true });
@@ -87,11 +86,11 @@ export function attachDashboardWebSocketServer(options: {
   const acceptConnection = (user: AppUser) => {
     const userConnectionCount = activeConnectionsByUserId.get(user.id) ?? 0;
     if (userConnectionCount >= options.securityConfig.maxStreamConnectionsPerUser) {
-      return { ok: false as const, statusCode: 429, message: "Too many active dashboard streams for the current user." };
+      return { ok: false as const, statusCode: 429, message: "Too many active performance streams for the current user." };
     }
 
     if (activeConnectionsTotal >= options.securityConfig.maxStreamConnectionsTotal) {
-      return { ok: false as const, statusCode: 429, message: "Too many active dashboard streams." };
+      return { ok: false as const, statusCode: 429, message: "Too many active performance streams." };
     }
 
     activeConnectionsByUserId.set(user.id, userConnectionCount + 1);
@@ -101,7 +100,7 @@ export function attachDashboardWebSocketServer(options: {
 
   options.server.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url ?? "/", "http://localhost");
-    if (url.pathname !== DASHBOARD_WEBSOCKET_PATH) {
+    if (url.pathname !== PERFORMANCE_WEBSOCKET_PATH) {
       return;
     }
 
@@ -134,17 +133,17 @@ export function attachDashboardWebSocketServer(options: {
 
     let unsubscribe = () => {};
     try {
-      unsubscribe = options.engine.subscribe((snapshot) => {
+      unsubscribe = subscribeOrdersMirrorEntitySync((status) => {
         sendMessage(ws, {
-          type: "snapshot",
-          data: snapshot,
+          type: "sync",
+          data: status,
         });
       });
     } catch (error) {
-      console.error("Dashboard WebSocket subscription failed", error);
+      console.error("Performance WebSocket subscription failed", error);
       releaseConnectionSlot(user.id);
       try {
-        ws.close(1011, "Failed to initialize live dashboard stream");
+        ws.close(1011, "Failed to initialize live performance stream");
       } catch {
         ws.terminate();
       }

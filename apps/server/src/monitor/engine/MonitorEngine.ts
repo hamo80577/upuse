@@ -26,6 +26,7 @@ type RuntimeRow = ReturnType<typeof getRuntime>;
 type RuntimePatch = Partial<NonNullable<RuntimeRow>>;
 type CycleOptions = {
   suppressPublish?: boolean;
+  forceOrdersSync?: boolean;
 };
 type ScheduledSource = "orders" | "availability";
 type ScheduledCycleState = {
@@ -366,7 +367,7 @@ export class MonitorEngine {
     }
 
     const expectedLifecycleId = this.lifecycleId;
-    const cyclePromise = this.requestScheduledCycle("orders", expectedLifecycleId)
+    const cyclePromise = this.requestScheduledCycle("orders", expectedLifecycleId, { forceOrdersSync: true })
       .finally(() => {
         if (this.manualOrdersRefreshPromise === cyclePromise) {
           this.manualOrdersRefreshPromise = null;
@@ -1008,6 +1009,7 @@ export class MonitorEngine {
           token: settings.ordersToken,
           branches,
           ordersRefreshSeconds: settings.ordersRefreshSeconds,
+          force: options?.forceOrdersSync,
         });
         if (!this.isLifecycleActive(expectedLifecycleId)) return;
 

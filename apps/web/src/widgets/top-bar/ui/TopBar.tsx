@@ -1,5 +1,6 @@
 import HubIcon from "@mui/icons-material/Hub";
 import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownRounded";
+import LeaderboardRoundedIcon from "@mui/icons-material/LeaderboardRounded";
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import ManageAccountsRoundedIcon from "@mui/icons-material/ManageAccountsRounded";
 import SettingsIcon from "@mui/icons-material/Settings";
@@ -55,6 +56,7 @@ function TopBarBase(props: {
   const canControlMonitor = props.canControlMonitor ?? canManageMonitor;
   const active = (path: string) => loc.pathname === path;
   const activeGroup = (path: string) => loc.pathname === path || loc.pathname.startsWith(`${path}/`);
+  const performanceActive = active("/performance");
   const branchesActive = active("/branches");
   const thresholdsActive = active("/thresholds") || activeGroup("/settings/thresholds");
   const userInitials = getUserInitials(user?.name);
@@ -71,6 +73,13 @@ function TopBarBase(props: {
       icon: <HubIcon fontSize="small" />,
       isActive: active("/"),
       onClick: () => handleNavigate("/"),
+    },
+    {
+      label: "Performance",
+      caption: "Chains and branches",
+      icon: <LeaderboardRoundedIcon fontSize="small" />,
+      isActive: performanceActive,
+      onClick: () => handleNavigate("/performance"),
     },
     {
       label: "Branches",

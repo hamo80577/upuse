@@ -1,10 +1,13 @@
 import { Box, Chip, Divider, Stack, Typography } from "@mui/material";
 import type { ReactNode } from "react";
 import type { BranchLiveOrder } from "../../../api/types";
-import { fmtSignedPickupDiff, fmtPlacedAt } from "../lib/time";
+import { fmtElapsedDuration, fmtSignedPickupDiff, fmtPlacedAt } from "../lib/time";
 
-function OrderRow(props: { item: BranchLiveOrder; nowMs: number }) {
+type TimeDisplayMode = "pickup_delta" | "duration" | "none";
+
+function OrderRow(props: { item: BranchLiveOrder; nowMs: number; timeDisplayMode: TimeDisplayMode }) {
   const pickupDiff = fmtSignedPickupDiff(props.item.pickupAt, props.nowMs);
+  const duration = fmtElapsedDuration(props.item.placedAt, props.nowMs);
 
   return (
     <Box
@@ -65,31 +68,56 @@ function OrderRow(props: { item: BranchLiveOrder; nowMs: number }) {
           </Stack>
         </Box>
 
-        <Box
-          sx={{
-            minWidth: { xs: "auto", sm: 124 },
-            textAlign: { xs: "left", sm: "right" },
-            borderRadius: 1.75,
-            px: { xs: 0, sm: 0.85 },
-            py: { xs: 0, sm: 0.7 },
-            bgcolor: { xs: "transparent", sm: "rgba(248,250,252,0.92)" },
-            border: { xs: "none", sm: "1px solid rgba(148,163,184,0.10)" },
-          }}
-        >
-          <Typography variant="caption" sx={{ color: "text.secondary", display: "block", fontWeight: 800 }}>
-            Pickup delta
-          </Typography>
-          <Typography
+        {props.timeDisplayMode === "pickup_delta" ? (
+          <Box
             sx={{
-              mt: 0.15,
-              fontWeight: 900,
-              fontVariantNumeric: "tabular-nums",
-              color: pickupDiff.positive ? "#15803d" : "#b91c1c",
+              minWidth: { xs: "auto", sm: 124 },
+              textAlign: { xs: "left", sm: "right" },
+              borderRadius: 1.75,
+              px: { xs: 0, sm: 0.85 },
+              py: { xs: 0, sm: 0.7 },
+              bgcolor: { xs: "transparent", sm: "rgba(248,250,252,0.92)" },
+              border: { xs: "none", sm: "1px solid rgba(148,163,184,0.10)" },
             }}
           >
-            {pickupDiff.text}
-          </Typography>
-        </Box>
+            <Typography variant="caption" sx={{ color: "text.secondary", display: "block", fontWeight: 800 }}>
+              Pickup delta
+            </Typography>
+            <Typography
+              sx={{
+                mt: 0.15,
+                fontWeight: 900,
+                fontVariantNumeric: "tabular-nums",
+                color: pickupDiff.positive ? "#15803d" : "#b91c1c",
+              }}
+            >
+              {pickupDiff.text}
+            </Typography>
+          </Box>
+        ) : null}
+
+        {props.timeDisplayMode === "duration" ? (
+          <Box
+            sx={{
+              minWidth: { xs: "auto", sm: 92 },
+              textAlign: { xs: "left", sm: "right" },
+            }}
+          >
+            <Typography variant="caption" sx={{ color: "text.secondary", display: "block", fontWeight: 800 }}>
+              Duration
+            </Typography>
+            <Typography
+              sx={{
+                mt: 0.15,
+                fontWeight: 900,
+                fontVariantNumeric: "tabular-nums",
+                color: "#0f172a",
+              }}
+            >
+              {duration}
+            </Typography>
+          </Box>
+        ) : null}
       </Stack>
     </Box>
   );
@@ -102,6 +130,8 @@ export function BranchOrdersSection(props: {
   emptyText: string;
   nowMs: number;
   headerBadge?: ReactNode;
+  hideHeader?: boolean;
+  timeDisplayMode?: TimeDisplayMode;
 }) {
   return (
     <Box
@@ -113,33 +143,44 @@ export function BranchOrdersSection(props: {
         boxShadow: "0 12px 28px rgba(15,23,42,0.04)",
       }}
     >
-      <Box
-        sx={{
-          px: 1.5,
-          py: 1.15,
-          bgcolor: "rgba(248,250,252,0.86)",
-          display: "flex",
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          gap: 1,
-        }}
-      >
-        <Box sx={{ minWidth: 0 }}>
-          <Typography sx={{ fontWeight: 900 }}>{props.title}</Typography>
-          <Typography variant="caption" sx={{ color: "text.secondary", display: "block", lineHeight: 1.45 }}>
-            {props.items.length ? `${props.items.length} live orders` : props.subtitle}
-          </Typography>
-        </Box>
-        {props.headerBadge ? (
-          <Box sx={{ flexShrink: 0 }}>
-            {props.headerBadge}
+      {props.hideHeader ? null : (
+        <>
+          <Box
+            sx={{
+              px: 1.5,
+              py: 1.15,
+              bgcolor: "rgba(248,250,252,0.86)",
+              display: "flex",
+              alignItems: "flex-start",
+              justifyContent: "space-between",
+              gap: 1,
+            }}
+          >
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontWeight: 900 }}>{props.title}</Typography>
+              <Typography variant="caption" sx={{ color: "text.secondary", display: "block", lineHeight: 1.45 }}>
+                {props.items.length ? `${props.items.length} live orders` : props.subtitle}
+              </Typography>
+            </Box>
+            {props.headerBadge ? (
+              <Box sx={{ flexShrink: 0 }}>
+                {props.headerBadge}
+              </Box>
+            ) : null}
           </Box>
-        ) : null}
-      </Box>
-      <Divider />
+          <Divider />
+        </>
+      )}
       <Stack spacing={0} sx={{ maxHeight: { xs: "none", sm: 360 }, overflowY: { xs: "visible", sm: "auto" } }}>
         {props.items.length ? (
-          props.items.map((item) => <OrderRow key={item.id} item={item} nowMs={props.nowMs} />)
+          props.items.map((item) => (
+            <OrderRow
+              key={item.id}
+              item={item}
+              nowMs={props.nowMs}
+              timeDisplayMode={props.timeDisplayMode ?? "pickup_delta"}
+            />
+          ))
         ) : (
           <Box sx={{ px: 1.5, py: 2 }}>
             <Typography variant="body2" sx={{ color: "text.secondary" }}>

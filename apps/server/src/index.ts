@@ -13,7 +13,9 @@ import { resolveWebDistDir } from "./config/paths.js";
 import { resolveSecurityConfig } from "./config/security.js";
 import { resolveStartupConfig } from "./config/startup.js";
 import { getSettings } from "./services/settingsStore.js";
+import { startOrdersMirrorRuntime } from "./services/ordersMirrorStore.js";
 import { attachDashboardWebSocketServer } from "./http/dashboardWebSocket.js";
+import { attachPerformanceWebSocketServer } from "./http/performanceWebSocket.js";
 import {
   createApiNoStoreMiddleware,
   createContentSecurityPolicyDirectives,
@@ -30,6 +32,17 @@ import { getSettingsRoute, getTokenTestRoute, putSettingsRoute, testTokensRoute 
 import { listBranchesRoute, listVendorSourceRoute, addBranchRoute, updateBranchThresholdOverridesRoute, updateBranchMonitoringRoute, branchDetailRoute, branchPickersRoute, deleteBranchRoute } from "./routes/branches.js";
 import { dashboardRoute } from "./routes/dashboard.js";
 import { clearLogsRoute, logsRoute } from "./routes/logs.js";
+import { performanceBranchDetailRoute, performanceSummaryRoute, performanceVendorDetailRoute } from "./routes/performance.js";
+import {
+  createPerformanceGroupRoute,
+  createPerformanceViewRoute,
+  deletePerformanceGroupRoute,
+  deletePerformanceViewRoute,
+  getPerformancePreferencesRoute,
+  putPerformanceCurrentPreferencesRoute,
+  updatePerformanceGroupRoute,
+  updatePerformanceViewRoute,
+} from "./routes/performancePreferences.js";
 import { downloadMonitorReportRoute } from "./routes/reports.js";
 import { startMonitorRoute, stopMonitorRoute, monitorStatusRoute, refreshOrdersNowRoute, streamRoute } from "./routes/monitor.js";
 import { syncVendorCatalogFromCsv } from "./services/vendorCatalogStore.js";
@@ -40,6 +53,7 @@ if (startupConfig.syncVendorCatalogOnStartup && startupConfig.vendorCatalogCsvPa
   syncVendorCatalogFromCsv(startupConfig.vendorCatalogCsvPath);
 }
 getSettings();
+startOrdersMirrorRuntime();
 
 function looksLikeLinkPreviewBot(userAgent: string | undefined) {
   if (!userAgent) return false;
@@ -97,6 +111,17 @@ app.get("/api/branches/:id/pickers", branchPickersRoute());
 app.delete("/api/branches/:id", requireCapability("delete_branch_mappings"), deleteBranchRoute);
 
 app.get("/api/dashboard", dashboardRoute(engine));
+app.get("/api/performance", performanceSummaryRoute(engine));
+app.get("/api/performance/branches/:id", performanceBranchDetailRoute(engine));
+app.get("/api/performance/vendors/:id", performanceVendorDetailRoute());
+app.get("/api/performance/preferences", getPerformancePreferencesRoute);
+app.put("/api/performance/preferences/current", putPerformanceCurrentPreferencesRoute);
+app.post("/api/performance/preferences/groups", createPerformanceGroupRoute);
+app.patch("/api/performance/preferences/groups/:id", updatePerformanceGroupRoute);
+app.delete("/api/performance/preferences/groups/:id", deletePerformanceGroupRoute);
+app.post("/api/performance/preferences/views", createPerformanceViewRoute);
+app.patch("/api/performance/preferences/views/:id", updatePerformanceViewRoute);
+app.delete("/api/performance/preferences/views/:id", deletePerformanceViewRoute);
 app.get("/api/logs", logsRoute);
 app.delete("/api/logs", requireCapability("clear_logs"), clearLogsRoute);
 app.get("/api/reports/monitor-actions.csv", downloadMonitorReportRoute);
@@ -211,5 +236,10 @@ const server = app.listen(port, () => {
 attachDashboardWebSocketServer({
   server,
   engine,
+  securityConfig,
+});
+
+attachPerformanceWebSocketServer({
+  server,
   securityConfig,
 });

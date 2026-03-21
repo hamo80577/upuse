@@ -21,6 +21,9 @@ const ThresholdsPage = lazy(() =>
 const UsersPage = lazy(() =>
   import("../pages/users/ui/UsersPage").then((module) => ({ default: module.UsersPage })),
 );
+const PerformancePage = lazy(() =>
+  import("../pages/performance/ui/PerformancePage").then((module) => ({ default: module.PerformancePage })),
+);
 
 function RouteFallback() {
   const { bootstrapError, retryBootstrap } = useAuth();
@@ -134,6 +137,7 @@ export function AppRouter() {
       <Routes>
         <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
         <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+        <Route path="/performance" element={<ProtectedRoute><PerformancePage /></ProtectedRoute>} />
         <Route path="/mapping" element={<Navigate to="/branches" replace />} />
         <Route path="/branches" element={<ProtectedRoute><BranchesPage /></ProtectedRoute>} />
         <Route path="/thresholds" element={<ProtectedRoute><ThresholdsPage /></ProtectedRoute>} />

@@ -1,23 +1,34 @@
 import { DateTime } from "luxon";
+import type { Statement } from "better-sqlite3";
 import { db } from "../config/db.js";
-import type { BranchLiveOrder, BranchPickersSummary, BranchSnapshot, BranchPickerSummaryItem, OrdersMetrics, OrdersVendorId, ResolvedBranchMapping } from "../types/models.js";
-import { cairoDayWindowUtc, isPastPickup, nowUtcIso } from "../utils/time.js";
-import { createOrdersPollingRequests } from "./monitorOrdersPolling.js";
-import { getWithRetry, isRetryableOrdersRequestError } from "./orders/httpClient.js";
-import { createPageLimitError, isVendorIdValidationError } from "./orders/paginationGuards.js";
+import type {
+  BranchLiveOrder,
+  BranchPickerSummaryItem,
+  BranchPickersSummary,
+  OrdersMetrics,
+  OrdersVendorId,
+  ResolvedBranchMapping,
+} from "../types/models.js";
+import { TZ, cairoDayWindowUtc, isPastPickup, nowUtcIso } from "../utils/time.js";
+import { Mutex } from "../utils/mutex.js";
+import { listResolvedBranches } from "./branchStore.js";
+import { getGlobalEntityId, getSettings } from "./settingsStore.js";
+import { getWithRetry } from "./orders/httpClient.js";
+import { createPageLimitError } from "./orders/paginationGuards.js";
 import {
-  splitUtcWindow,
+  resolveOrdersEntitySyncMaxPages,
   resolveOrdersHistorySyncSeconds,
   resolveOrdersRepairSweepSeconds,
   resolveOrdersWindowSplitMaxDepth,
   resolveOrdersWindowSplitMinSpanMs,
+  splitUtcWindow,
   type UtcWindow,
 } from "./orders/shared.js";
-import { BASE, BRANCH_DETAIL_MAX_PAGES, ORDERS_API_SAFE_VENDOR_BATCH_LIMIT, chunk } from "./orders/types.js";
+import { BASE } from "./orders/types.js";
 
+const BOOTSTRAP_SYNC_PAGE_SIZE = 500;
 const ACTIVE_SYNC_PAGE_SIZE = 500;
 const HISTORY_SYNC_PAGE_SIZE = 500;
-const BOOTSTRAP_SYNC_PAGE_SIZE = 500;
 const HISTORY_OVERLAP_MS = 10 * 60 * 1000;
 const PICKER_RECENT_ACTIVE_WINDOW_MS = 30 * 60 * 1000;
 
@@ -28,9 +39,62 @@ interface OrdersMirrorRow {
   dayKey: string;
   globalEntityId: string;
   vendorId: number;
+  vendorName: string | null;
   orderId: string;
   externalId: string;
   status: string;
+  transportType: string | null;
+  isCompleted: number;
+  isCancelled: number;
+  isUnassigned: number;
+  placedAt: string | null;
+  pickupAt: string | null;
+  customerFirstName: string | null;
+  shopperId: number | null;
+  shopperFirstName: string | null;
+  isActiveNow: number;
+  lastSeenAt: string;
+  lastActiveSeenAt: string | null;
+  cancellationOwner: string | null;
+  cancellationOwnerLookupAt: string | null;
+  cancellationOwnerLookupError: string | null;
+}
+
+interface OrdersEntitySyncStateRow {
+  dayKey: string;
+  globalEntityId: string;
+  lastBootstrapSyncAt: string | null;
+  lastActiveSyncAt: string | null;
+  lastHistorySyncAt: string | null;
+  lastFullHistorySweepAt: string | null;
+  lastSuccessfulSyncAt: string | null;
+  lastHistoryCursorAt: string | null;
+  consecutiveFailures: number;
+  lastErrorAt: string | null;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
+  staleSince: string | null;
+  bootstrapCompletedAt: string | null;
+}
+
+interface MirrorOrdersDetail {
+  metrics: OrdersMetrics;
+  fetchedAt: string | null;
+  unassignedOrders: BranchLiveOrder[];
+  preparingOrders: BranchLiveOrder[];
+  pickers: BranchPickersSummary;
+  cacheState: BranchDetailCacheState;
+}
+
+interface NormalizedMirrorOrder {
+  dayKey: string;
+  globalEntityId: string;
+  vendorId: number;
+  vendorName: string | null;
+  orderId: string;
+  externalId: string;
+  status: string;
+  transportType: string | null;
   isCompleted: number;
   isCancelled: number;
   isUnassigned: number;
@@ -44,36 +108,50 @@ interface OrdersMirrorRow {
   lastActiveSeenAt: string | null;
 }
 
-interface OrdersSyncStateRow {
+interface OrdersFetchResult {
+  items: any[];
+  fetchedAt: string;
+}
+
+interface EntitySyncError {
+  statusCode?: number;
+  code?: string;
+  message: string;
+}
+
+interface EntitySyncBaseResult {
+  dayKey: string;
+  globalEntityId: string;
+  success: boolean;
+  fetchedAt: string | null;
+  cacheState: BranchDetailCacheState;
+  consecutiveFailures: number;
+  error?: EntitySyncError;
+}
+
+interface OwnerLookupCandidate {
   dayKey: string;
   globalEntityId: string;
   vendorId: number;
-  lastBootstrapSyncAt: string | null;
-  lastActiveSyncAt: string | null;
-  lastHistorySyncAt: string | null;
-  lastFullHistorySweepAt: string | null;
-  lastSuccessfulSyncAt: string | null;
-  lastHistoryCursorAt: string | null;
-  consecutiveFailures: number;
-  lastErrorAt: string | null;
-  lastErrorCode: string | null;
-  lastErrorMessage: string | null;
-  staleSince: string | null;
-  quarantinedUntil: string | null;
+  orderId: string;
 }
 
-interface MirrorSyncVendor {
-  vendorId: OrdersVendorId;
+interface TransportTypeLookupCandidate {
+  dayKey: string;
   globalEntityId: string;
+  vendorId: number;
+  orderId: string;
 }
 
-interface MirrorOrdersDetail {
-  metrics: OrdersMetrics;
-  fetchedAt: string | null;
-  unassignedOrders: BranchLiveOrder[];
-  preparingOrders: BranchLiveOrder[];
-  pickers: BranchPickersSummary;
+export interface OrdersMirrorEntitySyncStatus {
+  dayKey: string;
+  globalEntityId: string;
   cacheState: BranchDetailCacheState;
+  fetchedAt: string | null;
+  lastSuccessfulSyncAt: string | null;
+  consecutiveFailures: number;
+  lastErrorMessage: string | null;
+  bootstrapCompleted: boolean;
 }
 
 export interface OrdersMirrorVendorSyncStatus {
@@ -99,27 +177,68 @@ export interface OrdersMirrorSyncSummary {
   statusesByVendor: Map<OrdersVendorId, OrdersMirrorVendorSyncStatus>;
 }
 
-interface MirrorPhaseResult {
-  successfulVendorIds: Set<OrdersVendorId>;
-  updatedVendorIds: Set<OrdersVendorId>;
-  failures: Array<{
-    vendorIds: OrdersVendorId[];
-    statusCode?: number;
-    message: string;
-  }>;
+let upsertMirrorOrderStatement: Statement<any[]> | null = null;
+
+let updateCancellationLookupStatement: Statement<any[]> | null = null;
+let updateTransportTypeLookupStatement: Statement<any[]> | null = null;
+
+const entitySyncMutex = new Mutex();
+const ownerLookupMutex = new Mutex();
+const transportTypeLookupMutex = new Mutex();
+
+let entitySyncInFlight: Promise<EntitySyncBaseResult> | null = null;
+let runtimeStarted = false;
+let runtimeTimer: NodeJS.Timeout | null = null;
+const entitySyncSubscribers = new Set<(status: OrdersMirrorEntitySyncStatus) => void>();
+
+function publishEntitySyncStatus(status: OrdersMirrorEntitySyncStatus) {
+  for (const subscriber of entitySyncSubscribers) {
+    try {
+      subscriber(status);
+    } catch (error) {
+      console.error("Orders mirror subscriber failed", error);
+    }
+  }
+}
+
+export function subscribeOrdersMirrorEntitySync(fn: (status: OrdersMirrorEntitySyncStatus) => void) {
+  entitySyncSubscribers.add(fn);
+  return () => {
+    entitySyncSubscribers.delete(fn);
+  };
+}
+
+function emptyMetrics(): OrdersMetrics {
+  return {
+    totalToday: 0,
+    cancelledToday: 0,
+    doneToday: 0,
+    activeNow: 0,
+    lateNow: 0,
+    unassignedNow: 0,
+  };
+}
+
+function emptyPickers(): BranchPickersSummary {
+  return {
+    todayCount: 0,
+    activePreparingCount: 0,
+    recentActiveCount: 0,
+    items: [],
+  };
 }
 
 function getCairoDayKey(date = DateTime.utc()) {
-  return date.setZone("Africa/Cairo").toFormat("yyyy-LL-dd");
+  return date.setZone(TZ).toFormat("yyyy-LL-dd");
 }
 
 function getPreviousCairoDayKey(dayKey: string) {
-  const day = DateTime.fromFormat(dayKey, "yyyy-LL-dd", { zone: "Africa/Cairo" });
+  const day = DateTime.fromFormat(dayKey, "yyyy-LL-dd", { zone: TZ });
   return day.isValid ? day.minus({ days: 1 }).toFormat("yyyy-LL-dd") : dayKey;
 }
 
 function getDayWindow(dayKey = getCairoDayKey()) {
-  const cairoStart = DateTime.fromFormat(dayKey, "yyyy-LL-dd", { zone: "Africa/Cairo" }).startOf("day");
+  const cairoStart = DateTime.fromFormat(dayKey, "yyyy-LL-dd", { zone: TZ }).startOf("day");
   if (!cairoStart.isValid) {
     return cairoDayWindowUtc(DateTime.utc());
   }
@@ -155,9 +274,12 @@ function toIsoOrNull(value: unknown) {
 }
 
 function resolveShopperId(order: any) {
-  return typeof order?.shopper?.id === "number" && Number.isFinite(order.shopper.id)
-    ? order.shopper.id
-    : null;
+  const raw = order?.shopper?.id;
+  return typeof raw === "number" && Number.isFinite(raw)
+    ? raw
+    : typeof raw === "string" && raw.trim().length && Number.isFinite(Number(raw))
+      ? Number(raw)
+      : null;
 }
 
 function resolveShopperFirstName(order: any) {
@@ -166,29 +288,70 @@ function resolveShopperFirstName(order: any) {
     : null;
 }
 
-function normalizeMirrorOrder(order: any, nowIso: string) {
+function resolveVendorId(order: any) {
+  const raw =
+    typeof order?.vendor?.id !== "undefined"
+      ? order.vendor.id
+      : typeof order?.vendorId !== "undefined"
+        ? order.vendorId
+        : null;
+
+  if (typeof raw === "number" && Number.isFinite(raw)) return Math.trunc(raw);
+  if (typeof raw === "string" && raw.trim().length && Number.isFinite(Number(raw))) {
+    return Math.trunc(Number(raw));
+  }
+  return 0;
+}
+
+function resolveVendorName(order: any) {
+  if (typeof order?.vendor?.name === "string" && order.vendor.name.trim().length) {
+    return order.vendor.name.trim();
+  }
+  if (typeof order?.vendorName === "string" && order.vendorName.trim().length) {
+    return order.vendorName.trim();
+  }
+  return null;
+}
+
+export function extractTransportType(payload: unknown) {
+  const transportType = (payload as { transportType?: unknown } | null | undefined)?.transportType;
+  if (typeof transportType !== "string") return null;
+  const normalized = transportType.trim().toUpperCase();
+  return normalized.length ? normalized : null;
+}
+
+function normalizeMirrorOrder(order: any, dayKey: string, globalEntityId: string, nowIso: string): NormalizedMirrorOrder | null {
   const orderId = stableOrderKey(order);
-  if (!orderId) return null;
+  const vendorId = resolveVendorId(order);
+  if (!orderId || !vendorId) return null;
 
   const isCompleted = Boolean(order?.isCompleted);
   const status = String(order?.status ?? "UNKNOWN");
+  const isActiveNow = isCompleted ? 0 : 1;
+
   return {
+    dayKey,
+    globalEntityId,
+    vendorId,
+    vendorName: resolveVendorName(order),
     orderId,
     externalId: String(order?.externalId ?? order?.shortCode ?? order?.id ?? ""),
     status,
+    transportType: extractTransportType(order),
     isCompleted: isCompleted ? 1 : 0,
     isCancelled: status === "CANCELLED" ? 1 : 0,
     isUnassigned: status === "UNASSIGNED" || order?.shopper == null ? 1 : 0,
     placedAt: toIsoOrNull(order?.placedAt),
     pickupAt: toIsoOrNull(order?.pickupAt),
-    customerFirstName: typeof order?.customerFirstName === "string" && order.customerFirstName.trim().length
-      ? order.customerFirstName.trim()
-      : null,
+    customerFirstName:
+      typeof order?.customerFirstName === "string" && order.customerFirstName.trim().length
+        ? order.customerFirstName.trim()
+        : null,
     shopperId: resolveShopperId(order),
     shopperFirstName: resolveShopperFirstName(order),
-    isActiveNow: isCompleted ? 0 : 1,
+    isActiveNow,
     lastSeenAt: nowIso,
-    lastActiveSeenAt: isCompleted ? null : nowIso,
+    lastActiveSeenAt: isActiveNow ? nowIso : null,
   };
 }
 
@@ -216,7 +379,7 @@ function toMillis(iso?: string | null) {
   return Number.isFinite(value) ? value : Number.NaN;
 }
 
-function resolveFetchedAt(state: OrdersSyncStateRow | null) {
+function resolveFetchedAt(state: OrdersEntitySyncStateRow | null) {
   if (!state) return null;
   const candidates = [
     state.lastSuccessfulSyncAt,
@@ -229,8 +392,12 @@ function resolveFetchedAt(state: OrdersSyncStateRow | null) {
   return candidates.reduce((latest, current) => (toMillis(current) > toMillis(latest) ? current : latest));
 }
 
-function resolveCacheState(state: OrdersSyncStateRow | null, ordersRefreshSeconds: number, nowMs = Date.now()): BranchDetailCacheState {
-  if (!state?.lastBootstrapSyncAt) {
+function resolveCacheState(
+  state: OrdersEntitySyncStateRow | null,
+  ordersRefreshSeconds: number,
+  nowMs = Date.now(),
+): BranchDetailCacheState {
+  if (!state?.bootstrapCompletedAt) {
     return "warming";
   }
 
@@ -243,12 +410,21 @@ function resolveCacheState(state: OrdersSyncStateRow | null, ordersRefreshSecond
   return nowMs - toMillis(fetchedAt) > staleAfterMs ? "stale" : "fresh";
 }
 
-function getMirrorState(dayKey: string, globalEntityId: string, vendorId: OrdersVendorId) {
-  return db.prepare<[string, string, number], OrdersSyncStateRow>(`
+function getOrdersHeaders(token: string) {
+  return {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/json",
+    Origin: "https://portal.talabat.com",
+    Referer: "https://portal.talabat.com/",
+    "x-request-source": "ops-portal",
+  };
+}
+
+function getEntitySyncState(dayKey: string, globalEntityId: string) {
+  return db.prepare<[string, string], OrdersEntitySyncStateRow>(`
     SELECT
       dayKey,
       globalEntityId,
-      vendorId,
       lastBootstrapSyncAt,
       lastActiveSyncAt,
       lastHistorySyncAt,
@@ -260,17 +436,16 @@ function getMirrorState(dayKey: string, globalEntityId: string, vendorId: Orders
       lastErrorCode,
       lastErrorMessage,
       staleSince,
-      quarantinedUntil
-    FROM orders_sync_state
-    WHERE dayKey = ? AND globalEntityId = ? AND vendorId = ?
-  `).get(dayKey, globalEntityId, vendorId) ?? null;
+      bootstrapCompletedAt
+    FROM orders_entity_sync_state
+    WHERE dayKey = ? AND globalEntityId = ?
+  `).get(dayKey, globalEntityId) ?? null;
 }
 
-function upsertMirrorState(dayKey: string, globalEntityId: string, vendorId: OrdersVendorId, patch: Partial<OrdersSyncStateRow>) {
-  const current = getMirrorState(dayKey, globalEntityId, vendorId) ?? {
+function upsertEntitySyncState(dayKey: string, globalEntityId: string, patch: Partial<OrdersEntitySyncStateRow>) {
+  const current = getEntitySyncState(dayKey, globalEntityId) ?? {
     dayKey,
     globalEntityId,
-    vendorId,
     lastBootstrapSyncAt: null,
     lastActiveSyncAt: null,
     lastHistorySyncAt: null,
@@ -282,7 +457,7 @@ function upsertMirrorState(dayKey: string, globalEntityId: string, vendorId: Ord
     lastErrorCode: null,
     lastErrorMessage: null,
     staleSince: null,
-    quarantinedUntil: null,
+    bootstrapCompletedAt: null,
   };
 
   const next = {
@@ -290,14 +465,12 @@ function upsertMirrorState(dayKey: string, globalEntityId: string, vendorId: Ord
     ...patch,
     dayKey,
     globalEntityId,
-    vendorId,
   };
 
   db.prepare(`
-    INSERT INTO orders_sync_state (
+    INSERT INTO orders_entity_sync_state (
       dayKey,
       globalEntityId,
-      vendorId,
       lastBootstrapSyncAt,
       lastActiveSyncAt,
       lastHistorySyncAt,
@@ -309,11 +482,10 @@ function upsertMirrorState(dayKey: string, globalEntityId: string, vendorId: Ord
       lastErrorCode,
       lastErrorMessage,
       staleSince,
-      quarantinedUntil
+      bootstrapCompletedAt
     ) VALUES (
       @dayKey,
       @globalEntityId,
-      @vendorId,
       @lastBootstrapSyncAt,
       @lastActiveSyncAt,
       @lastHistorySyncAt,
@@ -325,9 +497,9 @@ function upsertMirrorState(dayKey: string, globalEntityId: string, vendorId: Ord
       @lastErrorCode,
       @lastErrorMessage,
       @staleSince,
-      @quarantinedUntil
+      @bootstrapCompletedAt
     )
-    ON CONFLICT(dayKey, globalEntityId, vendorId) DO UPDATE SET
+    ON CONFLICT(dayKey, globalEntityId) DO UPDATE SET
       lastBootstrapSyncAt = excluded.lastBootstrapSyncAt,
       lastActiveSyncAt = excluded.lastActiveSyncAt,
       lastHistorySyncAt = excluded.lastHistorySyncAt,
@@ -339,7 +511,7 @@ function upsertMirrorState(dayKey: string, globalEntityId: string, vendorId: Ord
       lastErrorCode = excluded.lastErrorCode,
       lastErrorMessage = excluded.lastErrorMessage,
       staleSince = excluded.staleSince,
-      quarantinedUntil = excluded.quarantinedUntil
+      bootstrapCompletedAt = excluded.bootstrapCompletedAt
   `).run(next);
 }
 
@@ -347,9 +519,10 @@ function pruneMirrorDays(dayKeysToKeep: string[]) {
   const placeholders = dayKeysToKeep.map(() => "?").join(", ");
   db.prepare(`DELETE FROM orders_mirror WHERE dayKey NOT IN (${placeholders})`).run(...dayKeysToKeep);
   db.prepare(`DELETE FROM orders_sync_state WHERE dayKey NOT IN (${placeholders})`).run(...dayKeysToKeep);
+  db.prepare(`DELETE FROM orders_entity_sync_state WHERE dayKey NOT IN (${placeholders})`).run(...dayKeysToKeep);
 }
 
-function summarizeMirrorSyncError(error: any) {
+function summarizeMirrorSyncError(error: any): EntitySyncError {
   const statusCode = typeof error?.response?.status === "number" ? error.response.status : undefined;
   const code = typeof error?.code === "string" ? error.code : undefined;
   const responseMessage =
@@ -365,68 +538,52 @@ function summarizeMirrorSyncError(error: any) {
   };
 }
 
-function markVendorSyncSuccess(dayKey: string, globalEntityId: string, vendorId: OrdersVendorId, fetchedAt: string, historyCursorAt?: string | null) {
-  const current = getMirrorState(dayKey, globalEntityId, vendorId);
-  upsertMirrorState(dayKey, globalEntityId, vendorId, {
+function buildMissingTokenError(): EntitySyncError {
+  return {
+    code: "UPUSE_ORDERS_TOKEN_MISSING",
+    message: "Orders token is not configured.",
+  };
+}
+
+function markEntitySyncFailure(dayKey: string, globalEntityId: string, error: EntitySyncError) {
+  const current = getEntitySyncState(dayKey, globalEntityId);
+  const nowIso = nowUtcIso();
+  upsertEntitySyncState(dayKey, globalEntityId, {
     ...current,
+    consecutiveFailures: (current?.consecutiveFailures ?? 0) + 1,
+    lastErrorAt: nowIso,
+    lastErrorCode: error.code ?? (error.statusCode != null ? String(error.statusCode) : null),
+    lastErrorMessage: error.message,
+    staleSince: current?.staleSince ?? nowIso,
+  });
+}
+
+function markEntitySyncSuccess(dayKey: string, globalEntityId: string, fetchedAt: string, patch?: Partial<OrdersEntitySyncStateRow>) {
+  const current = getEntitySyncState(dayKey, globalEntityId);
+  upsertEntitySyncState(dayKey, globalEntityId, {
+    ...current,
+    ...patch,
     lastSuccessfulSyncAt: fetchedAt,
-    lastHistoryCursorAt: historyCursorAt ?? current?.lastHistoryCursorAt ?? null,
     consecutiveFailures: 0,
     lastErrorAt: null,
     lastErrorCode: null,
     lastErrorMessage: null,
     staleSince: null,
-    quarantinedUntil: null,
   });
 }
 
-function markVendorSyncFailure(dayKey: string, globalEntityId: string, vendorId: OrdersVendorId, error: any) {
-  const current = getMirrorState(dayKey, globalEntityId, vendorId);
-  const nowIso = nowUtcIso();
-  const normalized = summarizeMirrorSyncError(error);
-  upsertMirrorState(dayKey, globalEntityId, vendorId, {
-    ...current,
-    consecutiveFailures: (current?.consecutiveFailures ?? 0) + 1,
-    lastErrorAt: nowIso,
-    lastErrorCode: normalized.code ?? (normalized.statusCode != null ? String(normalized.statusCode) : null),
-    lastErrorMessage: normalized.message,
-    staleSince: current?.staleSince ?? nowIso,
-  });
-  return normalized;
-}
-
-function toVendorGroups(branches: ResolvedBranchMapping[], vendorIds?: OrdersVendorId[]) {
-  const sourceBranches = vendorIds
-    ? branches.filter((branch) => vendorIds.includes(branch.ordersVendorId))
-    : branches;
-  const requests = createOrdersPollingRequests({
-    branches: sourceBranches,
-    vendorIds: sourceBranches.map((branch) => branch.ordersVendorId),
-  });
-
-  return requests.flatMap((request) =>
-    chunk(request.vendorIds, ORDERS_API_SAFE_VENDOR_BATCH_LIMIT).map((vendorChunk) => ({
-      globalEntityId: request.globalEntityId,
-      vendorIds: vendorChunk,
-    })),
-  );
-}
-
-async function fetchOrdersWindow(params: {
+export async function fetchOrdersWindow(params: {
   token: string;
   globalEntityId: string;
-  vendorIds: OrdersVendorId[];
   pageSize: number;
   window: UtcWindow;
   nowIso: string;
   isCompleted?: boolean;
 }) {
-  const headers = {
-    Authorization: `Bearer ${params.token}`,
-    Accept: "application/json",
-  };
+  const headers = getOrdersHeaders(params.token);
   const maxSplitDepth = resolveOrdersWindowSplitMaxDepth();
   const minSplitSpanMs = resolveOrdersWindowSplitMinSpanMs();
+  const maxPages = resolveOrdersEntitySyncMaxPages();
   const seenOrderIds = new Set<string>();
   const items: any[] = [];
 
@@ -444,23 +601,19 @@ async function fetchOrdersWindow(params: {
       if (typeof params.isCompleted === "boolean") {
         qs.set("isCompleted", params.isCompleted ? "true" : "false");
       }
-      params.vendorIds.forEach((vendorId, index) => {
-        qs.append(`vendor_id[${index}]`, String(vendorId));
-      });
 
       const res = await getWithRetry(`${BASE}/orders?${qs.toString()}`, headers, 2);
       const pageItems = Array.isArray(res.data?.items) ? res.data.items : [];
 
       for (const order of pageItems) {
         const orderKey = stableOrderKey(order);
-        if (!orderKey) continue;
-        if (seenOrderIds.has(orderKey)) continue;
+        if (!orderKey || seenOrderIds.has(orderKey)) continue;
         seenOrderIds.add(orderKey);
         items.push(order);
       }
 
       if (pageItems.length < params.pageSize) break;
-      if (page + 1 >= BRANCH_DETAIL_MAX_PAGES) {
+      if (page + 1 >= maxPages) {
         const splitWindows = depth < maxSplitDepth
           ? splitUtcWindow(window, minSplitSpanMs)
           : null;
@@ -471,13 +624,13 @@ async function fetchOrdersWindow(params: {
         }
 
         throw createPageLimitError({
-          scope: "branch_detail",
+          scope: "orders_aggregate",
           globalEntityId: params.globalEntityId,
           page,
-          vendorChunk: params.vendorIds,
           windowStartUtc: window.startUtcIso,
           windowEndUtc: window.endUtcIso,
           splitDepth: depth,
+          maxPages,
         });
       }
 
@@ -489,23 +642,20 @@ async function fetchOrdersWindow(params: {
   return {
     items,
     fetchedAt: params.nowIso,
-  };
+  } satisfies OrdersFetchResult;
 }
 
-function upsertMirrorOrders(params: {
-  dayKey: string;
-  globalEntityId: string;
-  rows: Array<ReturnType<typeof normalizeMirrorOrder>>;
-  activeOverwrite: boolean;
-}) {
-  const statement = db.prepare(`
+function getUpsertMirrorOrderStatement() {
+  upsertMirrorOrderStatement ??= db.prepare(`
     INSERT INTO orders_mirror (
       dayKey,
       globalEntityId,
       vendorId,
+      vendorName,
       orderId,
       externalId,
       status,
+      transportType,
       isCompleted,
       isCancelled,
       isUnassigned,
@@ -517,76 +667,119 @@ function upsertMirrorOrders(params: {
       isActiveNow,
       lastSeenAt,
       lastActiveSeenAt
-    ) VALUES (
-      @dayKey,
-      @globalEntityId,
-      @vendorId,
-      @orderId,
-      @externalId,
-      @status,
-      @isCompleted,
-      @isCancelled,
-      @isUnassigned,
-      @placedAt,
-      @pickupAt,
-      @customerFirstName,
-      @shopperId,
-      @shopperFirstName,
-      @isActiveNow,
-      @lastSeenAt,
-      @lastActiveSeenAt
-    )
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(dayKey, globalEntityId, vendorId, orderId) DO UPDATE SET
+      vendorName = COALESCE(excluded.vendorName, orders_mirror.vendorName),
       externalId = excluded.externalId,
       status = excluded.status,
+      transportType = COALESCE(excluded.transportType, orders_mirror.transportType),
       isCompleted = excluded.isCompleted,
       isCancelled = excluded.isCancelled,
       isUnassigned = excluded.isUnassigned,
-      placedAt = excluded.placedAt,
-      pickupAt = excluded.pickupAt,
-      customerFirstName = excluded.customerFirstName,
+      placedAt = COALESCE(excluded.placedAt, orders_mirror.placedAt),
+      pickupAt = COALESCE(excluded.pickupAt, orders_mirror.pickupAt),
+      customerFirstName = COALESCE(excluded.customerFirstName, orders_mirror.customerFirstName),
       shopperId = excluded.shopperId,
-      shopperFirstName = excluded.shopperFirstName,
+      shopperFirstName = COALESCE(excluded.shopperFirstName, orders_mirror.shopperFirstName),
       isActiveNow = CASE
+        WHEN excluded.isActiveNow = 1 THEN 1
         WHEN excluded.isCompleted = 1 THEN 0
-        WHEN @activeOverwrite = 1 THEN excluded.isActiveNow
         ELSE orders_mirror.isActiveNow
       END,
       lastSeenAt = excluded.lastSeenAt,
       lastActiveSeenAt = CASE
-        WHEN excluded.isCompleted = 1 THEN orders_mirror.lastActiveSeenAt
-        WHEN @activeOverwrite = 1 AND excluded.isActiveNow = 1 THEN excluded.lastActiveSeenAt
-        ELSE COALESCE(orders_mirror.lastActiveSeenAt, excluded.lastActiveSeenAt)
+        WHEN excluded.isActiveNow = 1 THEN excluded.lastActiveSeenAt
+        ELSE orders_mirror.lastActiveSeenAt
+      END,
+      transportTypeLookupAt = CASE
+        WHEN excluded.transportType IS NOT NULL THEN COALESCE(orders_mirror.transportTypeLookupAt, excluded.lastSeenAt)
+        ELSE orders_mirror.transportTypeLookupAt
+      END,
+      transportTypeLookupError = CASE
+        WHEN excluded.transportType IS NOT NULL THEN NULL
+        ELSE orders_mirror.transportTypeLookupError
+      END,
+      cancellationOwner = CASE
+        WHEN excluded.isCancelled = 1 THEN orders_mirror.cancellationOwner
+        ELSE NULL
+      END,
+      cancellationReason = CASE
+        WHEN excluded.isCancelled = 1 THEN orders_mirror.cancellationReason
+        ELSE NULL
+      END,
+      cancellationStage = CASE
+        WHEN excluded.isCancelled = 1 THEN orders_mirror.cancellationStage
+        ELSE NULL
+      END,
+      cancellationSource = CASE
+        WHEN excluded.isCancelled = 1 THEN orders_mirror.cancellationSource
+        ELSE NULL
+      END,
+      cancellationCreatedAt = CASE
+        WHEN excluded.isCancelled = 1 THEN orders_mirror.cancellationCreatedAt
+        ELSE NULL
+      END,
+      cancellationUpdatedAt = CASE
+        WHEN excluded.isCancelled = 1 THEN orders_mirror.cancellationUpdatedAt
+        ELSE NULL
+      END,
+      cancellationOwnerLookupAt = CASE
+        WHEN excluded.isCancelled = 1 THEN orders_mirror.cancellationOwnerLookupAt
+        ELSE NULL
+      END,
+      cancellationOwnerLookupError = CASE
+        WHEN excluded.isCancelled = 1 THEN orders_mirror.cancellationOwnerLookupError
+        ELSE NULL
       END
   `);
 
-  const run = db.transaction(() => {
-    for (const row of params.rows) {
-      if (!row) continue;
-      statement.run({
-        ...row,
-        dayKey: params.dayKey,
-        globalEntityId: params.globalEntityId,
-        activeOverwrite: params.activeOverwrite ? 1 : 0,
-      });
+  return upsertMirrorOrderStatement;
+}
+
+function upsertMirrorOrders(rows: NormalizedMirrorOrder[]) {
+  if (!rows.length) return;
+
+  const run = db.transaction((items: NormalizedMirrorOrder[]) => {
+    const statement = getUpsertMirrorOrderStatement();
+    for (const row of items) {
+      statement.run(
+        row.dayKey,
+        row.globalEntityId,
+        row.vendorId,
+        row.vendorName,
+        row.orderId,
+        row.externalId,
+        row.status,
+        row.transportType,
+        row.isCompleted,
+        row.isCancelled,
+        row.isUnassigned,
+        row.placedAt,
+        row.pickupAt,
+        row.customerFirstName,
+        row.shopperId,
+        row.shopperFirstName,
+        row.isActiveNow,
+        row.lastSeenAt,
+        row.lastActiveSeenAt,
+      );
     }
   });
 
-  run();
+  run(rows);
 }
 
-function markMissingActiveOrdersInactive(params: {
+function replaceActiveOrders(params: {
   dayKey: string;
   globalEntityId: string;
-  vendorId: OrdersVendorId;
   activeOrderIds: string[];
 }) {
   if (!params.activeOrderIds.length) {
     db.prepare(`
       UPDATE orders_mirror
       SET isActiveNow = 0
-      WHERE dayKey = ? AND globalEntityId = ? AND vendorId = ? AND isActiveNow = 1
-    `).run(params.dayKey, params.globalEntityId, params.vendorId);
+      WHERE dayKey = ? AND globalEntityId = ? AND isActiveNow = 1
+    `).run(params.dayKey, params.globalEntityId);
     return;
   }
 
@@ -594,338 +787,654 @@ function markMissingActiveOrdersInactive(params: {
   db.prepare(`
     UPDATE orders_mirror
     SET isActiveNow = 0
-    WHERE dayKey = ? AND globalEntityId = ? AND vendorId = ? AND isActiveNow = 1 AND orderId NOT IN (${placeholders})
-  `).run(params.dayKey, params.globalEntityId, params.vendorId, ...params.activeOrderIds);
+    WHERE dayKey = ? AND globalEntityId = ? AND isActiveNow = 1 AND orderId NOT IN (${placeholders})
+  `).run(params.dayKey, params.globalEntityId, ...params.activeOrderIds);
 }
 
-function buildMirrorVendors(branches: ResolvedBranchMapping[]): MirrorSyncVendor[] {
-  const byKey = new Map<string, MirrorSyncVendor>();
-  for (const branch of branches.filter((item) => item.enabled)) {
-    const globalEntityId = branch.globalEntityId;
-    const key = `${globalEntityId}::${branch.ordersVendorId}`;
-    if (!byKey.has(key)) {
-      byKey.set(key, {
-        vendorId: branch.ordersVendorId,
-        globalEntityId,
-      });
-    }
-  }
-  return Array.from(byKey.values());
+function getHistoryWindow(dayKey: string, state: OrdersEntitySyncStateRow | null, endUtcIso: string) {
+  const fullDay = getDayWindow(dayKey);
+  const dayStartMs = toMillis(fullDay.startUtcIso);
+  const dayEndMs = toMillis(endUtcIso);
+  const cursorMs = Number.isFinite(toMillis(state?.lastHistoryCursorAt))
+    ? toMillis(state?.lastHistoryCursorAt)
+    : dayStartMs;
+  const startMs = Math.max(dayStartMs, cursorMs - HISTORY_OVERLAP_MS);
+
+  return {
+    startUtcIso: new Date(startMs).toISOString(),
+    endUtcIso,
+    shouldRun: dayEndMs > startMs,
+  };
 }
 
-function shouldSplitVendorGroupOnError(error: any) {
-  return isRetryableOrdersRequestError(error) || isVendorIdValidationError(error);
+function shouldRunRepair(state: OrdersEntitySyncStateRow | null) {
+  if (!state?.lastFullHistorySweepAt) return true;
+  const lastSweepMs = toMillis(state.lastFullHistorySweepAt);
+  if (!Number.isFinite(lastSweepMs)) return true;
+  return Date.now() - lastSweepMs >= resolveOrdersRepairSweepSeconds() * 1000;
 }
 
-async function runVendorGroupsIsolated(
-  groups: Array<{ globalEntityId: string; vendorIds: OrdersVendorId[] }>,
-  worker: (group: { globalEntityId: string; vendorIds: OrdersVendorId[] }) => Promise<void>,
-  onFailure: (group: { globalEntityId: string; vendorIds: OrdersVendorId[] }, error: any) => void | Promise<void>,
-): Promise<void> {
-  const consume = async (group: { globalEntityId: string; vendorIds: OrdersVendorId[] }) => {
-    try {
-      await worker(group);
-    } catch (error: any) {
-      if (group.vendorIds.length > 1 && shouldSplitVendorGroupOnError(error)) {
-        const midpoint = Math.ceil(group.vendorIds.length / 2);
-        await consume({
-          globalEntityId: group.globalEntityId,
-          vendorIds: group.vendorIds.slice(0, midpoint),
-        });
-        await consume({
-          globalEntityId: group.globalEntityId,
-          vendorIds: group.vendorIds.slice(midpoint),
+function shouldReuseFreshState(state: OrdersEntitySyncStateRow | null, ordersRefreshSeconds: number) {
+  if (!state?.bootstrapCompletedAt) return false;
+  if (resolveCacheState(state, ordersRefreshSeconds) !== "fresh") return false;
+  const fetchedAt = resolveFetchedAt(state);
+  if (!fetchedAt) return false;
+  return Date.now() - toMillis(fetchedAt) < Math.max(5_000, ordersRefreshSeconds * 1000);
+}
+
+function buildEntityStatus(dayKey: string, globalEntityId: string, ordersRefreshSeconds: number): OrdersMirrorEntitySyncStatus {
+  const state = getEntitySyncState(dayKey, globalEntityId);
+  const fetchedAt = resolveFetchedAt(state);
+
+  return {
+    dayKey,
+    globalEntityId,
+    cacheState: resolveCacheState(state, ordersRefreshSeconds),
+    fetchedAt,
+    lastSuccessfulSyncAt: state?.lastSuccessfulSyncAt ?? fetchedAt,
+    consecutiveFailures: state?.consecutiveFailures ?? 0,
+    lastErrorMessage: state?.lastErrorMessage ?? null,
+    bootstrapCompleted: Boolean(state?.bootstrapCompletedAt),
+  };
+}
+
+export function getOrdersMirrorEntitySyncStatus(params?: {
+  dayKey?: string;
+  globalEntityId?: string;
+  ordersRefreshSeconds?: number;
+}) {
+  const dayKey = params?.dayKey ?? getCairoDayKey();
+  const globalEntityId = params?.globalEntityId ?? getGlobalEntityId();
+  const ordersRefreshSeconds = params?.ordersRefreshSeconds ?? getSettings().ordersRefreshSeconds;
+  return buildEntityStatus(dayKey, globalEntityId, ordersRefreshSeconds);
+}
+
+async function mapWithConcurrency<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>) {
+  if (!items.length) return;
+
+  let cursor = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (cursor < items.length) {
+        const index = cursor;
+        cursor += 1;
+        await worker(items[index]!);
+      }
+    }),
+  );
+}
+
+export function extractCancellationOwner(payload: unknown) {
+  const owner = (payload as { cancellation?: { owner?: unknown } } | null | undefined)?.cancellation?.owner;
+  if (typeof owner !== "string") return null;
+  const normalized = owner.trim().toUpperCase();
+  return normalized.length ? normalized : null;
+}
+
+function extractCancellationText(payload: unknown, key: "reason" | "stage" | "source") {
+  const value = (payload as { cancellation?: Record<string, unknown> } | null | undefined)?.cancellation?.[key];
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length ? normalized : null;
+}
+
+function extractCancellationIso(payload: unknown, key: "createdAt" | "updatedAt") {
+  const value = (payload as { cancellation?: Record<string, unknown> } | null | undefined)?.cancellation?.[key];
+  return typeof value === "string" && value.trim().length ? value.trim() : null;
+}
+
+export function extractCancellationDetail(payload: unknown) {
+  return {
+    owner: extractCancellationOwner(payload),
+    reason: extractCancellationText(payload, "reason"),
+    stage: extractCancellationText(payload, "stage"),
+    source: extractCancellationText(payload, "source"),
+    createdAt: extractCancellationIso(payload, "createdAt"),
+    updatedAt: extractCancellationIso(payload, "updatedAt"),
+  };
+}
+
+function resolveOwnerLookupBatchLimit() {
+  const raw = Number(process.env.UPUSE_PERFORMANCE_OWNER_LOOKUP_BATCH_LIMIT ?? "48");
+  if (!Number.isFinite(raw)) return 48;
+  return Math.max(1, Math.min(200, Math.floor(raw)));
+}
+
+function resolveTransportTypeLookupBatchLimit() {
+  const raw = Number(process.env.UPUSE_PERFORMANCE_TRANSPORT_TYPE_LOOKUP_BATCH_LIMIT ?? "96");
+  if (!Number.isFinite(raw)) return 96;
+  return Math.max(1, Math.min(300, Math.floor(raw)));
+}
+
+function resolveDetailLookupConcurrency() {
+  const raw = Number(process.env.UPUSE_PERFORMANCE_DETAIL_LOOKUP_CONCURRENCY ?? "4");
+  if (!Number.isFinite(raw)) return 4;
+  return Math.max(1, Math.min(10, Math.floor(raw)));
+}
+
+function resolveDetailLookupCooldownMs() {
+  const raw = Number(process.env.UPUSE_PERFORMANCE_DETAIL_LOOKUP_COOLDOWN_MS ?? `${5 * 60 * 1000}`);
+  if (!Number.isFinite(raw)) return 5 * 60 * 1000;
+  return Math.max(30_000, Math.min(60 * 60 * 1000, Math.floor(raw)));
+}
+
+function getUpdateCancellationLookupStatement() {
+  updateCancellationLookupStatement ??= db.prepare<
+    [string | null, string | null, string | null, string | null, string | null, string | null, string, string | null, string, string, number, string]
+  >(`
+    UPDATE orders_mirror
+    SET
+      cancellationOwner = ?,
+      cancellationReason = ?,
+      cancellationStage = ?,
+      cancellationSource = ?,
+      cancellationCreatedAt = ?,
+      cancellationUpdatedAt = ?,
+      cancellationOwnerLookupAt = ?,
+      cancellationOwnerLookupError = ?
+    WHERE dayKey = ? AND globalEntityId = ? AND vendorId = ? AND orderId = ?
+  `);
+
+  return updateCancellationLookupStatement;
+}
+
+function getUpdateTransportTypeLookupStatement() {
+  updateTransportTypeLookupStatement ??= db.prepare(`
+    UPDATE orders_mirror
+    SET
+      transportType = ?,
+      transportTypeLookupAt = ?,
+      transportTypeLookupError = ?
+    WHERE dayKey = ? AND globalEntityId = ? AND vendorId = ? AND orderId = ?
+  `);
+
+  return updateTransportTypeLookupStatement;
+}
+
+function listPendingOwnerLookupCandidates(dayKey: string, globalEntityId: string, cutoffIso: string, limit: number) {
+  if (limit <= 0) return [];
+
+  return db.prepare<[string, string, string, number], OwnerLookupCandidate>(`
+    SELECT
+      dayKey,
+      globalEntityId,
+      vendorId,
+      orderId
+    FROM orders_mirror
+    WHERE dayKey = ?
+      AND globalEntityId = ?
+      AND isCancelled = 1
+      AND (
+        cancellationOwner IS NULL
+        OR cancellationReason IS NULL
+        OR cancellationCreatedAt IS NULL
+      )
+      AND (cancellationOwnerLookupAt IS NULL OR cancellationOwnerLookupAt <= ?)
+    ORDER BY COALESCE(cancellationOwnerLookupAt, '') ASC, lastSeenAt DESC
+    LIMIT ?
+  `).all(dayKey, globalEntityId, cutoffIso, limit);
+}
+
+function listPendingTransportTypeLookupCandidates(dayKey: string, globalEntityId: string, cutoffIso: string, limit: number) {
+  if (limit <= 0) return [];
+
+  return db.prepare<[string, string, string, number], TransportTypeLookupCandidate>(`
+    SELECT
+      dayKey,
+      globalEntityId,
+      vendorId,
+      orderId
+    FROM orders_mirror
+    WHERE dayKey = ?
+      AND globalEntityId = ?
+      AND transportType IS NULL
+      AND (transportTypeLookupAt IS NULL OR transportTypeLookupAt <= ?)
+    ORDER BY COALESCE(transportTypeLookupAt, '') ASC, lastSeenAt DESC
+    LIMIT ?
+  `).all(dayKey, globalEntityId, cutoffIso, limit);
+}
+
+function normalizeLookupError(error: any) {
+  const status = typeof error?.response?.status === "number" ? error.response.status : null;
+  const responseMessage =
+    typeof error?.response?.data?.message === "string" && error.response.data.message.trim().length
+      ? error.response.data.message.trim()
+      : null;
+  const baseMessage =
+    responseMessage ||
+    (typeof error?.message === "string" && error.message.trim().length ? error.message.trim() : "Cancellation lookup failed.");
+
+  return {
+    status,
+    message: status ? `HTTP ${status}: ${baseMessage}` : baseMessage,
+  };
+}
+
+function persistCancellationLookupResult(
+  candidate: OwnerLookupCandidate,
+  result: {
+    owner: string | null;
+    reason: string | null;
+    stage: string | null;
+    source: string | null;
+    createdAt: string | null;
+    updatedAt: string | null;
+    lookedUpAt: string;
+    error: string | null;
+  },
+) {
+  getUpdateCancellationLookupStatement().run(
+    result.owner,
+    result.reason,
+    result.stage,
+    result.source,
+    result.createdAt,
+    result.updatedAt,
+    result.lookedUpAt,
+    result.error,
+    candidate.dayKey,
+    candidate.globalEntityId,
+    candidate.vendorId,
+    candidate.orderId,
+  );
+}
+
+function persistTransportTypeLookupResult(
+  candidate: TransportTypeLookupCandidate,
+  result: {
+    transportType: string | null;
+    lookedUpAt: string;
+    error: string | null;
+  },
+) {
+  getUpdateTransportTypeLookupStatement().run(
+    result.transportType,
+    result.lookedUpAt,
+    result.error,
+    candidate.dayKey,
+    candidate.globalEntityId,
+    candidate.vendorId,
+    candidate.orderId,
+  );
+}
+
+async function fetchOrderDetailMetadata(orderId: string, token: string) {
+  const response = await getWithRetry(
+    `${BASE}/orders/${encodeURIComponent(orderId)}`,
+    getOrdersHeaders(token),
+    1,
+  );
+
+  return {
+    cancellation: extractCancellationDetail(response.data),
+    transportType: extractTransportType(response.data),
+  };
+}
+
+async function enrichTransportTypes(dayKey: string, globalEntityId: string, token: string) {
+  if (!token.trim().length || transportTypeLookupMutex.locked) return;
+
+  await transportTypeLookupMutex.runExclusive(async () => {
+    const retryAfterIso = new Date(Date.now() - resolveDetailLookupCooldownMs()).toISOString();
+    const candidates = listPendingTransportTypeLookupCandidates(
+      dayKey,
+      globalEntityId,
+      retryAfterIso,
+      resolveTransportTypeLookupBatchLimit(),
+    );
+    if (!candidates.length) return;
+
+    const lookedUpAt = nowUtcIso();
+    let fatalAuthError: string | null = null;
+
+    await mapWithConcurrency(candidates, resolveDetailLookupConcurrency(), async (candidate) => {
+      if (fatalAuthError) {
+        persistTransportTypeLookupResult(candidate, {
+          transportType: null,
+          lookedUpAt,
+          error: fatalAuthError,
         });
         return;
       }
 
-      await onFailure(group, error);
-    }
-  };
-
-  for (const group of groups) {
-    await consume(group);
-  }
+      try {
+        const detail = await fetchOrderDetailMetadata(candidate.orderId, token);
+        persistTransportTypeLookupResult(candidate, {
+          transportType: detail.transportType,
+          lookedUpAt,
+          error: detail.transportType ? null : "Transport type was missing from the detail response.",
+        });
+      } catch (error: any) {
+        const normalized = normalizeLookupError(error);
+        if (normalized.status === 401 || normalized.status === 403) {
+          fatalAuthError = normalized.message;
+        }
+        persistTransportTypeLookupResult(candidate, {
+          transportType: null,
+          lookedUpAt,
+          error: normalized.message,
+        });
+      }
+    });
+  });
 }
 
-export async function ensureOrdersMirrorBootstrap(params: {
+async function enrichCancellationOwners(dayKey: string, globalEntityId: string, token: string) {
+  if (!token.trim().length || ownerLookupMutex.locked) return;
+
+  await ownerLookupMutex.runExclusive(async () => {
+    const retryAfterIso = new Date(Date.now() - resolveDetailLookupCooldownMs()).toISOString();
+    const candidates = listPendingOwnerLookupCandidates(
+      dayKey,
+      globalEntityId,
+      retryAfterIso,
+      resolveOwnerLookupBatchLimit(),
+    );
+    if (!candidates.length) return;
+
+    const lookedUpAt = nowUtcIso();
+    let fatalAuthError: string | null = null;
+
+    await mapWithConcurrency(candidates, resolveDetailLookupConcurrency(), async (candidate) => {
+      if (fatalAuthError) {
+        persistCancellationLookupResult(candidate, {
+          owner: null,
+          reason: null,
+          stage: null,
+          source: null,
+          createdAt: null,
+          updatedAt: null,
+          lookedUpAt,
+          error: fatalAuthError,
+        });
+        return;
+      }
+
+      try {
+        const detail = await fetchOrderDetailMetadata(candidate.orderId, token);
+        persistCancellationLookupResult(candidate, {
+          owner: detail.cancellation.owner,
+          reason: detail.cancellation.reason,
+          stage: detail.cancellation.stage,
+          source: detail.cancellation.source,
+          createdAt: detail.cancellation.createdAt,
+          updatedAt: detail.cancellation.updatedAt,
+          lookedUpAt,
+          error:
+            detail.cancellation.owner || detail.cancellation.reason || detail.cancellation.createdAt
+              ? null
+              : "Cancellation detail was missing from the detail response.",
+        });
+      } catch (error: any) {
+        const normalized = normalizeLookupError(error);
+        if (normalized.status === 401 || normalized.status === 403) {
+          fatalAuthError = normalized.message;
+        }
+        persistCancellationLookupResult(candidate, {
+          owner: null,
+          reason: null,
+          stage: null,
+          source: null,
+          createdAt: null,
+          updatedAt: null,
+          lookedUpAt,
+          error: normalized.message,
+        });
+      }
+    });
+  });
+}
+
+async function performEntitySync(params: {
   token: string;
-  branches: ResolvedBranchMapping[];
-  dayKey?: string;
-}): Promise<MirrorPhaseResult> {
-  const result: MirrorPhaseResult = {
-    successfulVendorIds: new Set<OrdersVendorId>(),
-    updatedVendorIds: new Set<OrdersVendorId>(),
-    failures: [],
-  };
-  const dayKey = params.dayKey ?? getCairoDayKey();
-  pruneMirrorDays([dayKey, getPreviousCairoDayKey(dayKey)]);
+  globalEntityId: string;
+  ordersRefreshSeconds: number;
+  force?: boolean;
+}) {
+  const dayKey = getCairoDayKey();
+  const previousDayKey = getPreviousCairoDayKey(dayKey);
+  pruneMirrorDays([dayKey, previousDayKey]);
 
-  const mirrorVendors = buildMirrorVendors(params.branches);
-  const missingVendors = mirrorVendors.filter((vendor) => !getMirrorState(dayKey, vendor.globalEntityId, vendor.vendorId)?.lastBootstrapSyncAt);
-  if (!missingVendors.length) return result;
+  let state = getEntitySyncState(dayKey, params.globalEntityId);
+  if (!params.force && shouldReuseFreshState(state, params.ordersRefreshSeconds)) {
+    const entityStatus = buildEntityStatus(dayKey, params.globalEntityId, params.ordersRefreshSeconds);
+    return {
+      dayKey,
+      globalEntityId: params.globalEntityId,
+      success: true,
+      fetchedAt: entityStatus.fetchedAt,
+      cacheState: entityStatus.cacheState,
+      consecutiveFailures: entityStatus.consecutiveFailures,
+    } satisfies EntitySyncBaseResult;
+  }
 
-  const vendorIdSet = new Set(missingVendors.map((item) => item.vendorId));
-  const vendorGroups = toVendorGroups(params.branches, Array.from(vendorIdSet));
-  const nowIso = nowUtcIso();
-  const window = getSyncWindow(dayKey, nowIso);
+  if (!params.token.trim().length) {
+    const missingTokenError = buildMissingTokenError();
+    markEntitySyncFailure(dayKey, params.globalEntityId, missingTokenError);
+    const entityStatus = buildEntityStatus(dayKey, params.globalEntityId, params.ordersRefreshSeconds);
+    publishEntitySyncStatus(entityStatus);
+    return {
+      dayKey,
+      globalEntityId: params.globalEntityId,
+      success: false,
+      fetchedAt: entityStatus.fetchedAt,
+      cacheState: entityStatus.cacheState,
+      consecutiveFailures: entityStatus.consecutiveFailures,
+      error: missingTokenError,
+    } satisfies EntitySyncBaseResult;
+  }
 
-  await runVendorGroupsIsolated(
-    vendorGroups,
-    async (group) => {
-      const res = await fetchOrdersWindow({
+  try {
+    const nowIso = nowUtcIso();
+    const syncWindow = getSyncWindow(dayKey, nowIso);
+    const phaseFetchedAt: string[] = [];
+    const bootstrapRequired = !state?.bootstrapCompletedAt;
+
+    if (bootstrapRequired) {
+      const bootstrap = await fetchOrdersWindow({
         token: params.token,
-        globalEntityId: group.globalEntityId,
-        vendorIds: group.vendorIds,
+        globalEntityId: params.globalEntityId,
         pageSize: BOOTSTRAP_SYNC_PAGE_SIZE,
-        window,
+        window: syncWindow,
         nowIso,
       });
 
-      upsertMirrorOrders({
-        dayKey,
-        globalEntityId: group.globalEntityId,
-        rows: res.items.map((order) => ({
-          ...normalizeMirrorOrder(order, nowIso),
-          vendorId: Number(order?.vendor?.id ?? 0),
-        })).filter(Boolean) as Array<ReturnType<typeof normalizeMirrorOrder>>,
-        activeOverwrite: true,
+      upsertMirrorOrders(
+        bootstrap.items
+          .map((order) => normalizeMirrorOrder(order, dayKey, params.globalEntityId, bootstrap.fetchedAt))
+          .filter((row): row is NormalizedMirrorOrder => Boolean(row)),
+      );
+
+      phaseFetchedAt.push(bootstrap.fetchedAt);
+      upsertEntitySyncState(dayKey, params.globalEntityId, {
+        ...state,
+        lastBootstrapSyncAt: bootstrap.fetchedAt,
+        lastHistoryCursorAt: syncWindow.endUtcIso,
+        bootstrapCompletedAt: bootstrap.fetchedAt,
       });
-
-      for (const vendorId of group.vendorIds) {
-        upsertMirrorState(dayKey, group.globalEntityId, vendorId, {
-          lastBootstrapSyncAt: res.fetchedAt,
-          lastHistorySyncAt: res.fetchedAt,
-          lastFullHistorySweepAt: res.fetchedAt,
-          lastSuccessfulSyncAt: res.fetchedAt,
-          lastHistoryCursorAt: window.endUtcIso,
-          consecutiveFailures: 0,
-          lastErrorAt: null,
-          lastErrorCode: null,
-          lastErrorMessage: null,
-          staleSince: null,
-          quarantinedUntil: null,
-        });
-        result.successfulVendorIds.add(vendorId);
-        result.updatedVendorIds.add(vendorId);
-      }
-    },
-    async (group, error) => {
-      const normalized = summarizeMirrorSyncError(error);
-      result.failures.push({
-        vendorIds: [...group.vendorIds],
-        statusCode: normalized.statusCode,
-        message: normalized.message,
-      });
-      for (const vendorId of group.vendorIds) {
-        markVendorSyncFailure(dayKey, group.globalEntityId, vendorId, error);
-      }
-    },
-  );
-
-  return result;
-}
-
-export async function syncOrdersMirrorActive(params: {
-  token: string;
-  branches: ResolvedBranchMapping[];
-  dayKey?: string;
-}): Promise<MirrorPhaseResult> {
-  const result: MirrorPhaseResult = {
-    successfulVendorIds: new Set<OrdersVendorId>(),
-    updatedVendorIds: new Set<OrdersVendorId>(),
-    failures: [],
-  };
-  const dayKey = params.dayKey ?? getCairoDayKey();
-  const branches = params.branches.filter((branch) => branch.enabled);
-  if (!branches.length) return result;
-
-  pruneMirrorDays([dayKey, getPreviousCairoDayKey(dayKey)]);
-
-  const vendorGroups = toVendorGroups(branches);
-  const nowIso = nowUtcIso();
-  const window = getSyncWindow(dayKey, nowIso);
-
-  await runVendorGroupsIsolated(
-    vendorGroups,
-    async (group) => {
-      const res = await fetchOrdersWindow({
+      state = getEntitySyncState(dayKey, params.globalEntityId);
+    } else {
+      const active = await fetchOrdersWindow({
         token: params.token,
-        globalEntityId: group.globalEntityId,
-        vendorIds: group.vendorIds,
+        globalEntityId: params.globalEntityId,
         pageSize: ACTIVE_SYNC_PAGE_SIZE,
-        window,
+        window: syncWindow,
         nowIso,
         isCompleted: false,
       });
 
-      upsertMirrorOrders({
+      const activeRows = active.items
+        .map((order) => normalizeMirrorOrder(order, dayKey, params.globalEntityId, active.fetchedAt))
+        .filter((row): row is NormalizedMirrorOrder => Boolean(row));
+
+      upsertMirrorOrders(activeRows);
+      replaceActiveOrders({
         dayKey,
-        globalEntityId: group.globalEntityId,
-        rows: res.items.map((order) => ({
-          ...normalizeMirrorOrder(order, nowIso),
-          vendorId: Number(order?.vendor?.id ?? 0),
-        })).filter(Boolean) as Array<ReturnType<typeof normalizeMirrorOrder>>,
-        activeOverwrite: true,
+        globalEntityId: params.globalEntityId,
+        activeOrderIds: activeRows.map((row) => row.orderId),
       });
-
-      const activeOrderIdsByVendor = new Map<number, string[]>();
-      for (const order of res.items) {
-        const vendorId = Number(order?.vendor?.id ?? 0);
-        const orderId = stableOrderKey(order);
-        if (!vendorId || !orderId) continue;
-        const items = activeOrderIdsByVendor.get(vendorId) ?? [];
-        items.push(orderId);
-        activeOrderIdsByVendor.set(vendorId, items);
-      }
-
-      for (const vendorId of group.vendorIds) {
-        markMissingActiveOrdersInactive({
-          dayKey,
-          globalEntityId: group.globalEntityId,
-          vendorId,
-          activeOrderIds: activeOrderIdsByVendor.get(vendorId) ?? [],
-        });
-        upsertMirrorState(dayKey, group.globalEntityId, vendorId, {
-          lastActiveSyncAt: res.fetchedAt,
-          lastSuccessfulSyncAt: res.fetchedAt,
-          consecutiveFailures: 0,
-          lastErrorAt: null,
-          lastErrorCode: null,
-          lastErrorMessage: null,
-          staleSince: null,
-          quarantinedUntil: null,
-        });
-        result.successfulVendorIds.add(vendorId);
-        result.updatedVendorIds.add(vendorId);
-      }
-    },
-    async (group, error) => {
-      const normalized = summarizeMirrorSyncError(error);
-      result.failures.push({
-        vendorIds: [...group.vendorIds],
-        statusCode: normalized.statusCode,
-        message: normalized.message,
+      phaseFetchedAt.push(active.fetchedAt);
+      upsertEntitySyncState(dayKey, params.globalEntityId, {
+        ...state,
+        lastActiveSyncAt: active.fetchedAt,
       });
-      for (const vendorId of group.vendorIds) {
-        markVendorSyncFailure(dayKey, group.globalEntityId, vendorId, error);
-      }
-    },
-  );
+      state = getEntitySyncState(dayKey, params.globalEntityId);
 
-  return result;
+      const historyWindow = getHistoryWindow(dayKey, state, syncWindow.endUtcIso);
+      const shouldRunHistory =
+        historyWindow.shouldRun &&
+        (params.force || !state?.lastHistorySyncAt || Date.now() - toMillis(state.lastHistorySyncAt) >= resolveOrdersHistorySyncSeconds() * 1000);
+
+      if (shouldRunHistory) {
+        const history = await fetchOrdersWindow({
+          token: params.token,
+          globalEntityId: params.globalEntityId,
+          pageSize: HISTORY_SYNC_PAGE_SIZE,
+          window: {
+            startUtcIso: historyWindow.startUtcIso,
+            endUtcIso: historyWindow.endUtcIso,
+          },
+          nowIso,
+        });
+
+        upsertMirrorOrders(
+          history.items
+            .map((order) => normalizeMirrorOrder(order, dayKey, params.globalEntityId, history.fetchedAt))
+            .filter((row): row is NormalizedMirrorOrder => Boolean(row)),
+        );
+
+        phaseFetchedAt.push(history.fetchedAt);
+        upsertEntitySyncState(dayKey, params.globalEntityId, {
+          ...state,
+          lastHistorySyncAt: history.fetchedAt,
+          lastHistoryCursorAt: historyWindow.endUtcIso,
+        });
+        state = getEntitySyncState(dayKey, params.globalEntityId);
+      }
+
+      if (params.force || shouldRunRepair(state)) {
+        const repair = await fetchOrdersWindow({
+          token: params.token,
+          globalEntityId: params.globalEntityId,
+          pageSize: HISTORY_SYNC_PAGE_SIZE,
+          window: syncWindow,
+          nowIso,
+        });
+
+        upsertMirrorOrders(
+          repair.items
+            .map((order) => normalizeMirrorOrder(order, dayKey, params.globalEntityId, repair.fetchedAt))
+            .filter((row): row is NormalizedMirrorOrder => Boolean(row)),
+        );
+
+        phaseFetchedAt.push(repair.fetchedAt);
+        upsertEntitySyncState(dayKey, params.globalEntityId, {
+          ...state,
+          lastFullHistorySweepAt: repair.fetchedAt,
+        });
+        state = getEntitySyncState(dayKey, params.globalEntityId);
+      }
+    }
+
+    const latestFetchedAt = phaseFetchedAt.length
+      ? phaseFetchedAt.reduce((latest, current) => (toMillis(current) > toMillis(latest) ? current : latest))
+      : resolveFetchedAt(state) ?? nowIso;
+
+    markEntitySyncSuccess(dayKey, params.globalEntityId, latestFetchedAt, {
+      ...state,
+      bootstrapCompletedAt: state?.bootstrapCompletedAt ?? latestFetchedAt,
+    });
+
+    await enrichTransportTypes(dayKey, params.globalEntityId, params.token);
+    await enrichCancellationOwners(dayKey, params.globalEntityId, params.token);
+
+    const entityStatus = buildEntityStatus(dayKey, params.globalEntityId, params.ordersRefreshSeconds);
+    publishEntitySyncStatus(entityStatus);
+    return {
+      dayKey,
+      globalEntityId: params.globalEntityId,
+      success: true,
+      fetchedAt: entityStatus.fetchedAt,
+      cacheState: entityStatus.cacheState,
+      consecutiveFailures: entityStatus.consecutiveFailures,
+    } satisfies EntitySyncBaseResult;
+  } catch (error: any) {
+    const normalized = summarizeMirrorSyncError(error);
+    markEntitySyncFailure(dayKey, params.globalEntityId, normalized);
+    const entityStatus = buildEntityStatus(dayKey, params.globalEntityId, params.ordersRefreshSeconds);
+    publishEntitySyncStatus(entityStatus);
+
+    return {
+      dayKey,
+      globalEntityId: params.globalEntityId,
+      success: false,
+      fetchedAt: entityStatus.fetchedAt,
+      cacheState: entityStatus.cacheState,
+      consecutiveFailures: entityStatus.consecutiveFailures,
+      error: normalized,
+    } satisfies EntitySyncBaseResult;
+  }
 }
 
-export async function syncOrdersMirrorHistory(params: {
+async function runEntitySync(params: {
   token: string;
+  globalEntityId: string;
+  ordersRefreshSeconds: number;
+  force?: boolean;
+}) {
+  if (entitySyncInFlight) {
+    return entitySyncInFlight;
+  }
+
+  entitySyncInFlight = entitySyncMutex
+    .runExclusive(async () => performEntitySync(params))
+    .finally(() => {
+      entitySyncInFlight = null;
+    });
+
+  return entitySyncInFlight;
+}
+
+function buildSyncSummary(params: {
   branches: ResolvedBranchMapping[];
-  dayKey?: string;
-}): Promise<MirrorPhaseResult> {
-  const result: MirrorPhaseResult = {
-    successfulVendorIds: new Set<OrdersVendorId>(),
-    updatedVendorIds: new Set<OrdersVendorId>(),
-    failures: [],
+  dayKey: string;
+  globalEntityId: string;
+  ordersRefreshSeconds: number;
+  base: EntitySyncBaseResult;
+}): OrdersMirrorSyncSummary {
+  const vendorIds = Array.from(new Set(params.branches.map((branch) => branch.ordersVendorId)));
+  const entityStatus = buildEntityStatus(params.dayKey, params.globalEntityId, params.ordersRefreshSeconds);
+  const statusesByVendor = new Map<OrdersVendorId, OrdersMirrorVendorSyncStatus>();
+
+  for (const vendorId of vendorIds) {
+    statusesByVendor.set(vendorId, {
+      vendorId,
+      cacheState: entityStatus.cacheState,
+      fetchedAt: entityStatus.fetchedAt,
+      consecutiveFailures: entityStatus.consecutiveFailures,
+    });
+  }
+
+  return {
+    dayKey: params.dayKey,
+    totalVendors: vendorIds.length,
+    successfulVendors: params.base.success ? vendorIds.length : 0,
+    failedVendors: params.base.success ? 0 : vendorIds.length,
+    updatedVendors: params.base.success ? vendorIds.length : 0,
+    staleVendorCount: entityStatus.cacheState === "stale" ? vendorIds.length : 0,
+    lastSuccessfulSyncAt: entityStatus.lastSuccessfulSyncAt,
+    errors: params.base.error
+      ? [
+          {
+            vendorIds,
+            statusCode: params.base.error.statusCode,
+            message: params.base.error.message,
+          },
+        ]
+      : [],
+    statusesByVendor,
   };
-  const dayKey = params.dayKey ?? getCairoDayKey();
-  const branches = params.branches.filter((branch) => branch.enabled);
-  if (!branches.length) return result;
-
-  pruneMirrorDays([dayKey, getPreviousCairoDayKey(dayKey)]);
-
-  const vendorGroups = toVendorGroups(branches);
-  const nowIso = nowUtcIso();
-  const historyIntervalMs = resolveOrdersHistorySyncSeconds() * 1000;
-  const repairSweepIntervalMs = resolveOrdersRepairSweepSeconds() * 1000;
-  const liveDayWindow = getSyncWindow(dayKey, nowIso);
-  const nowMs = Date.now();
-
-  await runVendorGroupsIsolated(
-    vendorGroups.filter((group) => {
-      const states = group.vendorIds.map((vendorId) => getMirrorState(dayKey, group.globalEntityId, vendorId));
-      const needsHistory = states.some((state) => {
-        if (!state?.lastHistorySyncAt) return true;
-        return nowMs - toMillis(state.lastHistorySyncAt) >= historyIntervalMs;
-      });
-      const needsRepair = states.some((state) => {
-        if (!state?.lastFullHistorySweepAt) return true;
-        return nowMs - toMillis(state.lastFullHistorySweepAt) >= repairSweepIntervalMs;
-      });
-      return needsHistory || needsRepair;
-    }),
-    async (group) => {
-      const states = group.vendorIds.map((vendorId) => getMirrorState(dayKey, group.globalEntityId, vendorId));
-      const needsRepair = states.some((state) => {
-        if (!state?.lastFullHistorySweepAt) return true;
-        return nowMs - toMillis(state.lastFullHistorySweepAt) >= repairSweepIntervalMs;
-      });
-
-      let window = liveDayWindow;
-      if (!needsRepair) {
-        const minCursorMs = states
-          .map((state) => toMillis(state?.lastHistoryCursorAt ?? state?.lastHistorySyncAt))
-          .filter(Number.isFinite)
-          .reduce((min, current) => Math.min(min, current), Number.POSITIVE_INFINITY);
-
-        const overlapStartMs = Number.isFinite(minCursorMs)
-          ? Math.max(toMillis(liveDayWindow.startUtcIso), minCursorMs - HISTORY_OVERLAP_MS)
-          : toMillis(liveDayWindow.startUtcIso);
-
-        window = {
-          startUtcIso: new Date(overlapStartMs).toISOString(),
-          endUtcIso: liveDayWindow.endUtcIso,
-        };
-      }
-
-      const res = await fetchOrdersWindow({
-        token: params.token,
-        globalEntityId: group.globalEntityId,
-        vendorIds: group.vendorIds,
-        pageSize: HISTORY_SYNC_PAGE_SIZE,
-        window,
-        nowIso,
-      });
-
-      upsertMirrorOrders({
-        dayKey,
-        globalEntityId: group.globalEntityId,
-        rows: res.items.map((order) => ({
-          ...normalizeMirrorOrder(order, nowIso),
-          vendorId: Number(order?.vendor?.id ?? 0),
-        })).filter(Boolean) as Array<ReturnType<typeof normalizeMirrorOrder>>,
-        activeOverwrite: false,
-      });
-
-      for (const vendorId of group.vendorIds) {
-        upsertMirrorState(dayKey, group.globalEntityId, vendorId, {
-          lastHistorySyncAt: res.fetchedAt,
-          lastFullHistorySweepAt: needsRepair ? res.fetchedAt : getMirrorState(dayKey, group.globalEntityId, vendorId)?.lastFullHistorySweepAt ?? null,
-          lastHistoryCursorAt: window.endUtcIso,
-          lastSuccessfulSyncAt: res.fetchedAt,
-          consecutiveFailures: 0,
-          lastErrorAt: null,
-          lastErrorCode: null,
-          lastErrorMessage: null,
-          staleSince: null,
-          quarantinedUntil: null,
-        });
-        result.successfulVendorIds.add(vendorId);
-        result.updatedVendorIds.add(vendorId);
-      }
-    },
-    async (group, error) => {
-      const normalized = summarizeMirrorSyncError(error);
-      result.failures.push({
-        vendorIds: [...group.vendorIds],
-        statusCode: normalized.statusCode,
-        message: normalized.message,
-      });
-      for (const vendorId of group.vendorIds) {
-        markVendorSyncFailure(dayKey, group.globalEntityId, vendorId, error);
-      }
-    },
-  );
-
-  return result;
 }
 
 export function getMirrorVendorSyncStatus(params: {
@@ -935,12 +1444,13 @@ export function getMirrorVendorSyncStatus(params: {
   dayKey?: string;
 }): OrdersMirrorVendorSyncStatus {
   const dayKey = params.dayKey ?? getCairoDayKey();
-  const state = getMirrorState(dayKey, params.globalEntityId, params.vendorId);
+  const entityStatus = buildEntityStatus(dayKey, params.globalEntityId, params.ordersRefreshSeconds);
+
   return {
     vendorId: params.vendorId,
-    cacheState: resolveCacheState(state, params.ordersRefreshSeconds),
-    fetchedAt: resolveFetchedAt(state),
-    consecutiveFailures: state?.consecutiveFailures ?? 0,
+    cacheState: entityStatus.cacheState,
+    fetchedAt: entityStatus.fetchedAt,
+    consecutiveFailures: entityStatus.consecutiveFailures,
   };
 }
 
@@ -948,105 +1458,23 @@ export async function syncOrdersMirror(params: {
   token: string;
   branches: ResolvedBranchMapping[];
   ordersRefreshSeconds: number;
-  dayKey?: string;
+  force?: boolean;
 }): Promise<OrdersMirrorSyncSummary> {
-  const dayKey = params.dayKey ?? getCairoDayKey();
-  const enabledBranches = params.branches.filter((branch) => branch.enabled);
-  const vendorIds = Array.from(new Set(enabledBranches.map((branch) => branch.ordersVendorId)));
-  const statusesByVendor = new Map<OrdersVendorId, OrdersMirrorVendorSyncStatus>();
-
-  if (!vendorIds.length) {
-    return {
-      dayKey,
-      totalVendors: 0,
-      successfulVendors: 0,
-      failedVendors: 0,
-      updatedVendors: 0,
-      staleVendorCount: 0,
-      lastSuccessfulSyncAt: null,
-      errors: [],
-      statusesByVendor,
-    };
-  }
-
-  const bootstrap = await ensureOrdersMirrorBootstrap({
+  const globalEntityId = params.branches[0]?.globalEntityId ?? getGlobalEntityId();
+  const base = await runEntitySync({
     token: params.token,
-    branches: enabledBranches,
-    dayKey,
-  });
-  const active = await syncOrdersMirrorActive({
-    token: params.token,
-    branches: enabledBranches,
-    dayKey,
-  });
-  const history = await syncOrdersMirrorHistory({
-    token: params.token,
-    branches: enabledBranches,
-    dayKey,
+    globalEntityId,
+    ordersRefreshSeconds: params.ordersRefreshSeconds,
+    force: params.force,
   });
 
-  const successfulVendorIds = new Set<OrdersVendorId>([
-    ...bootstrap.successfulVendorIds,
-    ...active.successfulVendorIds,
-    ...history.successfulVendorIds,
-  ]);
-  const updatedVendorIds = new Set<OrdersVendorId>([
-    ...bootstrap.updatedVendorIds,
-    ...active.updatedVendorIds,
-    ...history.updatedVendorIds,
-  ]);
-  const errors = [...bootstrap.failures, ...active.failures, ...history.failures];
-  const failedVendorIds = new Set<OrdersVendorId>(errors.flatMap((error) => error.vendorIds));
-
-  for (const vendorId of vendorIds) {
-    const branch = params.branches.find((item) => item.ordersVendorId === vendorId);
-    if (!branch) continue;
-    statusesByVendor.set(vendorId, getMirrorVendorSyncStatus({
-      globalEntityId: branch.globalEntityId,
-      vendorId,
-      ordersRefreshSeconds: params.ordersRefreshSeconds,
-      dayKey,
-    }));
-  }
-
-  const lastSuccessfulSyncAt = Array.from(statusesByVendor.values())
-    .map((status) => status.fetchedAt)
-    .filter((value): value is string => typeof value === "string" && value.length > 0)
-    .sort()
-    .at(-1) ?? null;
-  const staleVendorCount = Array.from(statusesByVendor.values()).filter((status) => status.cacheState === "stale").length;
-
-  return {
-    dayKey,
-    totalVendors: vendorIds.length,
-    successfulVendors: successfulVendorIds.size,
-    failedVendors: failedVendorIds.size,
-    updatedVendors: updatedVendorIds.size,
-    staleVendorCount,
-    lastSuccessfulSyncAt,
-    errors,
-    statusesByVendor,
-  };
-}
-
-function emptyMetrics(): OrdersMetrics {
-  return {
-    totalToday: 0,
-    cancelledToday: 0,
-    doneToday: 0,
-    activeNow: 0,
-    lateNow: 0,
-    unassignedNow: 0,
-  };
-}
-
-function emptyPickers(): BranchPickersSummary {
-  return {
-    todayCount: 0,
-    activePreparingCount: 0,
-    recentActiveCount: 0,
-    items: [],
-  };
+  return buildSyncSummary({
+    branches: params.branches,
+    dayKey: base.dayKey,
+    globalEntityId,
+    ordersRefreshSeconds: params.ordersRefreshSeconds,
+    base,
+  });
 }
 
 function buildPickerFallbackName(shopperId: number, shopperFirstName: string | null) {
@@ -1061,9 +1489,9 @@ export function getMirrorBranchDetail(params: {
   dayKey?: string;
 }): MirrorOrdersDetail {
   const dayKey = params.dayKey ?? getCairoDayKey();
-  const state = getMirrorState(dayKey, params.globalEntityId, params.vendorId);
-  const fetchedAt = resolveFetchedAt(state);
-  const cacheState = resolveCacheState(state, params.ordersRefreshSeconds);
+  const entityStatus = buildEntityStatus(dayKey, params.globalEntityId, params.ordersRefreshSeconds);
+  const fetchedAt = entityStatus.fetchedAt;
+  const cacheState = entityStatus.cacheState;
   const nowIso = nowUtcIso();
   const nowMs = Date.now();
   const recentActiveStartIso = new Date(nowMs - PICKER_RECENT_ACTIVE_WINDOW_MS).toISOString();
@@ -1073,9 +1501,11 @@ export function getMirrorBranchDetail(params: {
       dayKey,
       globalEntityId,
       vendorId,
+      vendorName,
       orderId,
       externalId,
       status,
+      transportType,
       isCompleted,
       isCancelled,
       isUnassigned,
@@ -1086,23 +1516,26 @@ export function getMirrorBranchDetail(params: {
       shopperFirstName,
       isActiveNow,
       lastSeenAt,
-      lastActiveSeenAt
+      lastActiveSeenAt,
+      cancellationOwner,
+      cancellationOwnerLookupAt,
+      cancellationOwnerLookupError
     FROM orders_mirror
     WHERE dayKey = ? AND globalEntityId = ? AND vendorId = ?
   `).all(dayKey, params.globalEntityId, params.vendorId);
 
   const metrics = rows.length
     ? rows.reduce<OrdersMetrics>((current, row) => {
-      current.totalToday += 1;
-      if (row.isCancelled === 1) current.cancelledToday += 1;
-      if (row.isCompleted === 1) current.doneToday += 1;
-      if (row.isActiveNow === 1) {
-        current.activeNow += 1;
-        if (row.isUnassigned === 1) current.unassignedNow += 1;
-        if (row.pickupAt && isPastPickup(nowIso, row.pickupAt)) current.lateNow += 1;
-      }
-      return current;
-    }, emptyMetrics())
+        current.totalToday += 1;
+        if (row.isCancelled === 1) current.cancelledToday += 1;
+        if (row.isCompleted === 1) current.doneToday += 1;
+        if (row.isActiveNow === 1) {
+          current.activeNow += 1;
+          if (row.isUnassigned === 1) current.unassignedNow += 1;
+          if (row.pickupAt && isPastPickup(nowIso, row.pickupAt)) current.lateNow += 1;
+        }
+        return current;
+      }, emptyMetrics())
     : emptyMetrics();
 
   const unassignedOrders = rows
@@ -1216,4 +1649,57 @@ export function getMirrorBranchPickers(params: {
     pickers: detail.pickers,
     cacheState: detail.cacheState,
   };
+}
+
+async function runRuntimeCycle() {
+  const settings = getSettings();
+  await syncOrdersMirror({
+    token: settings.ordersToken,
+    branches: listResolvedBranches(),
+    ordersRefreshSeconds: settings.ordersRefreshSeconds,
+  });
+}
+
+function clearRuntimeTimer() {
+  if (!runtimeTimer) return;
+  clearTimeout(runtimeTimer);
+  runtimeTimer = null;
+}
+
+function scheduleRuntime(delayMs: number) {
+  clearRuntimeTimer();
+  runtimeTimer = setTimeout(async () => {
+    runtimeTimer = null;
+    try {
+      await runRuntimeCycle();
+    } catch {
+      // Keep the runtime alive; state is already recorded in the sync table.
+    } finally {
+      if (runtimeStarted) {
+        const settings = getSettings();
+        scheduleRuntime(Math.max(5_000, settings.ordersRefreshSeconds * 1000));
+      }
+    }
+  }, delayMs);
+}
+
+export function startOrdersMirrorRuntime() {
+  if (runtimeStarted) return;
+  runtimeStarted = true;
+  scheduleRuntime(0);
+}
+
+export function stopOrdersMirrorRuntime() {
+  runtimeStarted = false;
+  clearRuntimeTimer();
+}
+
+export async function refreshOrdersMirrorNow() {
+  const settings = getSettings();
+  return syncOrdersMirror({
+    token: settings.ordersToken,
+    branches: listResolvedBranches(),
+    ordersRefreshSeconds: settings.ordersRefreshSeconds,
+    force: true,
+  });
 }
