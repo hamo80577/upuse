@@ -9,8 +9,7 @@ const FALLBACK_STATUS_URL = `${WRITE_BASE}/api/v1/vendors/status`;
 const AvailabilityRecordSchema = z.object({
   platformKey: z.string().min(1),
   changeable: z.boolean(),
-  availabilityState: z.enum(["OPEN", "CLOSED_UNTIL", "CLOSED", "UNKNOWN"]),
-  platformRestaurantId: z.string().min(1),
+  availabilityState: z.enum(["OPEN", "CLOSED_UNTIL", "CLOSED", "CLOSED_TODAY", "UNKNOWN"]), platformRestaurantId: z.string().min(1),
 }).passthrough();
 
 const FallbackAvailabilityRootSchema = z.object({
@@ -47,10 +46,10 @@ function normalizeAvailabilityRecord(value: z.infer<typeof AvailabilityRecordSch
     modifiedBy: typeof value.modifiedBy === "string" ? value.modifiedBy : undefined,
     preptimeAdjustment:
       value.preptimeAdjustment &&
-      typeof value.preptimeAdjustment === "object" &&
-      typeof (value.preptimeAdjustment as any).adjustmentMinutes === "number" &&
-      typeof (value.preptimeAdjustment as any).interval?.startTime === "string" &&
-      typeof (value.preptimeAdjustment as any).interval?.endTime === "string"
+        typeof value.preptimeAdjustment === "object" &&
+        typeof (value.preptimeAdjustment as any).adjustmentMinutes === "number" &&
+        typeof (value.preptimeAdjustment as any).interval?.startTime === "string" &&
+        typeof (value.preptimeAdjustment as any).interval?.endTime === "string"
         ? {
           adjustmentMinutes: (value.preptimeAdjustment as any).adjustmentMinutes,
           interval: {

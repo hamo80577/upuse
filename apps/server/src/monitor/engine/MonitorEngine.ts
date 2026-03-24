@@ -292,7 +292,7 @@ export class MonitorEngine {
 
     const cyclePromise = Promise.resolve()
       .then(() => runCycle(options, expectedLifecycleId))
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => {
         if (state.inFlight === cyclePromise) {
           state.inFlight = null;
@@ -685,9 +685,9 @@ export class MonitorEngine {
         this.isMonitorOwnedClosure(runtime, availability) ||
         Boolean(
           availability.availabilityState === "CLOSED_UNTIL" &&
-            availability.closedUntil &&
-            monitorWindowStillActive &&
-            !runtime?.externalOpenDetectedAt,
+          availability.closedUntil &&
+          monitorWindowStillActive &&
+          !runtime?.externalOpenDetectedAt,
         );
       const isExternalTempClose = Boolean(
         availability.availabilityState === "CLOSED_UNTIL" && availability.closedUntil && !ownedByUpuse,
@@ -759,7 +759,7 @@ export class MonitorEngine {
         if (!isMonitorWindowAlias) {
           if (availability.availabilityState === "OPEN") {
             log(branch.id, "INFO", "OPEN — external source reopened");
-          } else if (availability.availabilityState === "CLOSED") {
+          } else if (availability.availabilityState === "CLOSED" || availability.availabilityState === "CLOSED_TODAY") {
             log(branch.id, "WARN", "CLOSED — external source");
           }
         }
@@ -861,7 +861,7 @@ export class MonitorEngine {
             closeReason = undefined;
           }
           totals.tempClose += 1;
-        } else if (av.availabilityState === "CLOSED") {
+        } else if (av.availabilityState === "CLOSED" || av.availabilityState === "CLOSED_TODAY") {
           status = "CLOSED";
           statusColor = "orange";
           closureSource = "EXTERNAL";
@@ -912,7 +912,7 @@ export class MonitorEngine {
             !this.lastOrdersFetchAt
               ? "warming"
               : this.consecutiveOrdersSourceFailures >= resolveOrdersStaleMultiplier() ||
-                  (totals.branchesMonitored > 0 && this.staleOrdersBranchCount / totals.branchesMonitored > 0.25)
+                (totals.branchesMonitored > 0 && this.staleOrdersBranchCount / totals.branchesMonitored > 0.25)
                 ? "degraded"
                 : "healthy",
           lastSuccessfulSyncAt: this.ordersLastSuccessfulSyncAt,

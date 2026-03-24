@@ -1,5 +1,4 @@
-export type AvailabilityState = "OPEN" | "CLOSED_UNTIL" | "CLOSED" | "UNKNOWN";
-
+export type AvailabilityState = "OPEN" | "CLOSED_UNTIL" | "CLOSED" | "CLOSED_TODAY" | "UNKNOWN";
 export type OrdersVendorId = number;
 export type AvailabilityVendorId = string;
 export type AppUserRole = "admin" | "user";

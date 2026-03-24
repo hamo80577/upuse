@@ -8,6 +8,15 @@ import { useAuth } from "../../../app/providers/AuthProvider";
 import { useMonitorStatus } from "../../../app/providers/MonitorStatusProvider";
 import type { SettingsMasked, SettingsTokenTestSnapshot } from "../../../api/types";
 import { TopBar } from "../../../widgets/top-bar/ui/TopBar";
+import { TokenTestResults } from "./TokenTestResults";
+
+type SettingsFormState = Pick<
+  SettingsMasked,
+  "tempCloseMinutes" | "graceMinutes" | "ordersRefreshSeconds" | "availabilityRefreshSeconds" | "maxVendorsPerOrdersRequest"
+> & {
+  ordersToken: string;
+  availabilityToken: string;
+};
 
 export function SettingsPage() {
   const theme = useTheme();
@@ -17,7 +26,7 @@ export function SettingsPage() {
   const { monitoring, startMonitoring, stopMonitoring } = useMonitorStatus();
 
   const [s, setS] = useState<SettingsMasked | null>(null);
-  const [form, setForm] = useState<any>({});
+  const [form, setForm] = useState<Partial<SettingsFormState>>({});
   const [toast, setToast] = useState<{ type: "success" | "error" | "info"; msg: string } | null>(null);
   const [test, setTest] = useState<SettingsTokenTestSnapshot | null>(null);
   const [testJobId, setTestJobId] = useState<string | null>(null);
@@ -78,8 +87,8 @@ export function SettingsPage() {
     try {
       await startMonitoring();
       setToast({ type: "success", msg: "Monitoring started" });
-    } catch {
-      setToast({ type: "error", msg: "Failed to start" });
+    } catch (error) {
+      setToast({ type: "error", msg: describeApiError(error, "Failed to start") });
     }
   };
 
@@ -91,8 +100,8 @@ export function SettingsPage() {
     try {
       await stopMonitoring();
       setToast({ type: "success", msg: "Monitoring stopped" });
-    } catch {
-      setToast({ type: "error", msg: "Failed to stop" });
+    } catch (error) {
+      setToast({ type: "error", msg: describeApiError(error, "Failed to stop") });
     }
   };
 
@@ -102,14 +111,14 @@ export function SettingsPage() {
       return;
     }
     try {
-      const payload: any = canManageSettings
+      const payload: Partial<SettingsFormState> = canManageSettings
         ? {
-            tempCloseMinutes: form.tempCloseMinutes,
-            graceMinutes: form.graceMinutes,
-            ordersRefreshSeconds: form.ordersRefreshSeconds,
-            availabilityRefreshSeconds: form.availabilityRefreshSeconds,
-            maxVendorsPerOrdersRequest: form.maxVendorsPerOrdersRequest,
-          }
+          tempCloseMinutes: form.tempCloseMinutes,
+          graceMinutes: form.graceMinutes,
+          ordersRefreshSeconds: form.ordersRefreshSeconds,
+          availabilityRefreshSeconds: form.availabilityRefreshSeconds,
+          maxVendorsPerOrdersRequest: form.maxVendorsPerOrdersRequest,
+        }
         : {};
 
       if (canManageTokens) {
@@ -125,17 +134,14 @@ export function SettingsPage() {
         return;
       }
 
-      if (!payload.ordersToken) delete payload.ordersToken;
-      if (!payload.availabilityToken) delete payload.availabilityToken;
-
       await api.putSettings(payload);
       const fresh = await api.getSettings();
       applySettings(fresh);
       setToast({ type: "success", msg: "Saved" });
       setTest(null);
       setTestJobId(null);
-    } catch {
-      setToast({ type: "error", msg: "Save failed" });
+    } catch (error) {
+      setToast({ type: "error", msg: describeApiError(error, "Save failed") });
     }
   };
 
@@ -249,16 +255,16 @@ export function SettingsPage() {
                 <TextField
                   label="Temp Close (minutes)"
                   type="number"
-                  value={form.tempCloseMinutes ?? 30}
-                  onChange={(e) => setForm((p: any) => ({ ...p, tempCloseMinutes: Number(e.target.value) }))}
+                  value={form.tempCloseMinutes ?? ""}
+                  onChange={(e) => setForm((p) => ({ ...p, tempCloseMinutes: Number(e.target.value) }))}
                   disabled={!canManageSettings}
                   fullWidth
                 />
                 <TextField
                   label="Grace (minutes)"
                   type="number"
-                  value={form.graceMinutes ?? 5}
-                  onChange={(e) => setForm((p: any) => ({ ...p, graceMinutes: Number(e.target.value) }))}
+                  value={form.graceMinutes ?? ""}
+                  onChange={(e) => setForm((p) => ({ ...p, graceMinutes: Number(e.target.value) }))}
                   disabled={!canManageSettings}
                   fullWidth
                 />
@@ -268,24 +274,24 @@ export function SettingsPage() {
                 <TextField
                   label="Orders Refresh (seconds)"
                   type="number"
-                  value={form.ordersRefreshSeconds ?? 30}
-                  onChange={(e) => setForm((p: any) => ({ ...p, ordersRefreshSeconds: Number(e.target.value) }))}
+                  value={form.ordersRefreshSeconds ?? ""}
+                  onChange={(e) => setForm((p) => ({ ...p, ordersRefreshSeconds: Number(e.target.value) }))}
                   disabled={!canManageSettings}
                   fullWidth
                 />
                 <TextField
                   label="Availability Refresh (seconds)"
                   type="number"
-                  value={form.availabilityRefreshSeconds ?? 30}
-                  onChange={(e) => setForm((p: any) => ({ ...p, availabilityRefreshSeconds: Number(e.target.value) }))}
+                  value={form.availabilityRefreshSeconds ?? ""}
+                  onChange={(e) => setForm((p) => ({ ...p, availabilityRefreshSeconds: Number(e.target.value) }))}
                   disabled={!canManageSettings}
                   fullWidth
                 />
                 <TextField
                   label="Max Vendors / Orders Request"
                   type="number"
-                  value={form.maxVendorsPerOrdersRequest ?? 50}
-                  onChange={(e) => setForm((p: any) => ({ ...p, maxVendorsPerOrdersRequest: Number(e.target.value) }))}
+                  value={form.maxVendorsPerOrdersRequest ?? ""}
+                  onChange={(e) => setForm((p) => ({ ...p, maxVendorsPerOrdersRequest: Number(e.target.value) }))}
                   disabled={!canManageSettings}
                   fullWidth
                 />
@@ -310,7 +316,7 @@ export function SettingsPage() {
                     type="password"
                     placeholder={s?.ordersToken ? s.ordersToken : ""}
                     value={form.ordersToken ?? ""}
-                    onChange={(e) => setForm((p: any) => ({ ...p, ordersToken: e.target.value }))}
+                    onChange={(e) => setForm((p) => ({ ...p, ordersToken: e.target.value }))}
                     disabled={!canManageTokens}
                     fullWidth
                   />
@@ -319,7 +325,7 @@ export function SettingsPage() {
                     type="password"
                     placeholder={s?.availabilityToken ? s.availabilityToken : ""}
                     value={form.availabilityToken ?? ""}
-                    onChange={(e) => setForm((p: any) => ({ ...p, availabilityToken: e.target.value }))}
+                    onChange={(e) => setForm((p) => ({ ...p, availabilityToken: e.target.value }))}
                     disabled={!canManageTokens}
                     fullWidth
                   />
@@ -334,46 +340,7 @@ export function SettingsPage() {
                   ) : null}
                 </Stack>
 
-                {test ? (
-                  <Box sx={{ mt: 1 }}>
-                    <Stack spacing={1}>
-                      <Alert severity={test.status === "failed" ? "error" : test.status === "completed" ? "success" : "info"}>
-                        Token Test Job: {test.status} • {test.progress.processedBranches}/{test.progress.totalBranches} branches • {test.progress.percent}%
-                      </Alert>
-                      <Alert severity={test.availability.ok ? "success" : test.availability.configured ? "error" : "warning"}>
-                        Availability Token:{" "}
-                        {test.availability.ok
-                          ? "OK"
-                          : test.availability.message || `Failed${test.availability.status ? ` (HTTP ${test.availability.status})` : ""}`}
-                      </Alert>
-                      <Alert severity={test.orders.configValid ? "success" : "warning"}>
-                        Orders Config: {test.orders.configValid ? "Ready for branch checks" : test.orders.configMessage || "Configuration incomplete"}
-                      </Alert>
-                      {test.orders.probe ? (
-                        <Alert severity={test.orders.probe.ok ? "success" : test.orders.probe.configured ? "warning" : "warning"}>
-                          Orders Probe:{" "}
-                          {test.orders.probe.ok
-                            ? "OK"
-                            : test.orders.probe.message || `Failed${test.orders.probe.status ? ` (HTTP ${test.orders.probe.status})` : ""}`}
-                        </Alert>
-                      ) : null}
-                      <Alert severity={test.orders.ok ? "success" : test.orders.failedBranchCount > 0 ? "warning" : "info"}>
-                        Orders Branch Sweep: {test.orders.passedBranchCount}/{test.orders.enabledBranchCount} enabled branches passed
-                        {test.orders.failedBranchCount > 0 ? `, ${test.orders.failedBranchCount} failed` : ""}
-                      </Alert>
-                      {test.orders.branches.length ? (
-                        <Stack spacing={0.75}>
-                          {test.orders.branches.map((branch) => (
-                            <Alert key={branch.branchId} severity={branch.ok ? "success" : "error"} variant="outlined">
-                              {branch.name} ({branch.ordersVendorId}):{" "}
-                              {branch.ok ? branch.sampleVendorName || branch.message || "Token OK" : branch.message || `Failed${branch.status ? ` (HTTP ${branch.status})` : ""}`}
-                            </Alert>
-                          ))}
-                        </Stack>
-                      ) : null}
-                    </Stack>
-                  </Box>
-                ) : null}
+                <TokenTestResults isLoading={!!testJobId} test={test} />
               </Box>
             ) : null}
 
