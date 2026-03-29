@@ -35,10 +35,10 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { AnimatePresence, LayoutGroup, motion } from "motion/react";
-import { type MouseEventHandler, type ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { type MouseEventHandler, type ReactNode, Suspense, lazy, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { api, describeApiError } from "../../../api/client";
 import type {
+  LocalVendorCatalogItem,
   PerformanceBranchFilter,
   PerformanceDeliveryTypeFilter,
   PerformanceEntityBranchCard,
@@ -54,7 +54,7 @@ import { useAuth } from "../../../app/providers/AuthProvider";
 import { useMonitorStatus } from "../../../app/providers/MonitorStatusProvider";
 import { TopBar } from "../../../widgets/top-bar/ui/TopBar";
 import { PerformanceBranchDialog } from "./PerformanceBranchDialog";
-import { PerformanceTrendPanel } from "./PerformanceTrendPanel";
+import { MetricTile } from "./components/MetricTile";
 
 const PAGE_SIZE = 10;
 const FULL_DAY_END_MINUTE = 1_440;
@@ -63,7 +63,35 @@ const LIVE_RECONNECT_DELAYS_MS = [1_000, 3_000, 5_000, 10_000] as const;
 type NumericSortKey = PerformanceNumericSortKey;
 type BranchFilterKey = PerformanceBranchFilter;
 type DeliveryTypeFilterKey = PerformanceDeliveryTypeFilter;
+type BranchActivityFilter = "all" | "active" | "inactive";
 type HeroPanel = "summary" | "trend";
+type BulkAddMode = "orders" | "availability";
+type BulkAddStep = "input" | "loading" | "review" | "name";
+
+const LazyPerformanceTrendPanel = lazy(async () => {
+  const module = await import("./PerformanceTrendPanel");
+  return { default: module.PerformanceTrendPanel };
+});
+
+interface DisplayPerformanceBranchCard extends PerformanceEntityBranchCard {
+  availabilityVendorId?: string | null;
+  isPlaceholder?: boolean;
+}
+
+interface BulkAddResolvedVendor {
+  ordersVendorId: number;
+  availabilityVendorId: string | null;
+  name: string;
+  isNoOrdersYet: boolean;
+}
+
+interface BulkAddResolutionSummary {
+  enteredCount: number;
+  resolvedCount: number;
+  noOrdersCount: number;
+  notFoundCount: number;
+  mode: BulkAddMode;
+}
 
 const DEFAULT_PREFERENCES_STATE: PerformancePreferencesState = {
   searchQuery: "",
@@ -91,6 +119,12 @@ const BRANCH_FILTER_OPTIONS: Array<{ value: BranchFilterKey; label: string }> = 
   { value: "ready", label: "Has Ready to Pickup" },
 ];
 
+const BRANCH_ACTIVITY_FILTER_OPTIONS: Array<{ value: BranchActivityFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
+];
+
 const NUMERIC_SORT_OPTIONS: Array<{ value: NumericSortKey; label: string }> = [
   { value: "orders", label: "Most Orders" },
   { value: "vfr", label: "Highest VFR" },
@@ -105,6 +139,7 @@ const NUMERIC_SORT_OPTIONS: Array<{ value: NumericSortKey; label: string }> = [
 ];
 
 const NAME_SORT_LABEL = "Branch Name";
+const NO_ORDERS_YET_LABEL = "No Orders Yet";
 
 const metric = (value: number) => value.toLocaleString("en-US");
 const percent = (value: number) => `${value.toFixed(value >= 10 ? 1 : 2)}%`;
@@ -210,6 +245,27 @@ function branchMatches(branch: PerformanceEntityBranchCard, query: string) {
 
 function dedupeSelections<T extends string | number>(values: T[]) {
   return Array.from(new Set(values));
+}
+
+function parseBulkInputTokens(raw: string) {
+  return dedupeSelections(
+    raw
+      .split(/[\s,]+/)
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0),
+  );
+}
+
+function parseOrdersBulkInput(raw: string) {
+  return dedupeSelections(
+    parseBulkInputTokens(raw)
+      .map((item) => Number(item))
+      .filter((item): item is number => Number.isInteger(item) && item > 0),
+  );
+}
+
+function parseAvailabilityBulkInput(raw: string) {
+  return parseBulkInputTokens(raw);
 }
 
 function normalizeVendorSelections(values: number[]) {
@@ -380,55 +436,86 @@ function sortSavedGroups(groups: PerformanceSavedGroup[]) {
   );
 }
 
-function MetricTile(props: { label: string; value: string; secondaryValue?: string; tone?: "default" | "danger" | "warning" | "info" }) {
+function buildPlaceholderBranchCard(
+  vendorId: number,
+  name: string,
+  availabilityVendorId: string | null,
+): DisplayPerformanceBranchCard {
+  return {
+    vendorId,
+    name: name.trim() || NO_ORDERS_YET_LABEL,
+    availabilityVendorId,
+    isPlaceholder: true,
+    statusColor: "grey",
+    totalOrders: 0,
+    activeOrders: 0,
+    lateNow: 0,
+    onHoldOrders: 0,
+    unassignedOrders: 0,
+    inPrepOrders: 0,
+    readyToPickupOrders: 0,
+    deliveryMode: "unknown",
+    lfrApplicable: false,
+    vendorOwnerCancelledCount: 0,
+    transportOwnerCancelledCount: 0,
+    vfr: 0,
+    lfr: 0,
+    vlfr: 0,
+    statusCounts: [],
+    ownerCoverage: {
+      totalCancelledOrders: 0,
+      resolvedOwnerCount: 0,
+      unresolvedOwnerCount: 0,
+      vendorOwnerCancelledCount: 0,
+      transportOwnerCancelledCount: 0,
+      lookupErrorCount: 0,
+      coverageRatio: 1,
+      warning: null,
+    },
+  };
+}
+
+type SummaryTileBadgeTone = "default" | "info" | "danger";
+
+function SummaryTileBadge(props: { label: string; value: string; tone?: SummaryTileBadgeTone }) {
   const palette =
     props.tone === "danger"
-      ? { bg: "rgba(254,242,242,0.98)", text: "#b91c1c", border: "rgba(239,68,68,0.12)" }
-      : props.tone === "warning"
-        ? { bg: "rgba(255,247,237,0.98)", text: "#c2410c", border: "rgba(249,115,22,0.12)" }
-        : props.tone === "info"
-          ? { bg: "rgba(239,246,255,0.98)", text: "#075985", border: "rgba(14,165,233,0.12)" }
-          : { bg: "rgba(248,250,252,0.98)", text: "#0f172a", border: "rgba(148,163,184,0.12)" };
+      ? { bg: "rgba(254,242,242,0.96)", text: "#b91c1c", border: "rgba(239,68,68,0.12)" }
+      : props.tone === "info"
+        ? { bg: "rgba(239,246,255,0.96)", text: "#0369a1", border: "rgba(14,165,233,0.12)" }
+        : { bg: "rgba(248,250,252,0.98)", text: "#475569", border: "rgba(148,163,184,0.12)" };
 
   return (
     <Box
       sx={{
-        p: 1.15,
-        borderRadius: 2.8,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 0.45,
+        px: 0.75,
+        py: 0.45,
+        borderRadius: 999,
         border: `1px solid ${palette.border}`,
         bgcolor: palette.bg,
-        minHeight: 92,
-        display: "flex",
-        flexDirection: "column",
       }}
     >
-      <Typography
-        variant="caption"
-        sx={{
-          display: "block",
-          color: "#64748b",
-          fontWeight: 800,
-          letterSpacing: 0.2,
-          lineHeight: 1.1,
-        }}
-      >
+      <Typography sx={{ fontSize: 10.5, fontWeight: 900, color: palette.text, letterSpacing: 0.14 }}>
         {props.label}
       </Typography>
-      <Box sx={{ mt: 0.6, display: "flex", alignItems: "baseline", gap: 0.55, flexWrap: "wrap" }}>
-        <Typography sx={{ fontSize: { xs: 22, md: 24 }, lineHeight: 1, fontWeight: 900, color: palette.text }}>
-          {props.value}
-        </Typography>
-        {props.secondaryValue ? (
-          <Typography sx={{ fontSize: { xs: 12, md: 13 }, lineHeight: 1, fontWeight: 800, color: palette.text, opacity: 0.8 }}>
-            {props.secondaryValue}
-          </Typography>
-        ) : null}
-      </Box>
+      <Typography sx={{ fontSize: 10.5, fontWeight: 900, color: palette.text }}>
+        {props.value}
+      </Typography>
     </Box>
   );
 }
 
-function CompactSummaryTile(props: { label: string; value: string; secondaryValue?: string; tone?: "default" | "danger" | "warning" | "info"; featured?: boolean }) {
+function CompactSummaryTile(props: {
+  label: string;
+  value: string;
+  secondaryValue?: string;
+  tone?: "default" | "danger" | "warning" | "info";
+  featured?: boolean;
+  badges?: Array<{ label: string; value: string; tone?: SummaryTileBadgeTone }>;
+}) {
   const palette =
     props.tone === "danger"
       ? { bg: "rgba(254,242,242,0.98)", text: "#b91c1c", border: "rgba(239,68,68,0.12)" }
@@ -477,6 +564,18 @@ function CompactSummaryTile(props: { label: string; value: string; secondaryValu
           </Typography>
         ) : null}
       </Box>
+      {props.badges?.length ? (
+        <Stack direction="row" spacing={0.55} sx={{ mt: 0.85, flexWrap: "wrap" }}>
+          {props.badges.map((badge) => (
+            <SummaryTileBadge
+              key={`${props.label}-${badge.label}`}
+              label={badge.label}
+              value={badge.value}
+              tone={badge.tone}
+            />
+          ))}
+        </Stack>
+      ) : null}
     </Box>
   );
 }
@@ -486,7 +585,14 @@ function SummarySection(props: {
   accentColor: string;
   background: string;
   gridTemplateColumns: Partial<Record<"xs" | "sm" | "md" | "lg" | "xl", string>>;
-  tiles: Array<{ label: string; value: string; secondaryValue?: string; tone?: "default" | "danger" | "warning" | "info"; featured?: boolean }>;
+  tiles: Array<{
+    label: string;
+    value: string;
+    secondaryValue?: string;
+    tone?: "default" | "danger" | "warning" | "info";
+    featured?: boolean;
+    badges?: Array<{ label: string; value: string; tone?: SummaryTileBadgeTone }>;
+  }>;
 }) {
   return (
     <Box
@@ -533,6 +639,7 @@ function SummarySection(props: {
             secondaryValue={tile.secondaryValue}
             tone={tile.tone}
             featured={tile.featured}
+            badges={tile.badges}
           />
         ))}
       </Box>
@@ -540,10 +647,15 @@ function SummarySection(props: {
   );
 }
 
-function buildVisibleSummary(branches: PerformanceEntityBranchCard[]) {
+function buildVisibleSummary(branches: DisplayPerformanceBranchCard[]) {
   const totals = branches.reduce(
     (current, branch) => {
       current.branchCount += 1;
+      if (branch.isPlaceholder) {
+        current.inactiveBranchCount += 1;
+      } else {
+        current.activeBranchCount += 1;
+      }
       current.totalOrders += branch.totalOrders;
       current.totalCancelledOrders += branch.ownerCoverage.totalCancelledOrders;
       current.activeOrders += branch.activeOrders;
@@ -558,6 +670,8 @@ function buildVisibleSummary(branches: PerformanceEntityBranchCard[]) {
     },
     {
       branchCount: 0,
+      activeBranchCount: 0,
+      inactiveBranchCount: 0,
       totalOrders: 0,
       totalCancelledOrders: 0,
       activeOrders: 0,
@@ -577,6 +691,14 @@ function buildVisibleSummary(branches: PerformanceEntityBranchCard[]) {
     lfr: totals.totalOrders ? (totals.transportOwnerCancelledCount / totals.totalOrders) * 100 : 0,
     vlfr: totals.totalOrders ? ((totals.vendorOwnerCancelledCount + totals.transportOwnerCancelledCount) / totals.totalOrders) * 100 : 0,
   };
+}
+
+function branchMatchesActivityFilter(branch: DisplayPerformanceBranchCard, activityFilter: BranchActivityFilter) {
+  if (activityFilter === "all") {
+    return true;
+  }
+
+  return activityFilter === "inactive" ? Boolean(branch.isPlaceholder) : !branch.isPlaceholder;
 }
 
 function ToolbarChipButton(props: {
@@ -710,7 +832,7 @@ function InlineMetricPill(props: {
 }
 
 function BranchCard(props: {
-  branch: PerformanceEntityBranchCard;
+  branch: DisplayPerformanceBranchCard;
   expanded: boolean;
   onToggle: () => void;
   onOpenDetail: () => void;
@@ -842,6 +964,22 @@ function BranchCard(props: {
                 <Typography sx={{ color: "#64748b", fontSize: 13, fontWeight: 700, whiteSpace: "nowrap" }}>
                   {metric(props.branch.totalOrders)} orders
                 </Typography>
+                {props.branch.isPlaceholder ? (
+                  <>
+                    <Box
+                      sx={{
+                        width: 4,
+                        height: 4,
+                        borderRadius: "50%",
+                        bgcolor: "rgba(148,163,184,0.8)",
+                        flexShrink: 0,
+                      }}
+                    />
+                    <Typography sx={{ color: "#64748b", fontSize: 13, fontWeight: 800, whiteSpace: "nowrap" }}>
+                      {NO_ORDERS_YET_LABEL}
+                    </Typography>
+                  </>
+                ) : null}
               </Stack>
             </Box>
           </Stack>
@@ -868,11 +1006,13 @@ function BranchCard(props: {
               <InlineMetricPill label={peakMetric.label} value={metric(peakMetric.value)} tone={peakMetric.tone} />
               <IconButton
                 size="small"
+                disabled={props.branch.isPlaceholder}
                 onClick={(event) => {
                   event.stopPropagation();
+                  if (props.branch.isPlaceholder) return;
                   props.onOpenDetail();
                 }}
-                aria-label={`Open details for ${props.branch.name}`}
+                aria-label={props.branch.isPlaceholder ? `Details unavailable for ${props.branch.name}` : `Open details for ${props.branch.name}`}
                 sx={{
                   width: 34,
                   height: 34,
@@ -985,12 +1125,13 @@ export function PerformancePage() {
   const [page, setPage] = useState(1);
   const [expandedBranchIds, setExpandedBranchIds] = useState<number[]>([]);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [detailSubject, setDetailSubject] = useState<PerformanceEntityBranchCard | null>(null);
+  const [detailSubject, setDetailSubject] = useState<DisplayPerformanceBranchCard | null>(null);
   const [detail, setDetail] = useState<PerformanceVendorDetailResponse | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailRefreshing, setDetailRefreshing] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [transportAnchorEl, setTransportAnchorEl] = useState<HTMLElement | null>(null);
+  const [activityAnchorEl, setActivityAnchorEl] = useState<HTMLElement | null>(null);
   const [filterAnchorEl, setFilterAnchorEl] = useState<HTMLElement | null>(null);
   const [sortAnchorEl, setSortAnchorEl] = useState<HTMLElement | null>(null);
   const [groupQuickAnchorEl, setGroupQuickAnchorEl] = useState<HTMLElement | null>(null);
@@ -1002,6 +1143,21 @@ export function PerformancePage() {
   const [groupDraftName, setGroupDraftName] = useState("");
   const [groupDraftVendorIds, setGroupDraftVendorIds] = useState<number[]>([]);
   const [groupMutationError, setGroupMutationError] = useState<string | null>(null);
+  const [sourceItems, setSourceItems] = useState<LocalVendorCatalogItem[]>([]);
+  const [sourceLoaded, setSourceLoaded] = useState(false);
+  const [sourceLoading, setSourceLoading] = useState(false);
+  const [sourceError, setSourceError] = useState<string | null>(null);
+  const [bulkAddOpen, setBulkAddOpen] = useState(false);
+  const [bulkAddMode, setBulkAddMode] = useState<BulkAddMode>("orders");
+  const [bulkAddStep, setBulkAddStep] = useState<BulkAddStep>("input");
+  const [bulkAddInput, setBulkAddInput] = useState("");
+  const [bulkAddGroupName, setBulkAddGroupName] = useState("");
+  const [bulkAddResolvedItems, setBulkAddResolvedItems] = useState<BulkAddResolvedVendor[]>([]);
+  const [bulkAddSelectedVendorIds, setBulkAddSelectedVendorIds] = useState<number[]>([]);
+  const [bulkAddError, setBulkAddError] = useState<string | null>(null);
+  const [bulkAddSummary, setBulkAddSummary] = useState<BulkAddResolutionSummary | null>(null);
+  const [bulkAddLoadingText, setBulkAddLoadingText] = useState("");
+  const [branchActivityFilter, setBranchActivityFilter] = useState<BranchActivityFilter>("all");
   const deferredSearchQuery = useDeferredValue(currentState.searchQuery.trim().toLowerCase());
   const summaryRequestIdRef = useRef(0);
   const summaryAbortRef = useRef<AbortController | null>(null);
@@ -1018,6 +1174,7 @@ export function PerformancePage() {
   const skipNextPreferencesAutosaveRef = useRef(false);
   const detailRequestIdRef = useRef(0);
   const detailAbortRef = useRef<AbortController | null>(null);
+  const sourceLoadPromiseRef = useRef<Promise<LocalVendorCatalogItem[]> | null>(null);
   const [trendFreshKey, setTrendFreshKey] = useState<string | null>(null);
   const controlsDisabled = (loading && !summary) || !preferencesLoaded;
   const trendPanelOpen = heroPanel === "trend";
@@ -1025,10 +1182,43 @@ export function PerformancePage() {
     () => savedGroups.find((group) => group.id === currentState.activeGroupId) ?? null,
     [currentState.activeGroupId, savedGroups],
   );
+  const sourceItemByOrdersVendorId = useMemo(
+    () => new Map(sourceItems.map((item) => [item.ordersVendorId, item])),
+    [sourceItems],
+  );
+  const summaryBranchByVendorId = useMemo(
+    () => new Map((summary?.branches ?? []).map((branch) => [branch.vendorId, branch])),
+    [summary],
+  );
+  const scopedPlaceholderVendorIds = useMemo(
+    () => dedupeSelections([
+      ...(activeGroup?.vendorIds ?? []),
+      ...currentState.selectedVendorIds,
+    ]),
+    [activeGroup?.vendorIds, currentState.selectedVendorIds],
+  );
 
   const allBranches = useMemo(
-    () => summary?.branches ?? [],
-    [summary],
+    () => {
+      const summaryBranches = summary?.branches ?? [];
+      if (!scopedPlaceholderVendorIds.length) {
+        return summaryBranches as DisplayPerformanceBranchCard[];
+      }
+
+      const merged = [...summaryBranches] as DisplayPerformanceBranchCard[];
+      const existingVendorIds = new Set(summaryBranches.map((branch) => branch.vendorId));
+      for (const vendorId of scopedPlaceholderVendorIds) {
+        if (existingVendorIds.has(vendorId)) continue;
+        const sourceItem = sourceItemByOrdersVendorId.get(vendorId);
+        merged.push(buildPlaceholderBranchCard(
+          vendorId,
+          sourceItem?.name ?? NO_ORDERS_YET_LABEL,
+          sourceItem?.availabilityVendorId ?? null,
+        ));
+      }
+      return merged;
+    },
+    [scopedPlaceholderVendorIds, sourceItemByOrdersVendorId, summary],
   );
 
   const activeDetailSubject = useMemo(() => {
@@ -1036,19 +1226,29 @@ export function PerformancePage() {
     return allBranches.find((branch) => branch.vendorId === detailSubject.vendorId) ?? detailSubject;
   }, [allBranches, detailSubject]);
 
-  const visibleBranches = useMemo(
+  const scopedBranches = useMemo(
     () =>
       allBranches
         .filter((branch) => !activeGroup || activeGroup.vendorIds.includes(branch.vendorId))
         .filter((branch) => !currentState.selectedVendorIds.length || currentState.selectedVendorIds.includes(branch.vendorId))
         .filter((branch) => branchMatches(branch, deferredSearchQuery))
         .filter((branch) => deliveryTypeMatches(branch, currentState.selectedDeliveryTypes))
-        .filter((branch) => branchPassesAllFilters(branch, currentState.selectedBranchFilters))
+        .filter((branch) => branchPassesAllFilters(branch, currentState.selectedBranchFilters)),
+    [activeGroup, allBranches, currentState.selectedBranchFilters, currentState.selectedDeliveryTypes, currentState.selectedVendorIds, deferredSearchQuery],
+  );
+  const visibleBranches = useMemo(
+    () =>
+      scopedBranches
+        .filter((branch) => branchMatchesActivityFilter(branch, branchActivityFilter))
         .sort((a, b) => compareBranches(a, b, {
           selectedSortKeys: currentState.selectedSortKeys,
           nameSortEnabled: currentState.nameSortEnabled,
         })),
-    [activeGroup, allBranches, currentState.nameSortEnabled, currentState.selectedBranchFilters, currentState.selectedDeliveryTypes, currentState.selectedSortKeys, currentState.selectedVendorIds, deferredSearchQuery],
+    [branchActivityFilter, currentState.nameSortEnabled, currentState.selectedSortKeys, scopedBranches],
+  );
+  const scopedSummary = useMemo(
+    () => buildVisibleSummary(scopedBranches),
+    [scopedBranches],
   );
   const visibleSummary = useMemo(
     () => buildVisibleSummary(visibleBranches),
@@ -1068,7 +1268,16 @@ export function PerformancePage() {
               md: "repeat(2, minmax(0, 1fr))",
             },
             tiles: [
-              { label: "Branches", value: metric(visibleSummary.branchCount), tone: "info" as const, featured: true },
+              {
+                label: "Branches",
+                value: metric(scopedSummary.branchCount),
+                tone: "info" as const,
+                featured: true,
+                badges: [
+                  { label: "Active", value: metric(scopedSummary.activeBranchCount), tone: "info" as const },
+                  { label: "Inactive", value: metric(scopedSummary.inactiveBranchCount) },
+                ],
+              },
               { label: "Total Orders", value: metric(visibleSummary.totalOrders), featured: true },
             ],
           },
@@ -1115,7 +1324,7 @@ export function PerformancePage() {
           },
         ]
         : [],
-    [summary, visibleSummary],
+    [scopedSummary, summary, visibleSummary],
   );
 
   const pageCount = Math.max(1, Math.ceil(visibleBranches.length / PAGE_SIZE));
@@ -1183,8 +1392,12 @@ export function PerformancePage() {
   }, [summary]);
 
   useEffect(() => {
+    void loadSourceItems().catch(() => { });
+  }, []);
+
+  useEffect(() => {
     setPage(1);
-  }, [activeGroup, currentState.nameSortEnabled, currentState.searchQuery, currentState.selectedBranchFilters, currentState.selectedDeliveryTypes, currentState.selectedSortKeys, currentState.selectedVendorIds]);
+  }, [activeGroup, branchActivityFilter, currentState.nameSortEnabled, currentState.searchQuery, currentState.selectedBranchFilters, currentState.selectedDeliveryTypes, currentState.selectedSortKeys, currentState.selectedVendorIds]);
 
   useEffect(() => {
     if (page > pageCount) {
@@ -1262,7 +1475,10 @@ export function PerformancePage() {
     }
   }
 
-  function openDetail(branch: PerformanceEntityBranchCard) {
+  function openDetail(branch: DisplayPerformanceBranchCard) {
+    if (branch.isPlaceholder) {
+      return;
+    }
     setDetailSubject(branch);
     setDetailOpen(true);
     setDetail(null);
@@ -1302,6 +1518,41 @@ export function PerformancePage() {
       setPreferencesLoaded(true);
       return null;
     }
+  }
+
+  async function loadSourceItems(options?: { force?: boolean }) {
+    if (sourceLoaded && !options?.force) {
+      return sourceItems;
+    }
+
+    if (sourceLoadPromiseRef.current && !options?.force) {
+      return sourceLoadPromiseRef.current;
+    }
+
+    setSourceLoading(true);
+    if (options?.force) {
+      setSourceError(null);
+    }
+
+    const request = api
+      .listBranchSource()
+      .then((response) => {
+        setSourceItems(response.items);
+        setSourceLoaded(true);
+        setSourceError(null);
+        return response.items;
+      })
+      .catch((nextError) => {
+        setSourceError(describeApiError(nextError, "Failed to load branch source data."));
+        throw nextError;
+      })
+      .finally(() => {
+        setSourceLoading(false);
+        sourceLoadPromiseRef.current = null;
+      });
+
+    sourceLoadPromiseRef.current = request;
+    return request;
   }
 
   async function loadSummary(options?: { background?: boolean }) {
@@ -1361,7 +1612,7 @@ export function PerformancePage() {
     options?.background ? setTrendRefreshing(true) : setTrendLoading(true);
 
     try {
-      if (!visibleBranches.length) {
+      if (!scopedBranches.length) {
         const emptyTrend = buildEmptyTrendResponse(
           trendSummary.scope,
           trendResolutionMinutes,
@@ -1540,14 +1791,24 @@ export function PerformancePage() {
   );
   const allVisibleBranchesSelected = visibleBranchDraftIds.length > 0
     && visibleBranchDraftIds.every((vendorId) => branchDraftVendorIds.includes(vendorId));
+  const bulkAddEnteredCount = useMemo(
+    () => (
+      bulkAddMode === "orders"
+        ? parseOrdersBulkInput(bulkAddInput).length
+        : parseAvailabilityBulkInput(bulkAddInput).length
+    ),
+    [bulkAddInput, bulkAddMode],
+  );
 
   const transportButtonActive = currentState.selectedDeliveryTypes.length > 0
     && currentState.selectedDeliveryTypes.length < DELIVERY_TYPE_OPTIONS.length;
+  const activityButtonActive = branchActivityFilter !== "all";
   const filterButtonActive = currentState.selectedBranchFilters.length > 0;
   const sortButtonActive = currentState.nameSortEnabled
     || currentState.selectedSortKeys.join(",") !== DEFAULT_PREFERENCES_STATE.selectedSortKeys.join(",");
 
   const transportButtonText = summarizeSelection(DELIVERY_TYPE_OPTIONS, currentState.selectedDeliveryTypes, "Transport", "transport");
+  const activityButtonText = optionLabel(BRANCH_ACTIVITY_FILTER_OPTIONS, branchActivityFilter);
   const filterButtonText = summarizeSelection(BRANCH_FILTER_OPTIONS, currentState.selectedBranchFilters, "Filters", "filters");
   const sortButtonText = currentState.nameSortEnabled
     ? NAME_SORT_LABEL
@@ -1560,6 +1821,7 @@ export function PerformancePage() {
     currentState.searchQuery.trim()
     || currentState.selectedVendorIds.length
     || currentState.selectedDeliveryTypes.length
+    || branchActivityFilter !== "all"
     || currentState.selectedBranchFilters.length
     || currentState.activeGroupId
     || currentState.activeViewId
@@ -1605,10 +1867,12 @@ export function PerformancePage() {
     setCurrentState(DEFAULT_PREFERENCES_STATE);
     setGroupQuickAnchorEl(null);
     setTransportAnchorEl(null);
+    setActivityAnchorEl(null);
     setFilterAnchorEl(null);
     setSortAnchorEl(null);
     setBranchesDialogQuery("");
     setBranchDraftVendorIds([]);
+    setBranchActivityFilter("all");
   }
 
   function setSearchQuery(nextQuery: string) {
@@ -1670,6 +1934,7 @@ export function PerformancePage() {
     setBranchDraftVendorIds(activeGroup?.vendorIds ?? currentState.selectedVendorIds);
     setBranchesDialogQuery("");
     setGroupMutationError(null);
+    closeBulkAddDialog();
     setBranchesDialogOpen(true);
   }
 
@@ -1705,6 +1970,130 @@ export function PerformancePage() {
       activeViewId: null,
     }));
     setBranchDraftVendorIds([]);
+  }
+
+  function resetBulkAddState() {
+    setBulkAddMode("orders");
+    setBulkAddStep("input");
+    setBulkAddInput("");
+    setBulkAddGroupName("");
+    setBulkAddResolvedItems([]);
+    setBulkAddSelectedVendorIds([]);
+    setBulkAddError(null);
+    setBulkAddSummary(null);
+    setBulkAddLoadingText("");
+  }
+
+  function openBulkAddDialog() {
+    resetBulkAddState();
+    setBulkAddOpen(true);
+  }
+
+  function closeBulkAddDialog() {
+    setBulkAddOpen(false);
+    resetBulkAddState();
+  }
+
+  function toggleBulkAddVendor(vendorId: number) {
+    setBulkAddSelectedVendorIds((current) =>
+      current.includes(vendorId)
+        ? current.filter((item) => item !== vendorId)
+        : [...current, vendorId].sort((left, right) => left - right),
+    );
+  }
+
+  async function resolveBulkAdd() {
+    const parsedOrders = parseOrdersBulkInput(bulkAddInput);
+    const parsedAvailabilityIds = parseAvailabilityBulkInput(bulkAddInput);
+    const enteredCount = bulkAddMode === "orders" ? parsedOrders.length : parsedAvailabilityIds.length;
+
+    if (!enteredCount) {
+      setBulkAddError(`Enter at least one ${bulkAddMode === "orders" ? "Orders ID" : "Availability ID"}.`);
+      return;
+    }
+
+    setBulkAddError(null);
+    setBulkAddStep("loading");
+    setBulkAddLoadingText(`Resolving ${metric(enteredCount)} vendor${enteredCount === 1 ? "" : "s"}...`);
+
+    try {
+      let nextSourceItems = sourceItems;
+      if (bulkAddMode === "availability" || !sourceLoaded) {
+        try {
+          nextSourceItems = await loadSourceItems();
+        } catch (nextError) {
+          if (bulkAddMode === "availability") {
+            throw nextError;
+          }
+          nextSourceItems = [];
+        }
+      }
+
+      const nextSourceByOrdersVendorId = new Map(nextSourceItems.map((item) => [item.ordersVendorId, item]));
+      const nextSourceByAvailabilityVendorId = new Map(nextSourceItems.map((item) => [item.availabilityVendorId, item]));
+      const resolvedItems: BulkAddResolvedVendor[] = [];
+      let notFoundCount = 0;
+
+      if (bulkAddMode === "orders") {
+        for (const ordersVendorId of parsedOrders) {
+          const summaryBranch = summaryBranchByVendorId.get(ordersVendorId);
+          const sourceItem = nextSourceByOrdersVendorId.get(ordersVendorId);
+          resolvedItems.push({
+            ordersVendorId,
+            availabilityVendorId: sourceItem?.availabilityVendorId ?? null,
+            name: summaryBranch?.name ?? sourceItem?.name ?? NO_ORDERS_YET_LABEL,
+            isNoOrdersYet: !summaryBranch,
+          });
+        }
+      } else {
+        for (const availabilityVendorId of parsedAvailabilityIds) {
+          const sourceItem = nextSourceByAvailabilityVendorId.get(availabilityVendorId);
+          if (!sourceItem) {
+            notFoundCount += 1;
+            continue;
+          }
+
+          const summaryBranch = summaryBranchByVendorId.get(sourceItem.ordersVendorId);
+          resolvedItems.push({
+            ordersVendorId: sourceItem.ordersVendorId,
+            availabilityVendorId: sourceItem.availabilityVendorId,
+            name: summaryBranch?.name ?? sourceItem.name ?? NO_ORDERS_YET_LABEL,
+            isNoOrdersYet: !summaryBranch,
+          });
+        }
+      }
+
+      const nextSelectedVendorIds = resolvedItems.map((item) => item.ordersVendorId);
+      setBulkAddResolvedItems(resolvedItems);
+      setBulkAddSelectedVendorIds(nextSelectedVendorIds);
+      setBulkAddSummary({
+        enteredCount,
+        resolvedCount: resolvedItems.filter((item) => !item.isNoOrdersYet).length,
+        noOrdersCount: resolvedItems.filter((item) => item.isNoOrdersYet).length,
+        notFoundCount,
+        mode: bulkAddMode,
+      });
+      setBulkAddStep("review");
+    } catch (nextError) {
+      setBulkAddError(describeApiError(nextError, "Failed to resolve vendor IDs."));
+      setBulkAddStep("input");
+    }
+  }
+
+  async function saveBulkAddGroup() {
+    try {
+      const response = await api.createPerformanceGroup({
+        name: bulkAddGroupName,
+        vendorIds: bulkAddSelectedVendorIds,
+      });
+      setSavedGroups((current) => sortSavedGroups([
+        response.group,
+        ...current.filter((item) => item.id !== response.group.id),
+      ]));
+      closeBulkAddDialog();
+    } catch (nextError) {
+      setBulkAddError(describeApiError(nextError, "Failed to save group."));
+    }
   }
 
   function openNewGroupEditor() {
@@ -1861,7 +2250,7 @@ export function PerformancePage() {
               </Button>
             </Stack>
 
-            <LayoutGroup id="performance-hero-tabs">
+            <div id="performance-hero-tabs">
               <Stack
                 direction="row"
                 spacing={0.6}
@@ -1923,17 +2312,15 @@ export function PerformancePage() {
                       }}
                     >
                       {active ? (
-                        <motion.span
-                          layoutId="performance-hero-tab-highlight"
-                          style={{
-                            position: "absolute",
-                            inset: 0,
-                            borderRadius: 999,
-                            background: "linear-gradient(135deg, rgba(14,165,233,0.18), rgba(255,255,255,0.98) 46%, rgba(226,232,240,0.95) 100%)",
-                            boxShadow: "0 10px 24px rgba(14,165,233,0.12)",
-                            border: "1px solid rgba(14,165,233,0.14)",
-                          }}
-                          transition={{ type: "spring", stiffness: 320, damping: 28 }}
+                        <span
+                        style={{
+                          position: "absolute",
+                          inset: 0,
+                          borderRadius: 999,
+                          background: "linear-gradient(135deg, rgba(14,165,233,0.18), rgba(255,255,255,0.98) 46%, rgba(226,232,240,0.95) 100%)",
+                          boxShadow: "0 10px 24px rgba(14,165,233,0.12)",
+                          border: "1px solid rgba(14,165,233,0.14)",
+                        }}
                         />
                       ) : null}
                       <Box sx={{ position: "relative", zIndex: 1, display: "inline-flex", alignItems: "center", gap: 0.65 }}>
@@ -1976,15 +2363,10 @@ export function PerformancePage() {
                   boxShadow: "inset 0 1px 0 rgba(255,255,255,0.7)",
                 }}
               >
-                <AnimatePresence mode="wait" initial={false}>
+                <div >
                   {heroPanel === "summary" ? (
-                    <motion.div
+                    <div
                       key="summary-panel"
-                      initial={{ opacity: 0, y: 10, filter: "blur(6px)" }}
-                      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                      exit={{ opacity: 0, y: -8, filter: "blur(6px)" }}
-                      transition={{ duration: 0.32, ease: "easeOut" }}
-                      style={{ height: "100%" }}
                     >
                       {summarySections.length ? (
                         <Box
@@ -2010,33 +2392,44 @@ export function PerformancePage() {
                           ))}
                         </Box>
                       ) : null}
-                    </motion.div>
+                    </div>
                   ) : (
-                    <motion.div
+                    <div
                       key="trend-panel"
-                      initial={{ opacity: 0, y: 10, scale: 0.985, filter: "blur(8px)" }}
-                      animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
-                      exit={{ opacity: 0, y: -10, scale: 0.99, filter: "blur(8px)" }}
-                      transition={{ duration: 0.34, ease: "easeOut" }}
-                      style={{ height: "100%" }}
                     >
-                      <PerformanceTrendPanel
-                        trend={trend}
-                        loading={trendLoading}
-                        refreshing={trendRefreshing}
-                        error={trendError}
-                        resolutionMinutes={trendResolutionMinutes}
-                        startMinute={trendStartMinute}
-                        endMinute={trendEndMinute}
-                        onResolutionChange={(value) => updateTrendWindow({ resolutionMinutes: value })}
-                        onRangeChange={(startMinute, endMinute) => updateTrendWindow({ startMinute, endMinute })}
-                        onInteract={() => { }}
-                      />
-                    </motion.div>
+                      <Suspense
+                        fallback={(
+                          <Stack
+                            alignItems="center"
+                            justifyContent="center"
+                            spacing={1}
+                            sx={{ minHeight: { xs: 300, md: 316 } }}
+                          >
+                            <CircularProgress size={24} sx={{ color: "#0284c7" }} />
+                            <Typography sx={{ color: "#64748b", fontSize: 13, fontWeight: 700 }}>
+                              Loading trend panel
+                            </Typography>
+                          </Stack>
+                        )}
+                      >
+                        <LazyPerformanceTrendPanel
+                          trend={trend}
+                          loading={trendLoading}
+                          refreshing={trendRefreshing}
+                          error={trendError}
+                          resolutionMinutes={trendResolutionMinutes}
+                          startMinute={trendStartMinute}
+                          endMinute={trendEndMinute}
+                          onResolutionChange={(value) => updateTrendWindow({ resolutionMinutes: value })}
+                          onRangeChange={(startMinute, endMinute) => updateTrendWindow({ startMinute, endMinute })}
+                          onInteract={() => { }}
+                        />
+                      </Suspense>
+                    </div>
                   )}
-                </AnimatePresence>
+                </div>
               </Box>
-            </LayoutGroup>
+            </div>
           </Box>
 
           <Box
@@ -2110,6 +2503,18 @@ export function PerformancePage() {
                   onClick={(event) => setTransportAnchorEl(event.currentTarget)}
                   disabled={controlsDisabled}
                   icon={<LocalShippingRoundedIcon />}
+                />
+
+                <ToolbarChipButton
+                  ariaLabel="Branch activity"
+                  title={`Branch activity: ${activityButtonText}`}
+                  active={activityButtonActive}
+                  activeText={activityButtonText}
+                  activeBg="rgba(14,116,144,0.08)"
+                  activeColor="#0f766e"
+                  onClick={(event) => setActivityAnchorEl(event.currentTarget)}
+                  disabled={controlsDisabled}
+                  icon={<CheckRoundedIcon />}
                 />
 
                 <ToolbarChipButton
@@ -2289,6 +2694,41 @@ export function PerformancePage() {
           </Menu>
 
           <Menu
+            anchorEl={activityAnchorEl}
+            open={Boolean(activityAnchorEl)}
+            onClose={() => setActivityAnchorEl(null)}
+            anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+            transformOrigin={{ vertical: "top", horizontal: "right" }}
+            PaperProps={{
+              sx: {
+                mt: 0.8,
+                borderRadius: 2.5,
+                border: "1px solid rgba(148,163,184,0.12)",
+                boxShadow: "0 18px 34px rgba(15,23,42,0.10)",
+                minWidth: 180,
+              },
+            }}
+          >
+            {BRANCH_ACTIVITY_FILTER_OPTIONS.map((option) => (
+              <MenuItem
+                key={option.value}
+                selected={branchActivityFilter === option.value}
+                onClick={() => {
+                  setBranchActivityFilter(option.value);
+                  setActivityAnchorEl(null);
+                }}
+              >
+                <Checkbox
+                  size="small"
+                  checked={branchActivityFilter === option.value}
+                  sx={{ mr: 0.8, py: 0.2 }}
+                />
+                {option.label}
+              </MenuItem>
+            ))}
+          </Menu>
+
+          <Menu
             anchorEl={filterAnchorEl}
             open={Boolean(filterAnchorEl)}
             onClose={() => setFilterAnchorEl(null)}
@@ -2385,7 +2825,10 @@ export function PerformancePage() {
 
           <Dialog
             open={branchesDialogOpen}
-            onClose={() => setBranchesDialogOpen(false)}
+            onClose={() => {
+              setBranchesDialogOpen(false);
+              closeBulkAddDialog();
+            }}
             fullWidth
             maxWidth="sm"
           >
@@ -2407,13 +2850,18 @@ export function PerformancePage() {
                       {savedGroups.length ? `${metric(savedGroups.length)} saved groups` : "No saved groups yet"}
                     </Typography>
                   </Box>
-                  <Button
-                    variant="contained"
-                    onClick={openNewGroupEditor}
-                    disabled={!(branchDraftVendorIds.length || activeGroup?.vendorIds.length || currentState.selectedVendorIds.length)}
-                  >
-                    Save as Group
-                  </Button>
+                  <Stack direction="row" spacing={0.8}>
+                    <Button variant="outlined" onClick={openBulkAddDialog}>
+                      Bulk Add
+                    </Button>
+                    <Button
+                      variant="contained"
+                      onClick={openNewGroupEditor}
+                      disabled={!(branchDraftVendorIds.length || activeGroup?.vendorIds.length || currentState.selectedVendorIds.length)}
+                    >
+                      Save as Group
+                    </Button>
+                  </Stack>
                 </Stack>
                 {activeGroup ? (
                   <Alert
@@ -2517,9 +2965,16 @@ export function PerformancePage() {
                       <Checkbox checked={branchDraftVendorIds.includes(branch.vendorId)} tabIndex={-1} />
                       <Box sx={{ minWidth: 0, flex: 1 }}>
                         <Typography sx={{ fontWeight: 800, color: "#0f172a" }}>{branch.name}</Typography>
-                        <Typography sx={{ fontSize: 12.5, color: "#64748b", fontWeight: 700 }}>
-                          Vendor ID {branch.vendorId}
-                        </Typography>
+                        <Stack direction="row" spacing={0.8} alignItems="center" sx={{ flexWrap: "wrap" }}>
+                          <Typography sx={{ fontSize: 12.5, color: "#64748b", fontWeight: 700 }}>
+                            Vendor ID {branch.vendorId}
+                          </Typography>
+                          {branch.isPlaceholder ? (
+                            <Typography sx={{ fontSize: 12, color: "#64748b", fontWeight: 800 }}>
+                              {NO_ORDERS_YET_LABEL}
+                            </Typography>
+                          ) : null}
+                        </Stack>
                       </Box>
                     </Box>
                   ))}
@@ -2530,9 +2985,251 @@ export function PerformancePage() {
               </Stack>
             </DialogContent>
             <DialogActions>
-              <Button onClick={() => setBranchesDialogOpen(false)}>Cancel</Button>
+              <Button
+                onClick={() => {
+                  setBranchesDialogOpen(false);
+                  closeBulkAddDialog();
+                }}
+              >
+                Cancel
+              </Button>
               <Button onClick={clearBranchSelection}>Clear selection</Button>
               <Button variant="contained" onClick={applyBranchSelection}>Apply</Button>
+            </DialogActions>
+          </Dialog>
+
+          <Dialog
+            open={bulkAddOpen}
+            onClose={() => {
+              if (bulkAddStep !== "loading") {
+                closeBulkAddDialog();
+              }
+            }}
+            fullWidth
+            maxWidth="sm"
+          >
+            <DialogTitle>
+              {bulkAddStep === "name" ? "Name Group" : bulkAddStep === "review" ? "Review Vendors" : "Bulk Add Group"}
+            </DialogTitle>
+            <DialogContent dividers>
+              <Stack spacing={1.35}>
+                {bulkAddError ? <Alert severity="error">{bulkAddError}</Alert> : null}
+
+                {bulkAddStep === "input" ? (
+                  <>
+                    <Stack direction="row" spacing={0.8}>
+                      <Button
+                        variant={bulkAddMode === "orders" ? "contained" : "outlined"}
+                        onClick={() => {
+                          setBulkAddMode("orders");
+                          setBulkAddError(null);
+                        }}
+                      >
+                        Orders ID
+                      </Button>
+                      <Button
+                        variant={bulkAddMode === "availability" ? "contained" : "outlined"}
+                        onClick={() => {
+                          setBulkAddMode("availability");
+                          setBulkAddError(null);
+                        }}
+                      >
+                        Availability ID
+                      </Button>
+                    </Stack>
+
+                    {bulkAddMode === "availability" && sourceError ? (
+                      <Alert
+                        severity="warning"
+                        action={(
+                          <Button color="inherit" size="small" onClick={() => void loadSourceItems({ force: true }).catch(() => { })}>
+                            Retry
+                          </Button>
+                        )}
+                      >
+                        {sourceError}
+                      </Alert>
+                    ) : null}
+
+                    <TextField
+                      value={bulkAddInput}
+                      onChange={(event) => setBulkAddInput(event.target.value)}
+                      label={bulkAddMode === "orders" ? "Paste Orders IDs" : "Paste Availability IDs"}
+                      placeholder={bulkAddMode === "orders" ? "111\n112\n113" : "AV-111\nAV-112\nAV-113"}
+                      multiline
+                      minRows={8}
+                      fullWidth
+                    />
+                    <Typography sx={{ color: "#64748b", fontSize: 13, fontWeight: 700 }}>
+                      {metric(bulkAddEnteredCount)} vendors entered
+                    </Typography>
+                    <Typography sx={{ color: "#64748b", fontSize: 12.5 }}>
+                      Paste IDs from sheets or lists. Line breaks, tabs, commas, and spaces are all supported.
+                    </Typography>
+                  </>
+                ) : null}
+
+                {bulkAddStep === "loading" ? (
+                  <Stack spacing={1.2} alignItems="center" sx={{ py: 3 }}>
+                    <CircularProgress size={34} />
+                    <Typography sx={{ fontWeight: 800, color: "#0f172a" }}>{bulkAddLoadingText}</Typography>
+                    <Typography sx={{ color: "#64748b", textAlign: "center" }}>
+                      Checking current performance data and branch source details.
+                    </Typography>
+                  </Stack>
+                ) : null}
+
+                {bulkAddStep === "review" && bulkAddSummary ? (
+                  <>
+                    <Alert severity="info">
+                      {bulkAddSummary.mode === "orders"
+                        ? `${metric(bulkAddSummary.resolvedCount)} branches have current orders and ${metric(bulkAddSummary.noOrdersCount)} will be added as ${NO_ORDERS_YET_LABEL}.`
+                        : `${metric(bulkAddSummary.resolvedCount)} mapped from availability IDs, ${metric(bulkAddSummary.noOrdersCount)} will be added as ${NO_ORDERS_YET_LABEL}, and ${metric(bulkAddSummary.notFoundCount)} were not found.`}
+                    </Alert>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                      <Typography sx={{ color: "#64748b", fontSize: 13, fontWeight: 700 }}>
+                        {metric(bulkAddSelectedVendorIds.length)} selected
+                      </Typography>
+                      <Stack direction="row" spacing={0.7}>
+                        <Button
+                          size="small"
+                          onClick={() => setBulkAddSelectedVendorIds(bulkAddResolvedItems.map((item) => item.ordersVendorId))}
+                          disabled={!bulkAddResolvedItems.length}
+                        >
+                          Select all
+                        </Button>
+                        <Button size="small" onClick={() => setBulkAddSelectedVendorIds([])}>
+                          Clear
+                        </Button>
+                      </Stack>
+                    </Stack>
+                    <Stack
+                      spacing={0.65}
+                      sx={{
+                        maxHeight: 360,
+                        overflowY: "auto",
+                      }}
+                    >
+                      {bulkAddResolvedItems.map((item) => (
+                        <Box
+                          key={`${item.ordersVendorId}-${item.availabilityVendorId ?? "orders"}`}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => toggleBulkAddVendor(item.ordersVendorId)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              toggleBulkAddVendor(item.ordersVendorId);
+                            }
+                          }}
+                          sx={{
+                            px: 1,
+                            py: 0.9,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 0.85,
+                            borderRadius: 2,
+                            border: "1px solid rgba(148,163,184,0.12)",
+                            bgcolor: bulkAddSelectedVendorIds.includes(item.ordersVendorId) ? "rgba(239,246,255,0.92)" : "rgba(255,255,255,0.96)",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <Checkbox checked={bulkAddSelectedVendorIds.includes(item.ordersVendorId)} tabIndex={-1} />
+                          <Box sx={{ minWidth: 0, flex: 1 }}>
+                            <Typography sx={{ fontWeight: 800, color: "#0f172a" }}>{item.name}</Typography>
+                            <Stack direction="row" spacing={0.8} alignItems="center" sx={{ flexWrap: "wrap" }}>
+                              <Typography sx={{ fontSize: 12.5, color: "#64748b", fontWeight: 700 }}>
+                                Orders ID {item.ordersVendorId}
+                              </Typography>
+                              {item.availabilityVendorId ? (
+                                <Typography sx={{ fontSize: 12.5, color: "#64748b", fontWeight: 700 }}>
+                                  Availability ID {item.availabilityVendorId}
+                                </Typography>
+                              ) : null}
+                              {item.isNoOrdersYet ? (
+                                <Typography sx={{ fontSize: 12, color: "#64748b", fontWeight: 800 }}>
+                                  {NO_ORDERS_YET_LABEL}
+                                </Typography>
+                              ) : null}
+                            </Stack>
+                          </Box>
+                        </Box>
+                      ))}
+                      {!bulkAddResolvedItems.length ? (
+                        <Typography sx={{ color: "#64748b", textAlign: "center", py: 2 }}>
+                          No vendors are ready to add yet.
+                        </Typography>
+                      ) : null}
+                    </Stack>
+                  </>
+                ) : null}
+
+                {bulkAddStep === "name" ? (
+                  <>
+                    <Alert severity="info">
+                      Adding {metric(bulkAddSelectedVendorIds.length)} branches to this saved group.
+                    </Alert>
+                    <TextField
+                      value={bulkAddGroupName}
+                      onChange={(event) => setBulkAddGroupName(event.target.value)}
+                      label="Group name"
+                      fullWidth
+                      size="small"
+                    />
+                  </>
+                ) : null}
+              </Stack>
+            </DialogContent>
+            <DialogActions>
+              {bulkAddStep === "input" ? (
+                <>
+                  <Button onClick={closeBulkAddDialog}>Cancel</Button>
+                  <Button variant="contained" onClick={() => void resolveBulkAdd()} disabled={!bulkAddEnteredCount || (bulkAddMode === "availability" && sourceLoading)}>
+                    Review
+                  </Button>
+                </>
+              ) : null}
+              {bulkAddStep === "review" ? (
+                <>
+                  <Button
+                    onClick={() => {
+                      setBulkAddStep("input");
+                      setBulkAddError(null);
+                    }}
+                  >
+                    Back
+                  </Button>
+                  <Button
+                    variant="contained"
+                    onClick={() => {
+                      setBulkAddStep("name");
+                      setBulkAddError(null);
+                    }}
+                    disabled={!bulkAddSelectedVendorIds.length}
+                  >
+                    Add
+                  </Button>
+                </>
+              ) : null}
+              {bulkAddStep === "name" ? (
+                <>
+                  <Button
+                    onClick={() => {
+                      setBulkAddStep("review");
+                      setBulkAddError(null);
+                    }}
+                  >
+                    Back
+                  </Button>
+                  <Button
+                    variant="contained"
+                    onClick={() => void saveBulkAddGroup()}
+                    disabled={!bulkAddSelectedVendorIds.length || !bulkAddGroupName.trim()}
+                  >
+                    Save Group
+                  </Button>
+                </>
+              ) : null}
             </DialogActions>
           </Dialog>
 

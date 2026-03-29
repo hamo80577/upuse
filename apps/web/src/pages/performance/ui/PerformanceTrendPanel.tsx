@@ -29,7 +29,11 @@ import {
   Typography,
 } from "@mui/material";
 import type { EChartsOption } from "echarts";
-import ReactECharts from "echarts-for-react";
+import { LineChart } from "echarts/charts";
+import { AxisPointerComponent, GridComponent, LegendComponent, MarkLineComponent, TooltipComponent } from "echarts/components";
+import * as echarts from "echarts/core";
+import { CanvasRenderer } from "echarts/renderers";
+import ReactEChartsCore from "echarts-for-react/lib/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 import type {
@@ -38,6 +42,16 @@ import type {
   PerformanceTrendResponse,
 } from "../../../api/types";
 import { fmtCairoDateTime } from "../../../shared/lib/time/cairo";
+
+echarts.use([
+  LineChart,
+  GridComponent,
+  LegendComponent,
+  TooltipComponent,
+  AxisPointerComponent,
+  MarkLineComponent,
+  CanvasRenderer,
+]);
 
 const metric = (value: number) => value.toLocaleString("en-US");
 const percent = (value: number) => `${value.toFixed(value >= 10 ? 1 : 2)}%`;
@@ -1089,7 +1103,8 @@ export function PerformanceTrendPanel(props: {
           ) : props.trend && chartOption ? (
             hasOrders ? (
               <>
-                <ReactECharts
+                <ReactEChartsCore
+                  echarts={echarts}
                   option={chartOption}
                   notMerge
                   lazyUpdate

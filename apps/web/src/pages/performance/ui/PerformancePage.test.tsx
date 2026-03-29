@@ -7,6 +7,7 @@ const {
   mockPerformanceTrend,
   mockPerformanceVendorDetail,
   mockPerformancePreferences,
+  mockListBranchSource,
   mockSavePerformanceCurrentPreferences,
   mockCreatePerformanceGroup,
   mockUpdatePerformanceGroup,
@@ -20,6 +21,7 @@ const {
   mockPerformanceTrend: vi.fn(),
   mockPerformanceVendorDetail: vi.fn(),
   mockPerformancePreferences: vi.fn(),
+  mockListBranchSource: vi.fn(),
   mockSavePerformanceCurrentPreferences: vi.fn(),
   mockCreatePerformanceGroup: vi.fn(),
   mockUpdatePerformanceGroup: vi.fn(),
@@ -36,6 +38,7 @@ vi.mock("../../../api/client", () => ({
     performanceTrend: mockPerformanceTrend,
     performanceVendorDetail: mockPerformanceVendorDetail,
     performancePreferences: mockPerformancePreferences,
+    listBranchSource: mockListBranchSource,
     savePerformanceCurrentPreferences: mockSavePerformanceCurrentPreferences,
     createPerformanceGroup: mockCreatePerformanceGroup,
     updatePerformanceGroup: mockUpdatePerformanceGroup,
@@ -103,6 +106,31 @@ vi.mock("motion/react", () => ({
 }));
 
 vi.mock("echarts-for-react", () => ({
+  default: (props: {
+    option?: { xAxis?: { data?: string[] } };
+    onEvents?: Record<string, (event: unknown) => void>;
+    onMouseEnter?: () => void;
+  }) => (
+    <div
+      data-testid="performance-trend-chart"
+      onMouseEnter={props.onMouseEnter}
+      onMouseLeave={() => props.onEvents?.globalout?.({})}
+    >
+      {(props.option?.xAxis?.data ?? []).map((label, index) => (
+        <button
+          key={label}
+          type="button"
+          onMouseEnter={() => props.onEvents?.updateAxisPointer?.({ axesInfo: [{ value: index }] })}
+          onClick={() => props.onEvents?.click?.({ dataIndex: index, name: label })}
+        >
+          bucket-{label}
+        </button>
+      ))}
+    </div>
+  ),
+}));
+
+vi.mock("echarts-for-react/lib/core", () => ({
   default: (props: {
     option?: { xAxis?: { data?: string[] } };
     onEvents?: Record<string, (event: unknown) => void>;
@@ -612,12 +640,43 @@ const basePreferences = {
   ],
 };
 
+const baseSourceItems = [
+  {
+    availabilityVendorId: "222",
+    ordersVendorId: 111,
+    name: "Nasr City",
+    alreadyAdded: true,
+    branchId: 7,
+    chainName: "Carrefour",
+    enabled: true,
+  },
+  {
+    availabilityVendorId: "223",
+    ordersVendorId: 112,
+    name: "Heliopolis",
+    alreadyAdded: true,
+    branchId: 8,
+    chainName: "Spinneys",
+    enabled: true,
+  },
+  {
+    availabilityVendorId: "333A",
+    ordersVendorId: 333,
+    name: "Ghost Branch",
+    alreadyAdded: false,
+    branchId: null,
+    chainName: null,
+    enabled: null,
+  },
+];
+
 describe("PerformancePage", () => {
   beforeEach(() => {
     mockPerformanceSummary.mockReset();
     mockPerformanceTrend.mockReset();
     mockPerformanceVendorDetail.mockReset();
     mockPerformancePreferences.mockReset();
+    mockListBranchSource.mockReset();
     mockSavePerformanceCurrentPreferences.mockReset();
     mockCreatePerformanceGroup.mockReset();
     mockUpdatePerformanceGroup.mockReset();
@@ -630,6 +689,7 @@ describe("PerformancePage", () => {
     mockPerformanceTrend.mockResolvedValue(baseTrend);
     mockPerformanceVendorDetail.mockResolvedValue(baseVendorDetail);
     mockPerformancePreferences.mockResolvedValue(basePreferences);
+    mockListBranchSource.mockResolvedValue({ items: baseSourceItems });
     mockSavePerformanceCurrentPreferences.mockResolvedValue({
       ok: true,
       current: basePreferences.current,
@@ -718,6 +778,7 @@ describe("PerformancePage", () => {
     expect(screen.getByRole("button", { name: "Pick branches" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open saved branch groups" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Transport type" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Branch activity" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Filter branches" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sort branches" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open details for Heliopolis" })).toBeInTheDocument();
@@ -1457,5 +1518,261 @@ describe("PerformancePage", () => {
       searchQuery: "nasr",
     });
     expect(trendPayload?.vendorIds).toBeUndefined();
+  }, TEST_TIMEOUT_MS);
+
+  it("creates a saved group from bulk orders ids and keeps no-order vendors visible in review", async () => {
+    mockPerformanceSummary.mockResolvedValue(baseSummary);
+
+    render(<PerformancePage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Nasr City" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Pick branches" }));
+
+    const branchesDialog = await screen.findByRole("dialog", { name: "Branches" });
+    fireEvent.click(within(branchesDialog).getByRole("button", { name: "Bulk Add" }));
+
+    const bulkDialog = await screen.findByRole("dialog", { name: "Bulk Add Group" });
+    fireEvent.change(within(bulkDialog).getByLabelText("Paste Orders IDs"), {
+      target: { value: "111\n333\n777" },
+    });
+    expect(within(bulkDialog).getByText("3 vendors entered")).toBeInTheDocument();
+
+    fireEvent.click(within(bulkDialog).getByRole("button", { name: "Review" }));
+
+    await waitFor(() => {
+      const reviewDialog = screen.getByRole("dialog", { name: "Review Vendors" });
+      expect(within(reviewDialog).getByText("Nasr City")).toBeInTheDocument();
+      expect(within(reviewDialog).getByText("Ghost Branch")).toBeInTheDocument();
+      expect(within(reviewDialog).getAllByText("No Orders Yet").length).toBeGreaterThan(0);
+      expect(within(reviewDialog).getByText(/1 branches have current orders and 2 will be added as No Orders Yet\./)).toBeInTheDocument();
+    });
+
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Review Vendors" })).getByRole("button", { name: "Add" }));
+
+    const nameDialog = await screen.findByRole("dialog", { name: "Name Group" });
+    fireEvent.change(within(nameDialog).getByLabelText("Group name"), {
+      target: { value: "Bulk Created" },
+    });
+    fireEvent.click(within(nameDialog).getByRole("button", { name: "Save Group" }));
+
+    await waitFor(() => {
+      expect(mockCreatePerformanceGroup).toHaveBeenCalledWith({
+        name: "Bulk Created",
+        vendorIds: [111, 333, 777],
+      });
+      const activeBranchesDialog = screen.getByRole("dialog", { name: "Branches" });
+      expect(within(activeBranchesDialog).getByText("Bulk Created")).toBeInTheDocument();
+      expect(within(activeBranchesDialog).queryByText("Active group: Bulk Created")).not.toBeInTheDocument();
+    });
+  }, TEST_TIMEOUT_MS);
+
+  it("maps availability ids before saving a bulk group", async () => {
+    mockPerformanceSummary.mockResolvedValue(baseSummary);
+
+    render(<PerformancePage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Nasr City" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Pick branches" }));
+
+    const branchesDialog = await screen.findByRole("dialog", { name: "Branches" });
+    fireEvent.click(within(branchesDialog).getByRole("button", { name: "Bulk Add" }));
+
+    const bulkDialog = await screen.findByRole("dialog", { name: "Bulk Add Group" });
+    fireEvent.click(within(bulkDialog).getByRole("button", { name: "Availability ID" }));
+    fireEvent.change(within(bulkDialog).getByLabelText("Paste Availability IDs"), {
+      target: { value: "222\n333A\nmissing" },
+    });
+
+    fireEvent.click(within(bulkDialog).getByRole("button", { name: "Review" }));
+
+    await waitFor(() => {
+      const reviewDialog = screen.getByRole("dialog", { name: "Review Vendors" });
+      expect(within(reviewDialog).getByText("Ghost Branch")).toBeInTheDocument();
+      expect(within(reviewDialog).getByText("Availability ID 333A")).toBeInTheDocument();
+      expect(within(reviewDialog).getByText(/1 mapped from availability IDs, 1 will be added as No Orders Yet, and 1 were not found\./)).toBeInTheDocument();
+    });
+
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Review Vendors" })).getByRole("button", { name: "Add" }));
+
+    const nameDialog = await screen.findByRole("dialog", { name: "Name Group" });
+    fireEvent.change(within(nameDialog).getByLabelText("Group name"), {
+      target: { value: "Availability Bulk" },
+    });
+    fireEvent.click(within(nameDialog).getByRole("button", { name: "Save Group" }));
+
+    await waitFor(() => {
+      expect(mockCreatePerformanceGroup).toHaveBeenCalledWith({
+        name: "Availability Bulk",
+        vendorIds: [111, 333],
+      });
+    });
+  }, TEST_TIMEOUT_MS);
+
+  it("filters active and inactive placeholder branches locally without affecting trend scope", async () => {
+    const mixedGroup = {
+      id: 5,
+      name: "Mixed group",
+      vendorIds: [111, 333],
+      createdAt: "2026-03-20T12:00:00.000Z",
+      updatedAt: "2026-03-20T12:00:00.000Z",
+    };
+
+    mockPerformanceSummary.mockResolvedValue(baseSummary);
+    mockPerformancePreferences.mockResolvedValue({
+      ...basePreferences,
+      current: {
+        ...basePreferences.current,
+        activeGroupId: mixedGroup.id,
+      },
+      groups: [mixedGroup],
+    });
+
+    render(<PerformancePage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Mixed group")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Ghost Branch" })).toBeInTheDocument();
+    });
+
+    expectSummaryTileValues("Branches", ["2", "Active", "1", "Inactive", "1"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Branch activity" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Active" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Nasr City" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Ghost Branch" })).not.toBeInTheDocument();
+    });
+
+    expectSummaryTileValues("Branches", ["2", "Active", "1", "Inactive", "1"]);
+
+    await act(async () => {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 450);
+      });
+    });
+
+    expect(mockSavePerformanceCurrentPreferences).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Branch activity" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Inactive" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Ghost Branch" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Nasr City" })).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear all filters" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Nasr City" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Heliopolis" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Ghost Branch" })).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Show Trend panel" }));
+
+    await waitFor(() => {
+      expect(mockPerformanceTrend).toHaveBeenCalledTimes(1);
+    });
+
+    const trendPayload = mockPerformanceTrend.mock.calls[0]?.[0];
+    expect(trendPayload).not.toHaveProperty("branchActivityFilter");
+    expect(trendPayload?.vendorIds).toBeUndefined();
+  }, TEST_TIMEOUT_MS);
+
+  it("shows placeholder cards for saved groups until live orders arrive", async () => {
+    const mixedGroup = {
+      id: 5,
+      name: "Mixed group",
+      vendorIds: [111, 333],
+      createdAt: "2026-03-20T12:00:00.000Z",
+      updatedAt: "2026-03-20T12:00:00.000Z",
+    };
+    let streamOptions: { onSummary?: (summary: typeof baseSummary) => void } | null = null;
+
+    mockPerformanceSummary.mockResolvedValue(baseSummary);
+    mockPerformancePreferences.mockResolvedValue({
+      ...basePreferences,
+      current: {
+        ...basePreferences.current,
+        activeGroupId: mixedGroup.id,
+      },
+      groups: [mixedGroup],
+    });
+    mockStreamPerformance.mockImplementation((options: { onSummary?: (summary: typeof baseSummary) => void }) => {
+      streamOptions = options;
+      return new Promise<void>(() => {});
+    });
+
+    render(<PerformancePage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Mixed group")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Ghost Branch" })).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole("heading", { name: "Heliopolis" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Details unavailable for Ghost Branch" })).toBeDisabled();
+    expect(screen.getByText("No Orders Yet")).toBeInTheDocument();
+
+    const liveSummary = {
+      ...baseSummary,
+      cards: {
+        ...baseSummary.cards,
+        branchCount: 3,
+        totalOrders: 31,
+      },
+      branches: [
+        ...baseSummary.branches,
+        {
+          vendorId: 333,
+          name: "Ghost Branch Live",
+          statusColor: "green" as const,
+          totalOrders: 9,
+          activeOrders: 2,
+          lateNow: 0,
+          onHoldOrders: 0,
+          unassignedOrders: 0,
+          inPrepOrders: 2,
+          readyToPickupOrders: 0,
+          deliveryMode: "logistics" as const,
+          lfrApplicable: true,
+          vendorOwnerCancelledCount: 0,
+          transportOwnerCancelledCount: 0,
+          vfr: 0,
+          lfr: 0,
+          vlfr: 0,
+          statusCounts: [{ status: "STARTED", count: 2 }],
+          ownerCoverage: {
+            totalCancelledOrders: 0,
+            resolvedOwnerCount: 0,
+            unresolvedOwnerCount: 0,
+            vendorOwnerCancelledCount: 0,
+            transportOwnerCancelledCount: 0,
+            lookupErrorCount: 0,
+            coverageRatio: 1,
+            warning: null,
+          },
+        },
+      ],
+      fetchedAt: "2026-03-20T12:10:00.000Z",
+    } as typeof baseSummary;
+
+    act(() => {
+      streamOptions?.onSummary?.(liveSummary);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Ghost Branch Live" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Open details for Ghost Branch Live" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Details unavailable for Ghost Branch" })).not.toBeInTheDocument();
+    });
   }, TEST_TIMEOUT_MS);
 });
