@@ -71,13 +71,20 @@ export function performanceSummaryRoute(engine: MonitorEngine) {
 
 export function performanceTrendRoute() {
   return async (req: Request, res: Response) => {
-    const resolutionMinutes = parseTrendResolutionMinutes(req.query.resolutionMinutes);
-    const startMinute = parseTrendMinute(req.query.startMinute, DEFAULT_TREND_START_MINUTE);
-    const endMinute = parseTrendMinute(req.query.endMinute, DEFAULT_TREND_END_MINUTE);
-    const vendorIds = parseTrendVendorIds(req.query.vendorId);
-    const searchQuery = parseTrendSearchQuery(req.query.searchQuery);
-    const selectedDeliveryTypes = parseTrendEnumList(req.query.deliveryType, ALLOWED_TREND_DELIVERY_TYPES);
-    const selectedBranchFilters = parseTrendEnumList(req.query.branchFilter, ALLOWED_TREND_BRANCH_FILTERS);
+    const input = req.method === "POST" ? (req.body ?? {}) : req.query;
+    const resolutionMinutes = parseTrendResolutionMinutes(input.resolutionMinutes);
+    const startMinute = parseTrendMinute(input.startMinute, DEFAULT_TREND_START_MINUTE);
+    const endMinute = parseTrendMinute(input.endMinute, DEFAULT_TREND_END_MINUTE);
+    const vendorIds = parseTrendVendorIds(input.vendorId ?? input.vendorIds);
+    const searchQuery = parseTrendSearchQuery(input.searchQuery);
+    const selectedDeliveryTypes = parseTrendEnumList(
+      input.deliveryType ?? input.selectedDeliveryTypes,
+      ALLOWED_TREND_DELIVERY_TYPES,
+    );
+    const selectedBranchFilters = parseTrendEnumList(
+      input.branchFilter ?? input.selectedBranchFilters,
+      ALLOWED_TREND_BRANCH_FILTERS,
+    );
 
     if (
       !resolutionMinutes

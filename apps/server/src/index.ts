@@ -113,6 +113,7 @@ app.delete("/api/branches/:id", requireCapability("delete_branch_mappings"), del
 app.get("/api/dashboard", dashboardRoute(engine));
 app.get("/api/performance", performanceSummaryRoute(engine));
 app.get("/api/performance/trends", performanceTrendRoute());
+app.post("/api/performance/trends", performanceTrendRoute());
 app.get("/api/performance/branches/:id", performanceBranchDetailRoute(engine));
 app.get("/api/performance/vendors/:id", performanceVendorDetailRoute());
 app.get("/api/performance/preferences", getPerformancePreferencesRoute);

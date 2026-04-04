@@ -133,26 +133,13 @@ export const api = {
       selectedBranchFilters?: PerformanceBranchFilter[];
     },
     options?: { signal?: AbortSignal },
-  ) => {
-    const query = new URLSearchParams({
-      resolutionMinutes: String(payload.resolutionMinutes),
-      startMinute: String(payload.startMinute),
-      endMinute: String(payload.endMinute),
-    });
-    if (payload.searchQuery) {
-      query.set("searchQuery", payload.searchQuery);
-    }
-    for (const vendorId of payload.vendorIds ?? []) {
-      query.append("vendorId", String(vendorId));
-    }
-    for (const deliveryType of payload.selectedDeliveryTypes ?? []) {
-      query.append("deliveryType", deliveryType);
-    }
-    for (const branchFilter of payload.selectedBranchFilters ?? []) {
-      query.append("branchFilter", branchFilter);
-    }
-    return requestJson<PerformanceTrendResponse>(`/api/performance/trends?${query.toString()}`, { signal: options?.signal }, { timeoutMs: 20_000 });
-  },
+  ) =>
+    requestJson<PerformanceTrendResponse>("/api/performance/trends", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: options?.signal,
+    }, { timeoutMs: 20_000 }),
   performanceBranchDetail: (branchId: number, options?: { signal?: AbortSignal }) =>
     requestJson<PerformanceBranchDetailResponse>(`/api/performance/branches/${branchId}`, { signal: options?.signal }, { timeoutMs: 20_000 }),
   performanceVendorDetail: (vendorId: number, options?: { signal?: AbortSignal }) =>

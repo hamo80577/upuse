@@ -43,6 +43,7 @@ function createEngine() {
 
 function createApp() {
   const app = express();
+  app.use(express.json());
   app.use((req, _res, next) => {
     const role = req.header("x-role");
     if (role === "admin" || role === "user") {
@@ -60,6 +61,7 @@ function createApp() {
   app.use(requireAuthenticatedApi());
   app.get("/api/performance", performanceSummaryRoute(createEngine()));
   app.get("/api/performance/trends", performanceTrendRoute());
+  app.post("/api/performance/trends", performanceTrendRoute());
   app.get("/api/performance/branches/:id", performanceBranchDetailRoute(createEngine()));
   app.get("/api/performance/vendors/:id", performanceVendorDetailRoute());
   return app;
@@ -245,6 +247,51 @@ describe("performance routes", () => {
       startMinute: 0,
       endMinute: 120,
       vendorIds: [111],
+      searchQuery: "nasr",
+      selectedDeliveryTypes: ["logistics"],
+      selectedBranchFilters: ["vendor"],
+    });
+  });
+
+  it("accepts trend scope filters in a POST body for large branch selections", async () => {
+    mockGetPerformanceTrend.mockResolvedValue({
+      scope: {
+        dayKey: "2026-03-20",
+        timezone: "Africa/Cairo",
+        startUtcIso: "2026-03-19T22:00:00.000Z",
+        endUtcIso: "2026-03-20T21:59:59.999Z",
+      },
+      fetchedAt: "2026-03-20T10:00:00.000Z",
+      cacheState: "fresh",
+      resolutionMinutes: 60,
+      startMinute: 0,
+      endMinute: 120,
+      buckets: [],
+    });
+
+    const response = await fetch(`${baseUrl}/api/performance/trends`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-role": "user",
+      },
+      body: JSON.stringify({
+        resolutionMinutes: 60,
+        startMinute: 0,
+        endMinute: 120,
+        vendorIds: [111, 222, 333],
+        searchQuery: "nasr",
+        selectedDeliveryTypes: ["logistics"],
+        selectedBranchFilters: ["vendor"],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockGetPerformanceTrend).toHaveBeenCalledWith({
+      resolutionMinutes: 60,
+      startMinute: 0,
+      endMinute: 120,
+      vendorIds: [111, 222, 333],
       searchQuery: "nasr",
       selectedDeliveryTypes: ["logistics"],
       selectedBranchFilters: ["vendor"],
