@@ -1,6 +1,7 @@
 import AccessTimeFilledRoundedIcon from "@mui/icons-material/AccessTimeFilledRounded";
 import GroupsRoundedIcon from "@mui/icons-material/GroupsRounded";
 import PersonOffRoundedIcon from "@mui/icons-material/PersonOffRounded";
+import ScheduleRoundedIcon from "@mui/icons-material/ScheduleRounded";
 import { Box, Chip, LinearProgress, Stack, Typography } from "@mui/material";
 import { memo } from "react";
 import type { BranchSnapshot } from "../../../../api/types";
@@ -33,6 +34,15 @@ function triggerMeta(reason?: BranchSnapshot["closeReason"]) {
       background: "rgba(236,254,255,0.96)",
       border: "rgba(34,211,238,0.22)",
       icon: <GroupsRoundedIcon sx={{ fontSize: 13 }} />,
+    };
+  }
+  if (reason === "CAPACITY_HOUR") {
+    return {
+      label: "Capacity / Hour Trigger",
+      tone: "#1d4ed8",
+      background: "rgba(239,246,255,0.96)",
+      border: "rgba(96,165,250,0.24)",
+      icon: <ScheduleRoundedIcon sx={{ fontSize: 13 }} />,
     };
   }
   return null;

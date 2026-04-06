@@ -1,4 +1,4 @@
-export type CloseReason = "LATE" | "UNASSIGNED" | "CAPACITY";
+export type CloseReason = "LATE" | "UNASSIGNED" | "CAPACITY" | "CAPACITY_HOUR";
 export type AppUserRole = "admin" | "user";
 export type ThresholdSource = "branch" | "chain" | "global";
 export type BranchCatalogState = "available" | "missing";
@@ -8,12 +8,16 @@ export interface ChainThreshold {
   lateThreshold: number;
   unassignedThreshold: number;
   capacityRuleEnabled?: boolean;
+  capacityPerHourEnabled?: boolean;
+  capacityPerHourLimit?: number | null;
 }
 
 export interface ThresholdProfile {
   lateThreshold: number;
   unassignedThreshold: number;
   capacityRuleEnabled?: boolean;
+  capacityPerHourEnabled?: boolean;
+  capacityPerHourLimit?: number | null;
   source: ThresholdSource;
 }
 
@@ -108,6 +112,8 @@ export interface BranchMappingItem {
   lateThresholdOverride?: number | null;
   unassignedThresholdOverride?: number | null;
   capacityRuleEnabledOverride?: boolean | null;
+  capacityPerHourEnabledOverride?: boolean | null;
+  capacityPerHourLimitOverride?: number | null;
 }
 
 export interface LocalVendorCatalogItem {

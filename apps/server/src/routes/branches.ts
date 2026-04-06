@@ -42,16 +42,28 @@ const BranchThresholdOverrideBody = z.object({
   lateThresholdOverride: z.number().int().min(0).max(999).nullable(),
   unassignedThresholdOverride: z.number().int().min(0).max(999).nullable(),
   capacityRuleEnabledOverride: z.boolean().nullable().optional().default(null),
+  capacityPerHourEnabledOverride: z.boolean().nullable().optional().default(null),
+  capacityPerHourLimitOverride: z.number().int().min(1).max(999).nullable().optional().default(null),
 }).superRefine((value, ctx) => {
   const hasLate = value.lateThresholdOverride != null;
   const hasUnassigned = value.unassignedThresholdOverride != null;
-  if (hasLate === hasUnassigned) return;
+  const hasCapacityPerHourEnabled = value.capacityPerHourEnabledOverride != null;
+  const hasCapacityPerHourLimit = value.capacityPerHourLimitOverride != null;
+  if (hasLate !== hasUnassigned) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Branch threshold overrides must include both late and unassigned values.",
+      path: ["lateThresholdOverride"],
+    });
+  }
 
-  ctx.addIssue({
-    code: z.ZodIssueCode.custom,
-    message: "Branch threshold overrides must include both late and unassigned values.",
-    path: ["lateThresholdOverride"],
-  });
+  if (hasCapacityPerHourEnabled !== hasCapacityPerHourLimit) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Branch capacity / hour overrides must include both enabled state and limit.",
+      path: ["capacityPerHourLimitOverride"],
+    });
+  }
 });
 
 function parseBranchUniqueField(error: unknown) {

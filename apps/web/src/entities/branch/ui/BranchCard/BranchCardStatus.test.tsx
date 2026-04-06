@@ -63,4 +63,18 @@ describe("BranchCardStatus", () => {
 
     expect(screen.queryByText("Unassigned Trigger")).not.toBeInTheDocument();
   });
+
+  it("shows the Capacity / Hour trigger label when the hourly rule closes the branch", () => {
+    render(
+      <BranchCardStatus
+        branch={createBranch({ closeReason: "CAPACITY_HOUR" })}
+        nowMs={Date.parse("2026-03-18T12:00:00.000Z")}
+        progressValue={50}
+        canTrackProgress
+        timerReached={false}
+      />,
+    );
+
+    expect(screen.getByText("Capacity / Hour Trigger")).toBeInTheDocument();
+  });
 });

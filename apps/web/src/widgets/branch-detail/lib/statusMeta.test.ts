@@ -45,4 +45,10 @@ describe("statusPanelMeta", () => {
       label: "Capacity Trigger",
     }));
   });
+
+  it("labels Capacity / Hour closures distinctly in the trigger badge", () => {
+    expect(closeReasonMeta("CAPACITY_HOUR")).toEqual(expect.objectContaining({
+      label: "Capacity / Hour Trigger",
+    }));
+  });
 });

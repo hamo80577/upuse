@@ -95,6 +95,8 @@ function branchMapping(overrides?: Record<string, unknown>) {
     lateThresholdOverride: null,
     unassignedThresholdOverride: null,
     capacityRuleEnabledOverride: null,
+    capacityPerHourEnabledOverride: null,
+    capacityPerHourLimitOverride: null,
     ...overrides,
   };
 }
@@ -122,6 +124,8 @@ function branchSnapshot(overrides?: Record<string, unknown>) {
       lateThreshold: 5,
       unassignedThreshold: 5,
       capacityRuleEnabled: true,
+      capacityPerHourEnabled: false,
+      capacityPerHourLimit: null,
       source: "chain",
     },
     metrics: {
@@ -278,6 +282,8 @@ describe("branches routes", () => {
       lateThresholdOverride: 7,
       unassignedThresholdOverride: 9,
       capacityRuleEnabledOverride: false,
+      capacityPerHourEnabledOverride: true,
+      capacityPerHourLimitOverride: 5,
     }));
     const req: any = {
       params: { id: "7" },
@@ -285,6 +291,8 @@ describe("branches routes", () => {
         lateThresholdOverride: 7,
         unassignedThresholdOverride: 9,
         capacityRuleEnabledOverride: false,
+        capacityPerHourEnabledOverride: true,
+        capacityPerHourLimitOverride: 5,
       },
     };
     const res = createResponse();
@@ -295,6 +303,8 @@ describe("branches routes", () => {
       lateThresholdOverride: 7,
       unassignedThresholdOverride: 9,
       capacityRuleEnabledOverride: false,
+      capacityPerHourEnabledOverride: true,
+      capacityPerHourLimitOverride: 5,
     });
     expect(res.body).toEqual({
       ok: true,
@@ -302,6 +312,8 @@ describe("branches routes", () => {
         lateThresholdOverride: 7,
         unassignedThresholdOverride: 9,
         capacityRuleEnabledOverride: false,
+        capacityPerHourEnabledOverride: true,
+        capacityPerHourLimitOverride: 5,
       }),
     });
   });

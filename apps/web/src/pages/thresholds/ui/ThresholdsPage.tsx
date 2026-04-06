@@ -49,6 +49,8 @@ export function ThresholdsPage() {
     lateThreshold: Number(thresholdForm.lateThreshold ?? settings?.lateThreshold ?? 5),
     unassignedThreshold: Number(thresholdForm.unassignedThreshold ?? settings?.unassignedThreshold ?? 5),
     capacityRuleEnabled: true,
+    capacityPerHourEnabled: false,
+    capacityPerHourLimit: null,
   };
 
   const onStart = async () => {
@@ -100,6 +102,8 @@ export function ThresholdsPage() {
     const name = chainEditor.name.trim();
     const lateThreshold = Number(chainEditor.lateThreshold);
     const unassignedThreshold = Number(chainEditor.unassignedThreshold);
+    const capacityPerHourLimitRaw = chainEditor.capacityPerHourLimit.trim();
+    const capacityPerHourLimit = capacityPerHourLimitRaw ? Number(capacityPerHourLimitRaw) : null;
 
     if (!name) {
       setToast({ type: "error", msg: "Enter chain name" });
@@ -111,6 +115,19 @@ export function ThresholdsPage() {
       return;
     }
 
+    if (
+      capacityPerHourLimit != null &&
+      (!Number.isFinite(capacityPerHourLimit) || capacityPerHourLimit < 1)
+    ) {
+      setToast({ type: "error", msg: "Enter a valid Capacity / Hour limit" });
+      return;
+    }
+
+    if (chainEditor.capacityPerHourEnabled && capacityPerHourLimit == null) {
+      setToast({ type: "error", msg: "Enter Capacity / Hour limit before enabling it" });
+      return;
+    }
+
     const nextChains = normalizeChains(thresholdForm.chains.filter((_item, index) => index !== editingChainIndex))
       .filter((item) => item.name.trim().toLowerCase() !== name.toLowerCase());
     nextChains.push({
@@ -118,6 +135,8 @@ export function ThresholdsPage() {
       lateThreshold: Math.round(lateThreshold),
       unassignedThreshold: Math.round(unassignedThreshold),
       capacityRuleEnabled: chainEditor.capacityRuleEnabled,
+      capacityPerHourEnabled: chainEditor.capacityPerHourEnabled,
+      capacityPerHourLimit: capacityPerHourLimit == null ? null : Math.round(capacityPerHourLimit),
     });
     await persistChains(nextChains);
   };
@@ -151,6 +170,13 @@ export function ThresholdsPage() {
       lateThreshold: branch.lateThresholdOverride == null ? "" : String(branch.lateThresholdOverride),
       unassignedThreshold: branch.unassignedThresholdOverride == null ? "" : String(branch.unassignedThresholdOverride),
       capacityRuleEnabled: branch.capacityRuleEnabledOverride ?? (effective.capacityRuleEnabled !== false),
+      capacityPerHourEnabled: branch.capacityPerHourEnabledOverride ?? (effective.capacityPerHourEnabled === true),
+      capacityPerHourLimit:
+        branch.capacityPerHourLimitOverride != null
+          ? String(branch.capacityPerHourLimitOverride)
+          : effective.capacityPerHourLimit != null
+            ? String(effective.capacityPerHourLimit)
+            : "",
     });
     setRulesMode("overrides");
   };
@@ -163,8 +189,10 @@ export function ThresholdsPage() {
 
     const lateThresholdRaw = branchThresholdEditor.lateThreshold.trim();
     const unassignedThresholdRaw = branchThresholdEditor.unassignedThreshold.trim();
+    const capacityPerHourLimitRaw = branchThresholdEditor.capacityPerHourLimit.trim();
     const hasLateThreshold = lateThresholdRaw.length > 0;
     const hasUnassignedThreshold = unassignedThresholdRaw.length > 0;
+    const hasCapacityPerHourLimit = capacityPerHourLimitRaw.length > 0;
 
     if (hasLateThreshold !== hasUnassignedThreshold) {
       setToast({ type: "error", msg: "Enter both branch thresholds or leave both inherited" });
@@ -173,6 +201,7 @@ export function ThresholdsPage() {
 
     const lateThreshold = hasLateThreshold ? Number(lateThresholdRaw) : null;
     const unassignedThreshold = hasUnassignedThreshold ? Number(unassignedThresholdRaw) : null;
+    const capacityPerHourLimit = hasCapacityPerHourLimit ? Number(capacityPerHourLimitRaw) : null;
 
     if (
       (lateThreshold != null && (!Number.isFinite(lateThreshold) || lateThreshold < 0))
@@ -182,8 +211,21 @@ export function ThresholdsPage() {
       return;
     }
 
+    if (
+      capacityPerHourLimit != null &&
+      (!Number.isFinite(capacityPerHourLimit) || capacityPerHourLimit < 1)
+    ) {
+      setToast({ type: "error", msg: "Enter a valid Capacity / Hour limit" });
+      return;
+    }
+
     const inherited = resolveEffectiveThresholds(
-      { ...branch, capacityRuleEnabledOverride: null },
+      {
+        ...branch,
+        capacityRuleEnabledOverride: null,
+        capacityPerHourEnabledOverride: null,
+        capacityPerHourLimitOverride: null,
+      },
       thresholdForm.chains,
       globalThresholds,
     );
@@ -191,6 +233,27 @@ export function ThresholdsPage() {
       branchThresholdEditor.capacityRuleEnabled === (inherited.capacityRuleEnabled !== false)
         ? null
         : branchThresholdEditor.capacityRuleEnabled;
+    const inheritedCapacityPerHourEnabled = inherited.capacityPerHourEnabled === true;
+    const inheritedCapacityPerHourLimit = inherited.capacityPerHourLimit ?? null;
+    const hourlyMatchesInherited =
+      branchThresholdEditor.capacityPerHourEnabled === inheritedCapacityPerHourEnabled
+      && (
+        (capacityPerHourLimit == null && inheritedCapacityPerHourLimit == null)
+        || (capacityPerHourLimit != null && inheritedCapacityPerHourLimit != null && Math.round(capacityPerHourLimit) === inheritedCapacityPerHourLimit)
+      );
+    const needsCustomHourlyOverride = !hourlyMatchesInherited;
+
+    if (needsCustomHourlyOverride && capacityPerHourLimit == null) {
+      setToast({ type: "error", msg: "Enter Capacity / Hour limit or use inherited" });
+      return;
+    }
+
+    const capacityPerHourEnabledOverride = needsCustomHourlyOverride
+      ? branchThresholdEditor.capacityPerHourEnabled
+      : null;
+    const capacityPerHourLimitOverride = needsCustomHourlyOverride && capacityPerHourLimit != null
+      ? Math.round(capacityPerHourLimit)
+      : null;
 
     try {
       setSavingThresholdBranchId(branch.id);
@@ -199,6 +262,8 @@ export function ThresholdsPage() {
         lateThreshold == null ? null : Math.round(lateThreshold),
         unassignedThreshold == null ? null : Math.round(unassignedThreshold),
         capacityRuleEnabledOverride,
+        capacityPerHourEnabledOverride,
+        capacityPerHourLimitOverride,
       );
       setEditingThresholdBranchId(null);
       setBranchThresholdEditor(emptyBranchThresholdEditor());
@@ -218,7 +283,7 @@ export function ThresholdsPage() {
 
     try {
       setSavingThresholdBranchId(branch.id);
-      await persistBranchThresholdOverride(branch.id, null, null, null);
+      await persistBranchThresholdOverride(branch.id, null, null, null, null, null);
       setEditingThresholdBranchId(null);
       setBranchThresholdEditor(emptyBranchThresholdEditor());
       setToast({ type: "success", msg: "Using inherited thresholds" });
@@ -279,6 +344,8 @@ export function ThresholdsPage() {
                       lateThreshold: String(chain.lateThreshold),
                       unassignedThreshold: String(chain.unassignedThreshold),
                       capacityRuleEnabled: chain.capacityRuleEnabled !== false,
+                      capacityPerHourEnabled: chain.capacityPerHourEnabled === true,
+                      capacityPerHourLimit: chain.capacityPerHourLimit == null ? "" : String(chain.capacityPerHourLimit),
                     });
                   }}
                   onRemoveChain={(index) => void persistChains(thresholdForm.chains.filter((_item, itemIndex) => itemIndex !== index))}

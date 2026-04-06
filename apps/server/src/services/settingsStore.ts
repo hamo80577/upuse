@@ -29,6 +29,15 @@ const SettingsSchema = z.object({
       lateThreshold: z.number().int().min(0).max(999),
       unassignedThreshold: z.number().int().min(0).max(999),
       capacityRuleEnabled: z.boolean().optional().default(true),
+      capacityPerHourEnabled: z.boolean().optional().default(false),
+      capacityPerHourLimit: z.number().int().min(1).max(999).nullable().optional().default(null),
+    }).superRefine((value, ctx) => {
+      if (!value.capacityPerHourEnabled || typeof value.capacityPerHourLimit === "number") return;
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Capacity / hour limit is required when the hourly rule is enabled.",
+        path: ["capacityPerHourLimit"],
+      });
     }),
   ).max(200),
 
@@ -77,6 +86,11 @@ function normalizeChainThresholds(values: ChainThreshold[]) {
       lateThreshold: Math.max(0, Math.round(item.lateThreshold)),
       unassignedThreshold: Math.max(0, Math.round(item.unassignedThreshold)),
       capacityRuleEnabled: item.capacityRuleEnabled !== false,
+      capacityPerHourEnabled: item.capacityPerHourEnabled === true,
+      capacityPerHourLimit:
+        typeof item.capacityPerHourLimit === "number"
+          ? Math.max(1, Math.round(item.capacityPerHourLimit))
+          : null,
     });
   }
 
@@ -102,6 +116,8 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
         lateThreshold: 5,
         unassignedThreshold: 5,
         capacityRuleEnabled: true,
+        capacityPerHourEnabled: false,
+        capacityPerHourLimit: null,
       })),
     );
 
@@ -124,6 +140,8 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
           lateThreshold: 5,
           unassignedThreshold: 5,
           capacityRuleEnabled: true,
+          capacityPerHourEnabled: false,
+          capacityPerHourLimit: null,
         })),
       );
     }
@@ -135,7 +153,14 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
             value,
           ): value is
             | { name: string; threshold: number }
-            | { name: string; lateThreshold: number; unassignedThreshold: number; capacityRuleEnabled?: boolean } =>
+            | {
+                name: string;
+                lateThreshold: number;
+                unassignedThreshold: number;
+                capacityRuleEnabled?: boolean;
+                capacityPerHourEnabled?: boolean;
+                capacityPerHourLimit?: number | null;
+              } =>
             typeof value === "object" &&
             value !== null &&
             typeof (value as { name?: unknown }).name === "string" &&
@@ -154,6 +179,8 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
             lateThreshold?: number;
             unassignedThreshold?: number;
             capacityRuleEnabled?: boolean;
+            capacityPerHourEnabled?: boolean;
+            capacityPerHourLimit?: number | null;
           };
 
           const fallbackThreshold = typeof legacyValue.threshold === "number" ? legacyValue.threshold : 5;
@@ -169,6 +196,11 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
                 ? legacyValue.unassignedThreshold
                 : fallbackThreshold,
             capacityRuleEnabled: legacyValue.capacityRuleEnabled !== false,
+            capacityPerHourEnabled: legacyValue.capacityPerHourEnabled === true,
+            capacityPerHourLimit:
+              typeof legacyValue.capacityPerHourLimit === "number"
+                ? legacyValue.capacityPerHourLimit
+                : null,
           };
         }),
     );

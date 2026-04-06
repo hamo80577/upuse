@@ -160,11 +160,15 @@ export function useBranchMappingState() {
     lateThresholdOverride: number | null,
     unassignedThresholdOverride: number | null,
     capacityRuleEnabledOverride: boolean | null,
+    capacityPerHourEnabledOverride: boolean | null,
+    capacityPerHourLimitOverride: number | null,
   ) => {
     const response = await api.setBranchThresholdOverrides(branchId, {
       lateThresholdOverride,
       unassignedThresholdOverride,
       capacityRuleEnabledOverride,
+      capacityPerHourEnabledOverride,
+      capacityPerHourLimitOverride,
     });
     setBranches((current) => current.map((item) => (item.id === branchId ? response.item : item)));
     return response.item;

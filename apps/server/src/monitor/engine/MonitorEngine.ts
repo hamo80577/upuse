@@ -15,7 +15,7 @@ import { listBranches, listResolvedBranches, getRuntime, setRuntime } from "../.
 import { fetchAvailabilities, setAvailability } from "../../services/availabilityClient.js";
 import { log } from "../../services/logger.js";
 import { markCloseEventReopened, recordMonitorCloseAction } from "../../services/actionReportStore.js";
-import { getMirrorBranchDetail, syncOrdersMirror } from "../../services/ordersMirrorStore.js";
+import { getCurrentHourPlacedCountByVendor, getMirrorBranchDetail, syncOrdersMirror } from "../../services/ordersMirrorStore.js";
 import { decide } from "../../services/policyEngine.js";
 import { resolveBranchThresholdProfile } from "../../services/thresholds.js";
 import { Mutex } from "../../utils/mutex.js";
@@ -54,6 +54,9 @@ function capacityLimit(recentActivePickers: number) {
 function closeReasonLogTag(reason: CloseReason, metrics: OrdersMetrics, recentActivePickers: number) {
   if (reason === "LATE") return `Late=${metrics.lateNow}`;
   if (reason === "UNASSIGNED") return `Unassigned=${metrics.unassignedNow}`;
+  if (reason === "CAPACITY_HOUR") {
+    return "Capacity / Hour limit reached";
+  }
 
   const pickers = normalizeRecentActivePickers(recentActivePickers);
   return `Capacity active=${metrics.activeNow} cap=${capacityLimit(pickers)} recentActivePickers=${pickers}`;
@@ -123,6 +126,7 @@ function summarizeUpstreamErrorDetail(rawDetail: unknown) {
 export class MonitorEngine {
   private ordersByVendor = new Map<number, OrdersMetrics>();
   private preparationByVendor = new Map<number, OrdersPressureSummary>();
+  private currentHourPlacedByVendor = new Map<number, number>();
   private ordersDataStateByVendor = new Map<number, "fresh" | "stale" | "warming">();
   private ordersLastSyncedAtByVendor = new Map<number, string | undefined>();
   private availabilityByVendor = new Map<string, AvailabilityRecord>();
@@ -178,6 +182,7 @@ export class MonitorEngine {
     if (typeof branch.ordersVendorId === "number") {
       this.ordersByVendor.delete(branch.ordersVendorId);
       this.preparationByVendor.delete(branch.ordersVendorId);
+      this.currentHourPlacedByVendor.delete(branch.ordersVendorId);
     }
     this.availabilityByVendor.delete(branch.availabilityVendorId);
     setRuntime(branch.id, {
@@ -468,7 +473,15 @@ export class MonitorEngine {
   }
 
   private resolveThresholds(
-    branch: Pick<BranchMapping, "chainName" | "lateThresholdOverride" | "unassignedThresholdOverride" | "capacityRuleEnabledOverride">,
+    branch: Pick<
+      BranchMapping,
+      | "chainName"
+      | "lateThresholdOverride"
+      | "unassignedThresholdOverride"
+      | "capacityRuleEnabledOverride"
+      | "capacityPerHourEnabledOverride"
+      | "capacityPerHourLimitOverride"
+    >,
     settings: Settings,
   ) {
     return resolveBranchThresholdProfile(branch, settings);
@@ -478,6 +491,7 @@ export class MonitorEngine {
     branch: ResolvedBranchMapping,
     metrics: OrdersMetrics,
     settings: Settings,
+    currentHourPlacedCount: number,
     recentActivePickers: number,
     recentActiveAvailable: boolean,
   ): CloseReason | undefined {
@@ -487,10 +501,14 @@ export class MonitorEngine {
     const exceedCapacity = thresholds.capacityRuleEnabled !== false
       && recentActiveAvailable
       && metrics.activeNow > capacityLimit(recentActivePickers);
+    const exceedCapacityPerHour = thresholds.capacityPerHourEnabled === true
+      && typeof thresholds.capacityPerHourLimit === "number"
+      && currentHourPlacedCount >= thresholds.capacityPerHourLimit;
 
     if (exceedLate) return "LATE";
     if (exceedUnassigned) return "UNASSIGNED";
     if (exceedCapacity) return "CAPACITY";
+    if (exceedCapacityPerHour) return "CAPACITY_HOUR";
     return undefined;
   }
 
@@ -591,6 +609,7 @@ export class MonitorEngine {
   private syncTrackedMonitorRuntime(
     branch: ResolvedBranchMapping,
     metrics: OrdersMetrics,
+    currentHourPlacedCount: number,
     recentActivePickers: number,
     recentActiveAvailable: boolean,
     runtime: RuntimeRow | undefined,
@@ -615,6 +634,7 @@ export class MonitorEngine {
         branch,
         metrics,
         settings,
+        currentHourPlacedCount,
         recentActivePickers,
         recentActiveAvailable,
       );
@@ -672,6 +692,7 @@ export class MonitorEngine {
         lateNow: 0,
         unassignedNow: 0,
       };
+      const currentHourPlacedCount = this.currentHourPlacedByVendor.get(branch.ordersVendorId) ?? 0;
       const preparation = this.currentPreparation(
         this.preparationByVendor.get(branch.ordersVendorId),
         this.ordersDataStateByVendor.get(branch.ordersVendorId) === "fresh",
@@ -708,6 +729,7 @@ export class MonitorEngine {
         runtime = this.syncTrackedMonitorRuntime(
           branch,
           metrics,
+          currentHourPlacedCount,
           preparation.recentActivePickers,
           preparation.recentActiveAvailable,
           runtime,
@@ -812,6 +834,7 @@ export class MonitorEngine {
       );
       const ordersLastSyncedAt = this.ordersLastSyncedAtByVendor.get(b.ordersVendorId);
       const metrics = this.currentMetrics(rawMetrics);
+      const currentHourPlacedCount = this.currentHourPlacedByVendor.get(b.ordersVendorId) ?? 0;
       totals.ordersToday += metrics.totalToday;
       totals.cancelledToday += metrics.cancelledToday;
       totals.doneToday += metrics.doneToday;
@@ -854,6 +877,7 @@ export class MonitorEngine {
                 b,
                 rawMetrics,
                 settings,
+                currentHourPlacedCount,
                 preparation.recentActivePickers,
                 preparation.recentActiveAvailable,
               );
@@ -946,6 +970,7 @@ export class MonitorEngine {
     this.errors = {};
     this.ordersByVendor.clear();
     this.preparationByVendor.clear();
+    this.currentHourPlacedByVendor.clear();
     this.availabilityByVendor.clear();
     this.lastOrdersFetchAt = undefined;
     this.lastAvailabilityFetchAt = undefined;
@@ -992,6 +1017,7 @@ export class MonitorEngine {
         if (!this.isLifecycleCurrent(expectedLifecycleId)) return;
         this.ordersByVendor.clear();
         this.preparationByVendor.clear();
+        this.currentHourPlacedByVendor.clear();
         this.ordersDataStateByVendor.clear();
         this.ordersLastSyncedAtByVendor.clear();
         this.staleOrdersBranchCount = 0;
@@ -1015,6 +1041,10 @@ export class MonitorEngine {
 
         const mergedOrdersByVendor = new Map<number, OrdersMetrics>();
         const mergedPreparationByVendor = new Map<number, OrdersPressureSummary>();
+        const mergedCurrentHourPlacedByVendor = getCurrentHourPlacedCountByVendor({
+          globalEntityId: settings.globalEntityId,
+          vendorIds: branches.map((branch) => branch.ordersVendorId),
+        });
         const mergedDataStateByVendor = new Map<number, "fresh" | "stale" | "warming">();
         const mergedLastSyncedAtByVendor = new Map<number, string | undefined>();
 
@@ -1041,6 +1071,7 @@ export class MonitorEngine {
         if (!this.isLifecycleActive(expectedLifecycleId)) return;
         this.ordersByVendor = mergedOrdersByVendor;
         this.preparationByVendor = mergedPreparationByVendor;
+        this.currentHourPlacedByVendor = mergedCurrentHourPlacedByVendor;
         this.ordersDataStateByVendor = mergedDataStateByVendor;
         this.ordersLastSyncedAtByVendor = mergedLastSyncedAtByVendor;
         this.ordersFresh = true;
@@ -1153,6 +1184,7 @@ export class MonitorEngine {
         lateNow: 0,
         unassignedNow: 0,
       };
+      const currentHourPlacedCount = this.currentHourPlacedByVendor.get(branch.ordersVendorId) ?? 0;
       const preparation = this.currentPreparation(this.preparationByVendor.get(branch.ordersVendorId), true);
 
       const avCached = this.availabilityByVendor.get(branch.availabilityVendorId);
@@ -1166,6 +1198,7 @@ export class MonitorEngine {
         runtime = this.syncTrackedMonitorRuntime(
           branch,
           metrics,
+          currentHourPlacedCount,
           preparation.recentActivePickers,
           preparation.recentActiveAvailable,
           runtime,
@@ -1211,6 +1244,7 @@ export class MonitorEngine {
       const decision = decide({
         branch,
         metrics,
+        currentHourPlacedCount,
         recentActivePickers: preparation.recentActivePickers,
         recentActiveAvailable: preparation.recentActiveAvailable,
         availability: avCached,
@@ -1356,6 +1390,7 @@ export class MonitorEngine {
             rt = this.syncTrackedMonitorRuntime(
               branch,
               metrics,
+              currentHourPlacedCount,
               preparation.recentActivePickers,
               preparation.recentActiveAvailable,
               rt,

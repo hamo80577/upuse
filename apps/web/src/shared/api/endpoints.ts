@@ -82,6 +82,16 @@ function normalizeBranchItem(item: BranchMappingItem | LegacyBranchMappingItem):
         : item.capacityRuleEnabledOverride == null
           ? null
           : Boolean(item.capacityRuleEnabledOverride),
+    capacityPerHourEnabledOverride:
+      typeof item.capacityPerHourEnabledOverride === "boolean"
+        ? item.capacityPerHourEnabledOverride
+        : item.capacityPerHourEnabledOverride == null
+          ? null
+          : Boolean(item.capacityPerHourEnabledOverride),
+    capacityPerHourLimitOverride:
+      typeof item.capacityPerHourLimitOverride === "number" && Number.isFinite(item.capacityPerHourLimitOverride)
+        ? Math.max(1, Math.round(item.capacityPerHourLimitOverride))
+        : null,
   };
 }
 
@@ -377,6 +387,8 @@ export const api = {
       lateThresholdOverride: number | null;
       unassignedThresholdOverride: number | null;
       capacityRuleEnabledOverride: boolean | null;
+      capacityPerHourEnabledOverride: boolean | null;
+      capacityPerHourLimitOverride: number | null;
     },
   ) =>
     requestJson<{ ok: boolean; item: BranchMappingItem | LegacyBranchMappingItem }>(`/api/branches/${id}/threshold-overrides`, {

@@ -27,6 +27,11 @@ export function normalizeChains(chains: ChainThreshold[]) {
       lateThreshold: Math.max(0, Math.round(chain.lateThreshold)),
       unassignedThreshold: Math.max(0, Math.round(chain.unassignedThreshold)),
       capacityRuleEnabled: chain.capacityRuleEnabled !== false,
+      capacityPerHourEnabled: chain.capacityPerHourEnabled === true,
+      capacityPerHourLimit:
+        typeof chain.capacityPerHourLimit === "number"
+          ? Math.max(1, Math.round(chain.capacityPerHourLimit))
+          : null,
     });
   }
 
@@ -39,6 +44,8 @@ export function emptyChainEditor() {
     lateThreshold: "5",
     unassignedThreshold: "5",
     capacityRuleEnabled: true,
+    capacityPerHourEnabled: false,
+    capacityPerHourLimit: "",
   };
 }
 
@@ -47,6 +54,8 @@ export function emptyBranchThresholdEditor() {
     lateThreshold: "",
     unassignedThreshold: "",
     capacityRuleEnabled: true,
+    capacityPerHourEnabled: false,
+    capacityPerHourLimit: "",
   };
 }
 
@@ -57,7 +66,10 @@ export function safeBranchName(branch: Pick<BranchMappingItem, "name" | "availab
 export function resolveEffectiveThresholds(
   branch: BranchMappingItem,
   chains: ChainThreshold[],
-  globalThresholds: Pick<ThresholdProfile, "lateThreshold" | "unassignedThreshold" | "capacityRuleEnabled">,
+  globalThresholds: Pick<
+    ThresholdProfile,
+    "lateThreshold" | "unassignedThreshold" | "capacityRuleEnabled" | "capacityPerHourEnabled" | "capacityPerHourLimit"
+  >,
 ) {
   const chain = chains.find((item) => item.name.trim().toLowerCase() === branch.chainName.trim().toLowerCase());
   const inherited = chain
@@ -65,12 +77,16 @@ export function resolveEffectiveThresholds(
         lateThreshold: chain.lateThreshold,
         unassignedThreshold: chain.unassignedThreshold,
         capacityRuleEnabled: chain.capacityRuleEnabled !== false,
+        capacityPerHourEnabled: chain.capacityPerHourEnabled === true,
+        capacityPerHourLimit: chain.capacityPerHourLimit ?? null,
         source: "chain" as const,
       }
     : {
         lateThreshold: globalThresholds.lateThreshold,
         unassignedThreshold: globalThresholds.unassignedThreshold,
         capacityRuleEnabled: globalThresholds.capacityRuleEnabled !== false,
+        capacityPerHourEnabled: globalThresholds.capacityPerHourEnabled === true,
+        capacityPerHourLimit: globalThresholds.capacityPerHourLimit ?? null,
         source: "global" as const,
       };
 
@@ -78,12 +94,21 @@ export function resolveEffectiveThresholds(
     typeof branch.lateThresholdOverride === "number" &&
     typeof branch.unassignedThresholdOverride === "number";
   const hasCapacityOverride = typeof branch.capacityRuleEnabledOverride === "boolean";
+  const hasCapacityPerHourOverride =
+    typeof branch.capacityPerHourEnabledOverride === "boolean" &&
+    typeof branch.capacityPerHourLimitOverride === "number";
 
-  if (hasThresholdOverride || hasCapacityOverride) {
+  if (hasThresholdOverride || hasCapacityOverride || hasCapacityPerHourOverride) {
     return {
       lateThreshold: hasThresholdOverride ? branch.lateThresholdOverride : inherited.lateThreshold,
       unassignedThreshold: hasThresholdOverride ? branch.unassignedThresholdOverride : inherited.unassignedThreshold,
       capacityRuleEnabled: hasCapacityOverride ? branch.capacityRuleEnabledOverride : inherited.capacityRuleEnabled,
+      capacityPerHourEnabled: hasCapacityPerHourOverride
+        ? branch.capacityPerHourEnabledOverride
+        : inherited.capacityPerHourEnabled,
+      capacityPerHourLimit: hasCapacityPerHourOverride
+        ? branch.capacityPerHourLimitOverride
+        : inherited.capacityPerHourLimit,
       source: "branch" as const,
     };
   }

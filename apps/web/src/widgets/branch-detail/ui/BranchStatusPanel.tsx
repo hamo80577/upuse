@@ -1,6 +1,7 @@
 import AccessTimeFilledRoundedIcon from "@mui/icons-material/AccessTimeFilledRounded";
 import GroupsRoundedIcon from "@mui/icons-material/GroupsRounded";
 import PersonOffRoundedIcon from "@mui/icons-material/PersonOffRounded";
+import ScheduleRoundedIcon from "@mui/icons-material/ScheduleRounded";
 import SettingsSuggestRoundedIcon from "@mui/icons-material/SettingsSuggestRounded";
 import StorefrontRoundedIcon from "@mui/icons-material/StorefrontRounded";
 import { Box, Chip, Divider, LinearProgress, Stack, Typography } from "@mui/material";
@@ -37,6 +38,7 @@ function triggerIcon(reason?: BranchSnapshot["closeReason"]) {
   if (reason === "LATE") return <AccessTimeFilledRoundedIcon sx={{ fontSize: 18 }} />;
   if (reason === "UNASSIGNED") return <PersonOffRoundedIcon sx={{ fontSize: 18 }} />;
   if (reason === "CAPACITY") return <GroupsRoundedIcon sx={{ fontSize: 18 }} />;
+  if (reason === "CAPACITY_HOUR") return <ScheduleRoundedIcon sx={{ fontSize: 18 }} />;
   return null;
 }
 

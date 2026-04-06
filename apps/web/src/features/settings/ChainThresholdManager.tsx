@@ -11,6 +11,8 @@ export interface ChainEditorDraft {
   lateThreshold: string;
   unassignedThreshold: string;
   capacityRuleEnabled: boolean;
+  capacityPerHourEnabled: boolean;
+  capacityPerHourLimit: string;
 }
 
 export function ChainThresholdManager(props: {
@@ -115,6 +117,25 @@ export function ChainThresholdManager(props: {
                     color: chain.capacityRuleEnabled === false ? "#475569" : "#0f766e",
                   }}
                 />
+                <Chip
+                  size="small"
+                  label={
+                    chain.capacityPerHourEnabled === true && typeof chain.capacityPerHourLimit === "number"
+                      ? `Capacity / Hour ${chain.capacityPerHourLimit}/h`
+                      : "Capacity / Hour Off"
+                  }
+                  sx={{
+                    fontWeight: 800,
+                    bgcolor:
+                      chain.capacityPerHourEnabled === true && typeof chain.capacityPerHourLimit === "number"
+                        ? "rgba(37,99,235,0.08)"
+                        : "rgba(148,163,184,0.14)",
+                    color:
+                      chain.capacityPerHourEnabled === true && typeof chain.capacityPerHourLimit === "number"
+                        ? "#1d4ed8"
+                        : "#475569",
+                  }}
+                />
               </Stack>
 
               <Stack direction="row" spacing={0.4} justifyContent={{ xs: "flex-end", sm: "flex-start" }}>
@@ -190,6 +211,29 @@ export function ChainThresholdManager(props: {
           )}
           label="Enable Capacity Rule"
         />
+
+        <Stack direction={{ xs: "column", md: "row" }} spacing={1.2} sx={{ mt: 0.4 }}>
+          <FormControlLabel
+            control={(
+              <Checkbox
+                checked={chainEditor.capacityPerHourEnabled}
+                onChange={(event) => props.onChangeEditor({ capacityPerHourEnabled: event.target.checked })}
+                disabled={readOnly}
+              />
+            )}
+            label="Enable Capacity / Hour"
+          />
+          <TextField
+            label="Capacity / Hour Limit"
+            type="number"
+            value={chainEditor.capacityPerHourLimit}
+            onChange={(event) => props.onChangeEditor({ capacityPerHourLimit: event.target.value })}
+            inputProps={{ min: 1 }}
+            disabled={readOnly}
+            placeholder="5"
+            sx={{ width: { xs: "100%", md: 220 } }}
+          />
+        </Stack>
 
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mt: 1.2 }}>
           <Button

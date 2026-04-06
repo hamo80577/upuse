@@ -32,6 +32,8 @@ function baseBranch(): ResolvedBranchMapping {
     lateThresholdOverride: null,
     unassignedThresholdOverride: null,
     capacityRuleEnabledOverride: null,
+    capacityPerHourEnabledOverride: null,
+    capacityPerHourLimitOverride: null,
   };
 }
 
@@ -522,5 +524,103 @@ describe("policyEngine.decide", () => {
     });
 
     expect(decision).toEqual({ type: "CLOSE", reason: "CAPACITY" });
+  });
+
+  it("closes on Capacity / Hour when the hourly threshold is reached", () => {
+    const decision = decide({
+      branch: {
+        ...baseBranch(),
+        chainName: "Chain A",
+      },
+      metrics: baseMetrics(),
+      currentHourPlacedCount: 5,
+      recentActivePickers: 3,
+      recentActiveAvailable: true,
+      availability: openAvailability(),
+      nowUtcIso: "2026-03-03T10:17:00.000Z",
+      settings: {
+        ...baseSettings(),
+        chains: [{
+          name: "Chain A",
+          lateThreshold: 5,
+          unassignedThreshold: 5,
+          capacityRuleEnabled: true,
+          capacityPerHourEnabled: true,
+          capacityPerHourLimit: 5,
+        }],
+      },
+    });
+
+    expect(decision).toEqual({ type: "CLOSE", reason: "CAPACITY_HOUR" });
+  });
+
+  it("does not early-open Capacity / Hour inside the same hour while the count is still above limit", () => {
+    const decision = decide({
+      branch: {
+        ...baseBranch(),
+        chainName: "Chain A",
+      },
+      metrics: baseMetrics(),
+      currentHourPlacedCount: 5,
+      recentActivePickers: 3,
+      recentActiveAvailable: true,
+      availability: tempCloseAvailability(),
+      runtime: {
+        lastUpuseCloseReason: "CAPACITY_HOUR",
+        lastUpuseCloseAt: "2026-03-03T10:17:00.000Z",
+        lastUpuseCloseUntil: "2026-03-03T10:47:00.000Z",
+        lastUpuseCloseEventId: 20,
+      },
+      nowUtcIso: "2026-03-03T10:47:30.000Z",
+      settings: {
+        ...baseSettings(),
+        chains: [{
+          name: "Chain A",
+          lateThreshold: 5,
+          unassignedThreshold: 5,
+          capacityRuleEnabled: true,
+          capacityPerHourEnabled: true,
+          capacityPerHourLimit: 5,
+        }],
+      },
+    });
+
+    expect(decision).toEqual({ type: "NOOP" });
+  });
+
+  it("early-opens Capacity / Hour after the hour rolls over and the count resets below limit", () => {
+    const decision = decide({
+      branch: {
+        ...baseBranch(),
+        chainName: "Chain A",
+      },
+      metrics: baseMetrics(),
+      currentHourPlacedCount: 0,
+      recentActivePickers: 3,
+      recentActiveAvailable: true,
+      availability: tempCloseAvailability({
+        closedUntil: "2026-03-03T11:17:00.000Z",
+      }),
+      runtime: {
+        lastUpuseCloseReason: "CAPACITY_HOUR",
+        lastUpuseCloseAt: "2026-03-03T10:47:00.000Z",
+        lastUpuseCloseUntil: "2026-03-03T11:17:00.000Z",
+        lastUpuseCloseEventId: 21,
+      },
+      nowUtcIso: "2026-03-03T11:00:10.000Z",
+      settings: {
+        ...baseSettings(),
+        chains: [{
+          name: "Chain A",
+          lateThreshold: 5,
+          unassignedThreshold: 5,
+          capacityRuleEnabled: true,
+          capacityPerHourEnabled: true,
+          capacityPerHourLimit: 5,
+        }],
+      },
+    });
+
+    expect(decision).toEqual({ type: "EARLY_OPEN", reason: "CAPACITY_HOUR" });
   });
 });

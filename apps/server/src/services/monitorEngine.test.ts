@@ -8,6 +8,7 @@ const {
   mockGetRuntime,
   mockSetRuntime,
   mockGetMirrorBranchDetail,
+  mockGetCurrentHourPlacedCountByVendor,
   mockSyncOrdersMirror,
   mockFetchAvailabilities,
   mockSetAvailability,
@@ -21,6 +22,7 @@ const {
   mockGetRuntime: vi.fn(),
   mockSetRuntime: vi.fn(),
   mockGetMirrorBranchDetail: vi.fn(),
+  mockGetCurrentHourPlacedCountByVendor: vi.fn(() => new Map()),
   mockSyncOrdersMirror: vi.fn(),
   mockFetchAvailabilities: vi.fn(),
   mockSetAvailability: vi.fn(),
@@ -65,6 +67,7 @@ vi.mock("./monitorOrdersPolling.js", () => ({
 
 vi.mock("./ordersMirrorStore.js", () => ({
   getMirrorBranchDetail: mockGetMirrorBranchDetail,
+  getCurrentHourPlacedCountByVendor: mockGetCurrentHourPlacedCountByVendor,
   syncOrdersMirror: mockSyncOrdersMirror,
 }));
 
@@ -128,6 +131,7 @@ describe("monitorEngine.getSnapshot", () => {
     mockGetRuntime.mockReset();
     mockSetRuntime.mockReset();
     mockGetMirrorBranchDetail.mockReset();
+    mockGetCurrentHourPlacedCountByVendor.mockReset();
     mockSyncOrdersMirror.mockReset();
     mockFetchAvailabilities.mockReset();
     mockSetAvailability.mockReset();
@@ -156,6 +160,7 @@ describe("monitorEngine.getSnapshot", () => {
       },
       cacheState: "warming",
     });
+    mockGetCurrentHourPlacedCountByVendor.mockReturnValue(new Map());
     mockSyncOrdersMirror.mockResolvedValue({
       dayKey: "2026-03-04",
       totalVendors: 0,
@@ -260,6 +265,8 @@ describe("monitorEngine.getSnapshot", () => {
       lateThreshold: 4,
       unassignedThreshold: 5,
       capacityRuleEnabled: true,
+      capacityPerHourEnabled: false,
+      capacityPerHourLimit: null,
       source: "global",
     });
   });
@@ -347,6 +354,107 @@ describe("monitorEngine.getSnapshot", () => {
     const branch = engine.getSnapshot().branches[0];
 
     expect(branch.closeReason).toBe("CAPACITY");
+  });
+
+  it("infers Capacity / Hour as the monitor close reason from the tracked window when the hourly limit is reached", () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      chainNames: ["Chain A"],
+      chains: [{
+        name: "Chain A",
+        lateThreshold: 4,
+        unassignedThreshold: 5,
+        capacityRuleEnabled: true,
+        capacityPerHourEnabled: true,
+        capacityPerHourLimit: 5,
+      }],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 30,
+      availabilityRefreshSeconds: 30,
+      maxVendorsPerOrdersRequest: 50,
+    });
+
+    mockListBranches.mockReturnValue([
+      {
+        id: 21,
+        name: "Branch 21",
+        chainName: "Chain A",
+        ordersVendorId: 2121,
+        availabilityVendorId: "av-21",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        enabled: true,
+      },
+    ]);
+
+    mockGetRuntime.mockReturnValue({
+      branchId: 21,
+      lastUpuseCloseUntil: "2026-03-04T13:16:59.000Z",
+      lastUpuseCloseReason: null,
+      lastUpuseCloseAt: null,
+      lastUpuseCloseEventId: 63,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      externalOpenDetectedAt: null,
+      lastActionAt: "2026-03-03T14:48:24.286Z",
+    });
+
+    const engine = new MonitorEngine() as any;
+    engine.ordersFresh = true;
+    engine.ordersByVendor = new Map([
+      [
+        2121,
+        {
+          totalToday: 12,
+          cancelledToday: 1,
+          doneToday: 3,
+          activeNow: 3,
+          lateNow: 0,
+          unassignedNow: 0,
+        },
+      ],
+    ]);
+    engine.preparationByVendor = new Map([
+      [
+        2121,
+        {
+          preparingNow: 3,
+          preparingPickersNow: 3,
+          recentActivePickers: 3,
+        },
+      ],
+    ]);
+    engine.currentHourPlacedByVendor = new Map([[2121, 5]]);
+    engine.availabilityByVendor = new Map([
+      [
+        "av-21",
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "CLOSED_UNTIL",
+          platformRestaurantId: "av-21",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID,
+          closedUntil: "2026-03-04T13:16:59.000Z",
+          modifiedBy: "log_vendor_monitor",
+        },
+      ],
+    ]);
+
+    const branch = engine.getSnapshot().branches[0];
+
+    expect(branch.closeReason).toBe("CAPACITY_HOUR");
+    expect(branch.thresholds).toEqual({
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      capacityRuleEnabled: true,
+      capacityPerHourEnabled: true,
+      capacityPerHourLimit: 5,
+      source: "chain",
+    });
   });
 
   it("does not infer capacity when recent activity is unavailable", () => {
@@ -522,6 +630,8 @@ describe("monitorEngine.getSnapshot", () => {
       lateThreshold: 4,
       unassignedThreshold: 5,
       capacityRuleEnabled: false,
+      capacityPerHourEnabled: false,
+      capacityPerHourLimit: null,
       source: "chain",
     });
   });
@@ -843,6 +953,8 @@ describe("monitorEngine.getSnapshot", () => {
       lateThreshold: 4,
       unassignedThreshold: 5,
       capacityRuleEnabled: true,
+      capacityPerHourEnabled: false,
+      capacityPerHourLimit: null,
       source: "global",
     });
   });
@@ -855,12 +967,14 @@ describe("monitorEngine.stop", () => {
     mockListResolvedBranches.mockReset();
     mockGetRuntime.mockReset();
     mockSetRuntime.mockReset();
+    mockGetCurrentHourPlacedCountByVendor.mockReset();
     mockFetchAvailabilities.mockReset();
     mockSetAvailability.mockReset();
     mockLog.mockReset();
     mockRecordMonitorCloseAction.mockReset();
     mockDecide.mockReset();
     mockDecide.mockReturnValue({ type: "NOOP" });
+    mockGetCurrentHourPlacedCountByVendor.mockReturnValue(new Map());
     mockListResolvedBranches.mockImplementation((...args) => mockListBranches(...args));
   });
 
@@ -891,6 +1005,7 @@ describe("monitorEngine.stop", () => {
       preparingPickersNow: 2,
       recentActivePickers: 2,
     }]]);
+    engine.currentHourPlacedByVendor = new Map([[101, 5]]);
     engine.availabilityByVendor = new Map([["av-1", {
       platformKey: "test",
       changeable: true,
@@ -915,6 +1030,7 @@ describe("monitorEngine.stop", () => {
     expect(engine.errors).toEqual({});
     expect(engine.ordersByVendor.size).toBe(0);
     expect(engine.preparationByVendor.size).toBe(0);
+    expect(engine.currentHourPlacedByVendor.size).toBe(0);
     expect(engine.availabilityByVendor.size).toBe(0);
     expect(engine.lastOrdersFetchAt).toBeUndefined();
     expect(engine.lastAvailabilityFetchAt).toBeUndefined();
@@ -934,12 +1050,14 @@ describe("monitorEngine.reconcile", () => {
     mockListResolvedBranches.mockReset();
     mockGetRuntime.mockReset();
     mockSetRuntime.mockReset();
+    mockGetCurrentHourPlacedCountByVendor.mockReset();
     mockFetchAvailabilities.mockReset();
     mockSetAvailability.mockReset();
     mockLog.mockReset();
     mockRecordMonitorCloseAction.mockReset();
     mockDecide.mockReset();
     mockDecide.mockReturnValue({ type: "NOOP" });
+    mockGetCurrentHourPlacedCountByVendor.mockReturnValue(new Map());
     mockListResolvedBranches.mockImplementation((...args) => mockListBranches(...args));
   });
 
@@ -1518,6 +1636,7 @@ describe("monitorEngine.reconcile", () => {
     engine.running = true;
     engine.ordersFresh = true;
     engine.ordersDataStateByVendor = new Map([[1212, "fresh"]]);
+    engine.currentHourPlacedByVendor = new Map([[1212, 5]]);
     engine.ordersByVendor = new Map([
       [
         1212,
@@ -1557,6 +1676,7 @@ describe("monitorEngine.reconcile", () => {
     await engine.reconcile("orders");
 
     expect(mockDecide).toHaveBeenCalledWith(expect.objectContaining({
+      currentHourPlacedCount: 5,
       recentActivePickers: 2,
       recentActiveAvailable: true,
     }));

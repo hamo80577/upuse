@@ -199,8 +199,12 @@ function migrateBranchesTableToLocalCatalogShape() {
     "lateThresholdOverride",
     "unassignedThresholdOverride",
     "capacityRuleEnabledOverride",
+    "capacityPerHourEnabledOverride",
+    "capacityPerHourLimitOverride",
   ]);
   const hasCapacityRuleEnabledOverride = branchColumns.some((column) => column.name === "capacityRuleEnabledOverride");
+  const hasCapacityPerHourEnabledOverride = branchColumns.some((column) => column.name === "capacityPerHourEnabledOverride");
+  const hasCapacityPerHourLimitOverride = branchColumns.some((column) => column.name === "capacityPerHourLimitOverride");
 
   const requiresRebuild =
     branchColumns.length !== expectedColumns.size ||
@@ -225,7 +229,9 @@ function migrateBranchesTableToLocalCatalogShape() {
         enabled INTEGER NOT NULL DEFAULT 1,
         lateThresholdOverride INTEGER,
         unassignedThresholdOverride INTEGER,
-        capacityRuleEnabledOverride INTEGER
+        capacityRuleEnabledOverride INTEGER,
+        capacityPerHourEnabledOverride INTEGER,
+        capacityPerHourLimitOverride INTEGER
       );
 
       INSERT INTO branches_next (
@@ -235,7 +241,9 @@ function migrateBranchesTableToLocalCatalogShape() {
         enabled,
         lateThresholdOverride,
         unassignedThresholdOverride,
-        capacityRuleEnabledOverride
+        capacityRuleEnabledOverride,
+        capacityPerHourEnabledOverride,
+        capacityPerHourLimitOverride
       )
       SELECT
         id,
@@ -244,7 +252,9 @@ function migrateBranchesTableToLocalCatalogShape() {
         CASE WHEN enabled IS NULL THEN 1 ELSE enabled END,
         lateThresholdOverride,
         unassignedThresholdOverride,
-        ${hasCapacityRuleEnabledOverride ? "capacityRuleEnabledOverride" : "NULL"}
+        ${hasCapacityRuleEnabledOverride ? "capacityRuleEnabledOverride" : "NULL"},
+        ${hasCapacityPerHourEnabledOverride ? "capacityPerHourEnabledOverride" : "NULL"},
+        ${hasCapacityPerHourLimitOverride ? "capacityPerHourLimitOverride" : "NULL"}
       FROM branches;
 
       DROP TABLE branches;
@@ -287,7 +297,9 @@ export function migrate() {
       enabled INTEGER NOT NULL DEFAULT 1,
       lateThresholdOverride INTEGER,
       unassignedThresholdOverride INTEGER,
-      capacityRuleEnabledOverride INTEGER
+      capacityRuleEnabledOverride INTEGER,
+      capacityPerHourEnabledOverride INTEGER,
+      capacityPerHourLimitOverride INTEGER
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_branches_availabilityVendorId ON branches(availabilityVendorId);
@@ -384,6 +396,8 @@ export function migrate() {
       ON orders_mirror(dayKey, globalEntityId, vendorId, shopperId);
     CREATE INDEX IF NOT EXISTS idx_orders_mirror_pickup
       ON orders_mirror(dayKey, pickupAt);
+    CREATE INDEX IF NOT EXISTS idx_orders_mirror_placed
+      ON orders_mirror(dayKey, globalEntityId, vendorId, placedAt);
 
     CREATE TABLE IF NOT EXISTS orders_sync_state (
       dayKey TEXT NOT NULL,
@@ -563,6 +577,13 @@ export function migrate() {
   if (!branchRuntimeColumns.some((column) => column.name === "lastUpuseCloseEventId")) {
     db.exec("ALTER TABLE branch_runtime ADD COLUMN lastUpuseCloseEventId INTEGER");
   }
+  const branchesColumns = db.prepare("PRAGMA table_info(branches)").all() as Array<{ name: string }>;
+  if (!branchesColumns.some((column) => column.name === "capacityPerHourEnabledOverride")) {
+    db.exec("ALTER TABLE branches ADD COLUMN capacityPerHourEnabledOverride INTEGER");
+  }
+  if (!branchesColumns.some((column) => column.name === "capacityPerHourLimitOverride")) {
+    db.exec("ALTER TABLE branches ADD COLUMN capacityPerHourLimitOverride INTEGER");
+  }
   const ordersSyncStateColumns = db.prepare("PRAGMA table_info(orders_sync_state)").all() as Array<{ name: string }>;
   if (!ordersSyncStateColumns.some((column) => column.name === "lastSuccessfulSyncAt")) {
     db.exec("ALTER TABLE orders_sync_state ADD COLUMN lastSuccessfulSyncAt TEXT");
@@ -725,6 +746,8 @@ export function migrate() {
               lateThreshold: 5,
               unassignedThreshold: 5,
               capacityRuleEnabled: true,
+              capacityPerHourEnabled: false,
+              capacityPerHourLimit: null,
             })),
           ),
           JSON.stringify(chainNames),

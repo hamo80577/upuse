@@ -1,7 +1,15 @@
 import type { BranchMapping, Settings, ThresholdProfile } from "../types/models.js";
 
 export function resolveBranchThresholdProfile(
-  branch: Pick<BranchMapping, "chainName" | "lateThresholdOverride" | "unassignedThresholdOverride" | "capacityRuleEnabledOverride">,
+  branch: Pick<
+    BranchMapping,
+    | "chainName"
+    | "lateThresholdOverride"
+    | "unassignedThresholdOverride"
+    | "capacityRuleEnabledOverride"
+    | "capacityPerHourEnabledOverride"
+    | "capacityPerHourLimitOverride"
+  >,
   settings: Pick<Settings, "chains" | "lateThreshold" | "unassignedThreshold">,
 ): ThresholdProfile {
   const chains = Array.isArray(settings.chains) ? settings.chains : [];
@@ -15,12 +23,16 @@ export function resolveBranchThresholdProfile(
         lateThreshold: chainMatch.lateThreshold,
         unassignedThreshold: chainMatch.unassignedThreshold,
         capacityRuleEnabled: chainMatch.capacityRuleEnabled !== false,
+        capacityPerHourEnabled: chainMatch.capacityPerHourEnabled === true,
+        capacityPerHourLimit: chainMatch.capacityPerHourLimit ?? null,
         source: "chain" as const,
       }
     : {
         lateThreshold: settings.lateThreshold,
         unassignedThreshold: settings.unassignedThreshold,
         capacityRuleEnabled: true,
+        capacityPerHourEnabled: false,
+        capacityPerHourLimit: null,
         source: "global" as const,
       };
 
@@ -28,12 +40,23 @@ export function resolveBranchThresholdProfile(
     typeof branch.lateThresholdOverride === "number" &&
     typeof branch.unassignedThresholdOverride === "number";
   const hasBranchCapacityOverride = typeof branch.capacityRuleEnabledOverride === "boolean";
+  const hasBranchCapacityPerHourOverride =
+    typeof branch.capacityPerHourEnabledOverride === "boolean" &&
+    typeof branch.capacityPerHourLimitOverride === "number";
 
-  if (hasBranchThresholdOverride || hasBranchCapacityOverride) {
+  if (hasBranchThresholdOverride || hasBranchCapacityOverride || hasBranchCapacityPerHourOverride) {
     return {
       lateThreshold: hasBranchThresholdOverride ? (branch.lateThresholdOverride as number) : inherited.lateThreshold,
       unassignedThreshold: hasBranchThresholdOverride ? (branch.unassignedThresholdOverride as number) : inherited.unassignedThreshold,
       capacityRuleEnabled: hasBranchCapacityOverride ? branch.capacityRuleEnabledOverride as boolean : inherited.capacityRuleEnabled,
+      capacityPerHourEnabled:
+        hasBranchCapacityPerHourOverride
+          ? branch.capacityPerHourEnabledOverride as boolean
+          : inherited.capacityPerHourEnabled,
+      capacityPerHourLimit:
+        hasBranchCapacityPerHourOverride
+          ? branch.capacityPerHourLimitOverride as number
+          : inherited.capacityPerHourLimit,
       source: "branch",
     };
   }

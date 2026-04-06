@@ -33,7 +33,12 @@ vi.mock("./orders/httpClient.js", () => ({
   getWithRetry: mockGetWithRetry,
 }));
 
-import { extractCancellationDetail, extractTransportType, fetchOrdersWindow } from "./ordersMirrorStore.js";
+import {
+  extractCancellationDetail,
+  extractTransportType,
+  fetchOrdersWindow,
+  getCurrentHourPlacedCountByVendor,
+} from "./ordersMirrorStore.js";
 
 describe("ordersMirrorStore.fetchOrdersWindow", () => {
   beforeEach(() => {
@@ -149,5 +154,33 @@ describe("ordersMirrorStore.fetchOrdersWindow", () => {
       createdAt: null,
       updatedAt: null,
     });
+  });
+
+  it("counts placed orders per vendor for the current Cairo hour", () => {
+    const all = vi.fn(() => [{ vendorId: 10, count: 5 }]);
+    mockPrepare.mockReturnValueOnce({
+      get: vi.fn(() => null),
+      all,
+      run: vi.fn(),
+    });
+
+    const counts = getCurrentHourPlacedCountByVendor({
+      globalEntityId: "HF_EG",
+      vendorIds: [10, 20],
+      nowIso: "2026-03-20T12:17:00.000Z",
+    });
+
+    expect(all).toHaveBeenCalledWith(
+      expect.any(String),
+      "HF_EG",
+      expect.any(String),
+      expect.any(String),
+      10,
+      20,
+    );
+    expect(counts).toEqual(new Map([
+      [10, 5],
+      [20, 0],
+    ]));
   });
 });

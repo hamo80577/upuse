@@ -16,6 +16,15 @@ const SettingsPatch = z
         lateThreshold: z.number().int().min(0).max(999),
         unassignedThreshold: z.number().int().min(0).max(999),
         capacityRuleEnabled: z.boolean().optional(),
+        capacityPerHourEnabled: z.boolean().optional(),
+        capacityPerHourLimit: z.number().int().min(1).max(999).nullable().optional(),
+      }).superRefine((value, ctx) => {
+        if (!value.capacityPerHourEnabled || typeof value.capacityPerHourLimit === "number") return;
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Capacity / hour limit is required when the hourly rule is enabled.",
+          path: ["capacityPerHourLimit"],
+        });
       }),
     ).max(200).optional(),
     lateThreshold: z.number().int().min(0).optional(),

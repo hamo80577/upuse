@@ -12,6 +12,8 @@ interface BranchRow {
   lateThresholdOverride: number | null;
   unassignedThresholdOverride: number | null;
   capacityRuleEnabledOverride: number | null;
+  capacityPerHourEnabledOverride: number | null;
+  capacityPerHourLimitOverride: number | null;
 }
 
 interface JoinedBranchRow extends BranchRow {
@@ -41,17 +43,29 @@ const ThresholdOverrideSchema = z.object({
   lateThresholdOverride: z.number().int().min(0).max(999).nullable(),
   unassignedThresholdOverride: z.number().int().min(0).max(999).nullable(),
   capacityRuleEnabledOverride: z.boolean().nullable().optional().default(null),
+  capacityPerHourEnabledOverride: z.boolean().nullable().optional().default(null),
+  capacityPerHourLimitOverride: z.number().int().min(1).max(999).nullable().optional().default(null),
 }).superRefine((value, ctx) => {
   const hasLate = value.lateThresholdOverride != null;
   const hasUnassigned = value.unassignedThresholdOverride != null;
+  const hasCapacityPerHourEnabled = value.capacityPerHourEnabledOverride != null;
+  const hasCapacityPerHourLimit = value.capacityPerHourLimitOverride != null;
 
-  if (hasLate === hasUnassigned) return;
+  if (hasLate !== hasUnassigned) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Branch threshold overrides must include both late and unassigned values.",
+      path: ["lateThresholdOverride"],
+    });
+  }
 
-  ctx.addIssue({
-    code: z.ZodIssueCode.custom,
-    message: "Branch threshold overrides must include both late and unassigned values.",
-    path: ["lateThresholdOverride"],
-  });
+  if (hasCapacityPerHourEnabled !== hasCapacityPerHourLimit) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Branch capacity / hour overrides must include both enabled state and limit.",
+      path: ["capacityPerHourLimitOverride"],
+    });
+  }
 });
 
 function mapBranchRow(row: JoinedBranchRow): BranchMapping {
@@ -67,6 +81,9 @@ function mapBranchRow(row: JoinedBranchRow): BranchMapping {
     unassignedThresholdOverride: row.unassignedThresholdOverride,
     capacityRuleEnabledOverride:
       row.capacityRuleEnabledOverride == null ? null : row.capacityRuleEnabledOverride === 1,
+    capacityPerHourEnabledOverride:
+      row.capacityPerHourEnabledOverride == null ? null : row.capacityPerHourEnabledOverride === 1,
+    capacityPerHourLimitOverride: row.capacityPerHourLimitOverride,
   };
 }
 
@@ -94,6 +111,8 @@ function getJoinedBranchQuery(whereClause = "", orderClause = "ORDER BY LOWER(CO
       branches.lateThresholdOverride,
       branches.unassignedThresholdOverride,
       branches.capacityRuleEnabledOverride,
+      branches.capacityPerHourEnabledOverride,
+      branches.capacityPerHourLimitOverride,
       vendor_catalog.name,
       vendor_catalog.ordersVendorId
     FROM branches
@@ -143,9 +162,11 @@ export function addBranch(input: { availabilityVendorId: string; chainName?: str
       enabled,
       lateThresholdOverride,
       unassignedThresholdOverride,
-      capacityRuleEnabledOverride
+      capacityRuleEnabledOverride,
+      capacityPerHourEnabledOverride,
+      capacityPerHourLimitOverride
     )
-    VALUES (?, ?, ?, NULL, NULL, NULL)
+    VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL)
   `).run(
     catalogItem.availabilityVendorId,
     parsed.chainName,
@@ -174,6 +195,8 @@ export function setBranchThresholdOverrides(
     lateThresholdOverride: number | null;
     unassignedThresholdOverride: number | null;
     capacityRuleEnabledOverride: boolean | null;
+    capacityPerHourEnabledOverride: boolean | null;
+    capacityPerHourLimitOverride: number | null;
   },
 ) {
   ensureBranchExists(id);
@@ -182,12 +205,16 @@ export function setBranchThresholdOverrides(
     UPDATE branches
     SET lateThresholdOverride = ?,
         unassignedThresholdOverride = ?,
-        capacityRuleEnabledOverride = ?
+        capacityRuleEnabledOverride = ?,
+        capacityPerHourEnabledOverride = ?,
+        capacityPerHourLimitOverride = ?
     WHERE id = ?
   `).run(
     parsed.lateThresholdOverride,
     parsed.unassignedThresholdOverride,
     parsed.capacityRuleEnabledOverride == null ? null : (parsed.capacityRuleEnabledOverride ? 1 : 0),
+    parsed.capacityPerHourEnabledOverride == null ? null : (parsed.capacityPerHourEnabledOverride ? 1 : 0),
+    parsed.capacityPerHourLimitOverride,
     id,
   );
   return getBranchById(id);

@@ -5,6 +5,7 @@ import { resolveBranchThresholdProfile } from "./thresholds.js";
 export interface PolicyInput {
   branch: ResolvedBranchMapping;
   metrics: OrdersMetrics;
+  currentHourPlacedCount?: number;
   recentActivePickers: number;
   recentActiveAvailable: boolean;
   availability?: AvailabilityRecord;
@@ -93,6 +94,7 @@ export function decide(input: PolicyInput): PolicyDecision {
   const {
     branch,
     metrics,
+    currentHourPlacedCount = 0,
     recentActivePickers,
     recentActiveAvailable,
     availability,
@@ -108,6 +110,11 @@ export function decide(input: PolicyInput): PolicyDecision {
   const thresholds = resolveBranchThresholdProfile(branch, settings);
   const trustedRuntime = hasTrustedTrackedRuntime(runtime, settings);
   const capacityRuleEnabled = thresholds.capacityRuleEnabled !== false;
+  const capacityPerHourEnabled = thresholds.capacityPerHourEnabled === true;
+  const capacityPerHourLimit =
+    typeof thresholds.capacityPerHourLimit === "number"
+      ? thresholds.capacityPerHourLimit
+      : null;
   const normalizedRecentActivePickers = normalizeRecentActivePickers(recentActivePickers);
 
   const exceedLate = metrics.lateNow >= thresholds.lateThreshold && thresholds.lateThreshold > 0;
@@ -116,6 +123,10 @@ export function decide(input: PolicyInput): PolicyDecision {
     capacityRuleEnabled &&
     recentActiveAvailable &&
     metrics.activeNow > capacityLimit(normalizedRecentActivePickers);
+  const exceedCapacityPerHour =
+    capacityPerHourEnabled &&
+    capacityPerHourLimit != null &&
+    currentHourPlacedCount >= capacityPerHourLimit;
 
   const lastCloseUntil = trustedRuntime ? isoToUtcDT(runtime?.lastUpuseCloseUntil ?? null) : null;
   const lastCloseReason = trustedRuntime ? (runtime?.lastUpuseCloseReason ?? null) as CloseReason | null : null;
@@ -146,6 +157,7 @@ export function decide(input: PolicyInput): PolicyDecision {
     if (exceedLate) return { type: "CLOSE", reason: "LATE" };
     if (exceedUnassigned) return { type: "CLOSE", reason: "UNASSIGNED" };
     if (exceedCapacity) return { type: "CLOSE", reason: "CAPACITY" };
+    if (exceedCapacityPerHour) return { type: "CLOSE", reason: "CAPACITY_HOUR" };
     return { type: "NOOP" };
   }
 
@@ -161,6 +173,12 @@ export function decide(input: PolicyInput): PolicyDecision {
     if (lastCloseReason === "CAPACITY" && recentActiveAvailable && metrics.activeNow <= normalizedRecentActivePickers) {
       return { type: "EARLY_OPEN", reason: "CAPACITY" };
     }
+    if (lastCloseReason === "CAPACITY_HOUR" && (!capacityPerHourEnabled || capacityPerHourLimit == null)) {
+      return { type: "EARLY_OPEN", reason: "CAPACITY_HOUR" };
+    }
+    if (lastCloseReason === "CAPACITY_HOUR" && capacityPerHourLimit != null && currentHourPlacedCount < capacityPerHourLimit) {
+      return { type: "EARLY_OPEN", reason: "CAPACITY_HOUR" };
+    }
 
     return { type: "NOOP" };
   }
@@ -174,6 +192,7 @@ export function decide(input: PolicyInput): PolicyDecision {
     if (exceedLate) return { type: "CLOSE", reason: "LATE" };
     if (exceedUnassigned) return { type: "CLOSE", reason: "UNASSIGNED" };
     if (exceedCapacity) return { type: "CLOSE", reason: "CAPACITY" };
+    if (exceedCapacityPerHour) return { type: "CLOSE", reason: "CAPACITY_HOUR" };
   }
 
   return { type: "NOOP" };

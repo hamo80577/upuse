@@ -217,6 +217,37 @@ describe("putSettingsRoute", () => {
     expect(res.statusCode).toBe(200);
   });
 
+  it("accepts chain Capacity / Hour updates", () => {
+    const req: any = {
+      authUser: { role: "user" },
+      body: {
+        chains: [{
+          name: "Chain A",
+          lateThreshold: 6,
+          unassignedThreshold: 8,
+          capacityRuleEnabled: true,
+          capacityPerHourEnabled: true,
+          capacityPerHourLimit: 5,
+        }],
+      },
+    };
+    const res = createResponse();
+
+    putSettingsRoute(req, res);
+
+    expect(mockUpdateSettings).toHaveBeenCalledWith({
+      chains: [{
+        name: "Chain A",
+        lateThreshold: 6,
+        unassignedThreshold: 8,
+        capacityRuleEnabled: true,
+        capacityPerHourEnabled: true,
+        capacityPerHourLimit: 5,
+      }],
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
   it("accepts global entity updates for admins", () => {
     const req: any = {
       authUser: { role: "admin" },

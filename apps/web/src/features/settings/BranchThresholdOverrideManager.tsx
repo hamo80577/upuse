@@ -9,6 +9,8 @@ export interface BranchThresholdEditorDraft {
   lateThreshold: string;
   unassignedThreshold: string;
   capacityRuleEnabled: boolean;
+  capacityPerHourEnabled: boolean;
+  capacityPerHourLimit: string;
 }
 
 interface ThresholdGroup {
@@ -24,9 +26,20 @@ function safeText(value: unknown) {
 }
 
 function resolveEffectiveThresholdProfile(
-  branch: Pick<BranchMappingItem, "chainName" | "lateThresholdOverride" | "unassignedThresholdOverride" | "capacityRuleEnabledOverride">,
+  branch: Pick<
+    BranchMappingItem,
+    | "chainName"
+    | "lateThresholdOverride"
+    | "unassignedThresholdOverride"
+    | "capacityRuleEnabledOverride"
+    | "capacityPerHourEnabledOverride"
+    | "capacityPerHourLimitOverride"
+  >,
   chains: ChainThreshold[],
-  globalThresholds: Pick<ThresholdProfile, "lateThreshold" | "unassignedThreshold" | "capacityRuleEnabled">,
+  globalThresholds: Pick<
+    ThresholdProfile,
+    "lateThreshold" | "unassignedThreshold" | "capacityRuleEnabled" | "capacityPerHourEnabled" | "capacityPerHourLimit"
+  >,
 ): ThresholdProfile {
   const chainKey = safeText(branch.chainName).trim().toLowerCase();
   const chain = chainKey
@@ -37,12 +50,16 @@ function resolveEffectiveThresholdProfile(
         lateThreshold: chain.lateThreshold,
         unassignedThreshold: chain.unassignedThreshold,
         capacityRuleEnabled: chain.capacityRuleEnabled !== false,
+        capacityPerHourEnabled: chain.capacityPerHourEnabled === true,
+        capacityPerHourLimit: chain.capacityPerHourLimit ?? null,
         source: "chain" as const,
       }
     : {
         lateThreshold: globalThresholds.lateThreshold,
         unassignedThreshold: globalThresholds.unassignedThreshold,
         capacityRuleEnabled: globalThresholds.capacityRuleEnabled !== false,
+        capacityPerHourEnabled: globalThresholds.capacityPerHourEnabled === true,
+        capacityPerHourLimit: globalThresholds.capacityPerHourLimit ?? null,
         source: "global" as const,
       };
 
@@ -50,12 +67,19 @@ function resolveEffectiveThresholdProfile(
     typeof branch.lateThresholdOverride === "number" &&
     typeof branch.unassignedThresholdOverride === "number";
   const hasCapacityOverride = typeof branch.capacityRuleEnabledOverride === "boolean";
+  const hasCapacityPerHourOverride =
+    typeof branch.capacityPerHourEnabledOverride === "boolean" &&
+    typeof branch.capacityPerHourLimitOverride === "number";
 
-  if (hasThresholdOverride || hasCapacityOverride) {
+  if (hasThresholdOverride || hasCapacityOverride || hasCapacityPerHourOverride) {
     return {
       lateThreshold: hasThresholdOverride ? branch.lateThresholdOverride as number : inherited.lateThreshold,
       unassignedThreshold: hasThresholdOverride ? branch.unassignedThresholdOverride as number : inherited.unassignedThreshold,
       capacityRuleEnabled: hasCapacityOverride ? branch.capacityRuleEnabledOverride as boolean : inherited.capacityRuleEnabled,
+      capacityPerHourEnabled:
+        hasCapacityPerHourOverride ? branch.capacityPerHourEnabledOverride as boolean : inherited.capacityPerHourEnabled,
+      capacityPerHourLimit:
+        hasCapacityPerHourOverride ? branch.capacityPerHourLimitOverride as number : inherited.capacityPerHourLimit,
       source: "branch",
     };
   }
@@ -70,7 +94,10 @@ function resolveEffectiveThresholdProfile(
 function buildThresholdGroups(
   branches: BranchMappingItem[],
   chains: ChainThreshold[],
-  globalThresholds: Pick<ThresholdProfile, "lateThreshold" | "unassignedThreshold" | "capacityRuleEnabled">,
+  globalThresholds: Pick<
+    ThresholdProfile,
+    "lateThreshold" | "unassignedThreshold" | "capacityRuleEnabled" | "capacityPerHourEnabled" | "capacityPerHourLimit"
+  >,
 ) {
   const groups = new Map<string, ThresholdGroup>();
 
@@ -85,6 +112,8 @@ function buildThresholdGroups(
         lateThreshold: chain.lateThreshold,
         unassignedThreshold: chain.unassignedThreshold,
         capacityRuleEnabled: chain.capacityRuleEnabled !== false,
+        capacityPerHourEnabled: chain.capacityPerHourEnabled === true,
+        capacityPerHourLimit: chain.capacityPerHourLimit ?? null,
         source: "chain",
       },
     });
@@ -100,6 +129,10 @@ function buildThresholdGroups(
       if (
         (typeof branch.lateThresholdOverride === "number" && typeof branch.unassignedThresholdOverride === "number")
         || typeof branch.capacityRuleEnabledOverride === "boolean"
+        || (
+          typeof branch.capacityPerHourEnabledOverride === "boolean" &&
+          typeof branch.capacityPerHourLimitOverride === "number"
+        )
       ) {
         existing.overrideCount += 1;
       }
@@ -113,12 +146,18 @@ function buildThresholdGroups(
       overrideCount:
         (typeof branch.lateThresholdOverride === "number" && typeof branch.unassignedThresholdOverride === "number")
         || typeof branch.capacityRuleEnabledOverride === "boolean"
+        || (
+          typeof branch.capacityPerHourEnabledOverride === "boolean" &&
+          typeof branch.capacityPerHourLimitOverride === "number"
+        )
           ? 1
           : 0,
       profile: {
         lateThreshold: globalThresholds.lateThreshold,
         unassignedThreshold: globalThresholds.unassignedThreshold,
         capacityRuleEnabled: globalThresholds.capacityRuleEnabled !== false,
+        capacityPerHourEnabled: globalThresholds.capacityPerHourEnabled === true,
+        capacityPerHourLimit: globalThresholds.capacityPerHourLimit ?? null,
         source: "global",
       },
     });
@@ -152,7 +191,13 @@ function sourceChipLabel(source: ThresholdProfile["source"]) {
 export function BranchThresholdOverrideManager(props: {
   branches: BranchMappingItem[];
   chains: ChainThreshold[];
-  globalThresholds: { lateThreshold: number; unassignedThreshold: number; capacityRuleEnabled: boolean };
+  globalThresholds: {
+    lateThreshold: number;
+    unassignedThreshold: number;
+    capacityRuleEnabled: boolean;
+    capacityPerHourEnabled: boolean;
+    capacityPerHourLimit: number | null;
+  };
   editingBranchId: number | null;
   branchEditor: BranchThresholdEditorDraft;
   savingBranchId: number | null;
@@ -201,6 +246,10 @@ export function BranchThresholdOverrideManager(props: {
             label={`${branches.filter((branch) => (
               (typeof branch.lateThresholdOverride === "number" && typeof branch.unassignedThresholdOverride === "number")
               || typeof branch.capacityRuleEnabledOverride === "boolean"
+              || (
+                typeof branch.capacityPerHourEnabledOverride === "boolean" &&
+                typeof branch.capacityPerHourLimitOverride === "number"
+              )
             )).length} custom`}
             sx={{ fontWeight: 800, bgcolor: "rgba(14,165,233,0.10)", color: "#0369a1" }}
           />
@@ -256,6 +305,25 @@ export function BranchThresholdOverrideManager(props: {
                     />
                     <Chip
                       size="small"
+                      label={
+                        group.profile.capacityPerHourEnabled === true && typeof group.profile.capacityPerHourLimit === "number"
+                          ? `Capacity / Hour ${group.profile.capacityPerHourLimit}/h`
+                          : "Capacity / Hour Off"
+                      }
+                      sx={{
+                        fontWeight: 800,
+                        bgcolor:
+                          group.profile.capacityPerHourEnabled === true && typeof group.profile.capacityPerHourLimit === "number"
+                            ? "rgba(37,99,235,0.08)"
+                            : "rgba(148,163,184,0.14)",
+                        color:
+                          group.profile.capacityPerHourEnabled === true && typeof group.profile.capacityPerHourLimit === "number"
+                            ? "#1d4ed8"
+                            : "#475569",
+                      }}
+                    />
+                    <Chip
+                      size="small"
                       label={group.profile.source === "chain" ? "Chain base" : "Global base"}
                       sx={{ fontWeight: 800, bgcolor: "rgba(15,23,42,0.06)", color: "#334155" }}
                     />
@@ -273,7 +341,11 @@ export function BranchThresholdOverrideManager(props: {
                       const hasCustomOverride =
                         (typeof branch.lateThresholdOverride === "number" &&
                           typeof branch.unassignedThresholdOverride === "number")
-                        || typeof branch.capacityRuleEnabledOverride === "boolean";
+                        || typeof branch.capacityRuleEnabledOverride === "boolean"
+                        || (
+                          typeof branch.capacityPerHourEnabledOverride === "boolean" &&
+                          typeof branch.capacityPerHourLimitOverride === "number"
+                        );
 
                       return (
                         <Box
@@ -317,6 +389,25 @@ export function BranchThresholdOverrideManager(props: {
                                     fontWeight: 800,
                                     bgcolor: effective.capacityRuleEnabled === false ? "rgba(148,163,184,0.14)" : "rgba(20,184,166,0.10)",
                                     color: effective.capacityRuleEnabled === false ? "#475569" : "#0f766e",
+                                  }}
+                                />
+                                <Chip
+                                  size="small"
+                                  label={
+                                    effective.capacityPerHourEnabled === true && typeof effective.capacityPerHourLimit === "number"
+                                      ? `Capacity / Hour ${effective.capacityPerHourLimit}/h`
+                                      : "Capacity / Hour Off"
+                                  }
+                                  sx={{
+                                    fontWeight: 800,
+                                    bgcolor:
+                                      effective.capacityPerHourEnabled === true && typeof effective.capacityPerHourLimit === "number"
+                                        ? "rgba(37,99,235,0.08)"
+                                        : "rgba(148,163,184,0.14)",
+                                    color:
+                                      effective.capacityPerHourEnabled === true && typeof effective.capacityPerHourLimit === "number"
+                                        ? "#1d4ed8"
+                                        : "#475569",
                                   }}
                                 />
                                 <Chip
@@ -390,6 +481,29 @@ export function BranchThresholdOverrideManager(props: {
                                   )}
                                   label="Enable Capacity Rule"
                                 />
+
+                                <Stack direction={{ xs: "column", md: "row" }} spacing={1.1}>
+                                  <FormControlLabel
+                                    control={(
+                                      <Checkbox
+                                        checked={branchEditor.capacityPerHourEnabled}
+                                        onChange={(event) => props.onChangeEditor({ capacityPerHourEnabled: event.target.checked })}
+                                        disabled={readOnly || isSaving}
+                                      />
+                                    )}
+                                    label="Enable Capacity / Hour"
+                                  />
+                                  <TextField
+                                    label="Capacity / Hour Limit Override"
+                                    type="number"
+                                    value={branchEditor.capacityPerHourLimit}
+                                    onChange={(event) => props.onChangeEditor({ capacityPerHourLimit: event.target.value })}
+                                    placeholder={effective.capacityPerHourLimit == null ? "" : String(effective.capacityPerHourLimit)}
+                                    inputProps={{ min: 1 }}
+                                    disabled={readOnly || isSaving}
+                                    sx={{ width: { xs: "100%", md: 230 } }}
+                                  />
+                                </Stack>
 
                                 <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mt: 1.1 }}>
                                   <Button

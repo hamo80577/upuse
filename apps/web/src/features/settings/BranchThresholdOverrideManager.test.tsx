@@ -18,12 +18,26 @@ describe("BranchThresholdOverrideManager", () => {
             lateThresholdOverride: null,
             unassignedThresholdOverride: null,
             capacityRuleEnabledOverride: null,
+            capacityPerHourEnabledOverride: null,
+            capacityPerHourLimitOverride: null,
           },
         ]}
         chains={[]}
-        globalThresholds={{ lateThreshold: 5, unassignedThreshold: 7, capacityRuleEnabled: true }}
+        globalThresholds={{
+          lateThreshold: 5,
+          unassignedThreshold: 7,
+          capacityRuleEnabled: true,
+          capacityPerHourEnabled: false,
+          capacityPerHourLimit: null,
+        }}
         editingBranchId={null}
-        branchEditor={{ lateThreshold: "", unassignedThreshold: "", capacityRuleEnabled: true }}
+        branchEditor={{
+          lateThreshold: "",
+          unassignedThreshold: "",
+          capacityRuleEnabled: true,
+          capacityPerHourEnabled: false,
+          capacityPerHourLimit: "",
+        }}
         savingBranchId={null}
         onEditBranch={vi.fn()}
         onChangeEditor={vi.fn()}
@@ -56,12 +70,33 @@ describe("BranchThresholdOverrideManager", () => {
             lateThresholdOverride: null,
             unassignedThresholdOverride: null,
             capacityRuleEnabledOverride: false,
+            capacityPerHourEnabledOverride: true,
+            capacityPerHourLimitOverride: 5,
           },
         ]}
-        chains={[{ name: "Chain A", lateThreshold: 5, unassignedThreshold: 7, capacityRuleEnabled: true }]}
-        globalThresholds={{ lateThreshold: 5, unassignedThreshold: 7, capacityRuleEnabled: true }}
+        chains={[{
+          name: "Chain A",
+          lateThreshold: 5,
+          unassignedThreshold: 7,
+          capacityRuleEnabled: true,
+          capacityPerHourEnabled: true,
+          capacityPerHourLimit: 5,
+        }]}
+        globalThresholds={{
+          lateThreshold: 5,
+          unassignedThreshold: 7,
+          capacityRuleEnabled: true,
+          capacityPerHourEnabled: false,
+          capacityPerHourLimit: null,
+        }}
         editingBranchId={8}
-        branchEditor={{ lateThreshold: "", unassignedThreshold: "", capacityRuleEnabled: false }}
+        branchEditor={{
+          lateThreshold: "",
+          unassignedThreshold: "",
+          capacityRuleEnabled: false,
+          capacityPerHourEnabled: true,
+          capacityPerHourLimit: "5",
+        }}
         savingBranchId={null}
         onEditBranch={vi.fn()}
         onChangeEditor={vi.fn()}
@@ -73,5 +108,7 @@ describe("BranchThresholdOverrideManager", () => {
 
     fireEvent.click(screen.getByText("Chain A"));
     expect(screen.getByLabelText("Enable Capacity Rule")).not.toBeChecked();
+    expect(screen.getByLabelText("Enable Capacity / Hour")).toBeChecked();
+    expect(screen.getByDisplayValue("5")).toBeInTheDocument();
   });
 });

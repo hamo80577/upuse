@@ -12,6 +12,16 @@ export function cairoDayWindowUtc(now = DateTime.utc()) {
   };
 }
 
+export function cairoHourWindowUtc(now = DateTime.utc()) {
+  const cairoNow = now.setZone(TZ);
+  const startCairo = cairoNow.startOf("hour");
+  const endCairoExclusive = startCairo.plus({ hours: 1 });
+  return {
+    startUtcIso: startCairo.toUTC().toISO({ suppressMilliseconds: false })!,
+    endUtcExclusiveIso: endCairoExclusive.toUTC().toISO({ suppressMilliseconds: false })!,
+  };
+}
+
 export function nowUtcIso() {
   return DateTime.utc().toISO({ suppressMilliseconds: false })!;
 }
