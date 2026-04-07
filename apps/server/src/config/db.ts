@@ -312,6 +312,9 @@ export function migrate() {
       lastUpuseCloseEventId INTEGER,
       lastExternalCloseUntil TEXT,
       lastExternalCloseAt TEXT,
+      closureOwner TEXT,
+      closureObservedUntil TEXT,
+      closureObservedAt TEXT,
       externalOpenDetectedAt TEXT,
       lastActionAt TEXT,
       FOREIGN KEY (branchId) REFERENCES branches(id) ON DELETE CASCADE
@@ -576,6 +579,15 @@ export function migrate() {
   }
   if (!branchRuntimeColumns.some((column) => column.name === "lastUpuseCloseEventId")) {
     db.exec("ALTER TABLE branch_runtime ADD COLUMN lastUpuseCloseEventId INTEGER");
+  }
+  if (!branchRuntimeColumns.some((column) => column.name === "closureOwner")) {
+    db.exec("ALTER TABLE branch_runtime ADD COLUMN closureOwner TEXT");
+  }
+  if (!branchRuntimeColumns.some((column) => column.name === "closureObservedUntil")) {
+    db.exec("ALTER TABLE branch_runtime ADD COLUMN closureObservedUntil TEXT");
+  }
+  if (!branchRuntimeColumns.some((column) => column.name === "closureObservedAt")) {
+    db.exec("ALTER TABLE branch_runtime ADD COLUMN closureObservedAt TEXT");
   }
   const branchesColumns = db.prepare("PRAGMA table_info(branches)").all() as Array<{ name: string }>;
   if (!branchesColumns.some((column) => column.name === "capacityPerHourEnabledOverride")) {

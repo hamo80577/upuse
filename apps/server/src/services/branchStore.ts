@@ -29,6 +29,9 @@ interface BranchRuntimeRow {
   lastUpuseCloseEventId?: number | null;
   lastExternalCloseUntil?: string | null;
   lastExternalCloseAt?: string | null;
+  closureOwner?: "UPUSE" | "EXTERNAL" | null;
+  closureObservedUntil?: string | null;
+  closureObservedAt?: string | null;
   externalOpenDetectedAt?: string | null;
   lastActionAt?: string | null;
 }
@@ -241,6 +244,9 @@ export function setRuntime(branchId: number, patch: Partial<BranchRuntimeRow>) {
       lastUpuseCloseEventId,
       lastExternalCloseUntil,
       lastExternalCloseAt,
+      closureOwner,
+      closureObservedUntil,
+      closureObservedAt,
       externalOpenDetectedAt,
       lastActionAt
     )
@@ -252,6 +258,9 @@ export function setRuntime(branchId: number, patch: Partial<BranchRuntimeRow>) {
       @lastUpuseCloseEventId,
       @lastExternalCloseUntil,
       @lastExternalCloseAt,
+      @closureOwner,
+      @closureObservedUntil,
+      @closureObservedAt,
       @externalOpenDetectedAt,
       @lastActionAt
     )
@@ -262,6 +271,9 @@ export function setRuntime(branchId: number, patch: Partial<BranchRuntimeRow>) {
       lastUpuseCloseEventId = excluded.lastUpuseCloseEventId,
       lastExternalCloseUntil = excluded.lastExternalCloseUntil,
       lastExternalCloseAt = excluded.lastExternalCloseAt,
+      closureOwner = excluded.closureOwner,
+      closureObservedUntil = excluded.closureObservedUntil,
+      closureObservedAt = excluded.closureObservedAt,
       externalOpenDetectedAt = excluded.externalOpenDetectedAt,
       lastActionAt = excluded.lastActionAt
   `).run(merged);

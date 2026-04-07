@@ -8,7 +8,7 @@ import type { BranchSnapshot } from "../../../api/types";
 
 function BranchStatusSection(props: {
   title: string;
-  tone: "open" | "tempClose" | "closed";
+  tone: "open" | "tempClose" | "closed" | "unknown";
   items: Array<Pick<BranchSnapshot, "branchId" | "name" | "status">>;
 }) {
   const meta =
@@ -16,7 +16,9 @@ function BranchStatusSection(props: {
       ? { chipLabel: "Open", chipBg: "#e7f7ed", chipColor: "#166534", titleColor: "#166534" }
       : props.tone === "tempClose"
         ? { chipLabel: "Temporary Close", chipBg: "#fff1f2", chipColor: "#be123c", titleColor: "#be123c" }
-        : { chipLabel: "Closed", chipBg: "#fff7d6", chipColor: "#92400e", titleColor: "#92400e" };
+        : props.tone === "closed"
+          ? { chipLabel: "Closed", chipBg: "#fff7d6", chipColor: "#92400e", titleColor: "#92400e" }
+          : { chipLabel: "Unknown", chipBg: "#eef2f7", chipColor: "#475569", titleColor: "#475569" };
 
   return (
     <Box
@@ -149,6 +151,7 @@ function BranchStateTickerBase(props: {
       open: props.branches.filter((branch) => branch.status === "OPEN"),
       tempClose: props.branches.filter((branch) => branch.status === "TEMP_CLOSE"),
       closed: props.branches.filter((branch) => branch.status === "CLOSED"),
+      unknown: props.branches.filter((branch) => branch.status === "UNKNOWN"),
     }),
     [props.branches],
   );
@@ -218,6 +221,13 @@ function BranchStateTickerBase(props: {
           iconColor="#ffffff"
           title="Temporary Close"
         />
+        <StateDot
+          icon={<CircleRoundedIcon sx={{ fontSize: 13 }} />}
+          count={grouped.unknown.length}
+          iconBg="rgba(100,116,139,0.14)"
+          iconColor="#64748b"
+          title="Unknown"
+        />
       </Stack>
 
       <Popover
@@ -246,6 +256,7 @@ function BranchStateTickerBase(props: {
           <BranchStatusSection title="Temporary Close" tone="tempClose" items={grouped.tempClose} />
           <BranchStatusSection title="Open" tone="open" items={grouped.open} />
           <BranchStatusSection title="Closed" tone="closed" items={grouped.closed} />
+          <BranchStatusSection title="Unknown" tone="unknown" items={grouped.unknown} />
         </Box>
       </Popover>
     </>

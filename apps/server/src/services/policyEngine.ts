@@ -14,6 +14,9 @@ export interface PolicyInput {
     lastUpuseCloseReason?: CloseReason | null;
     lastUpuseCloseAt?: string | null;
     lastUpuseCloseEventId?: number | null;
+    closureOwner?: "UPUSE" | "EXTERNAL" | null;
+    closureObservedUntil?: string | null;
+    closureObservedAt?: string | null;
     externalOpenDetectedAt?: string | null;
     lastActionAt?: string | null;
   };
@@ -109,6 +112,7 @@ export function decide(input: PolicyInput): PolicyDecision {
   const now = DateTime.fromISO(nowUtcIso, { zone: "utc" });
   const thresholds = resolveBranchThresholdProfile(branch, settings);
   const trustedRuntime = hasTrustedTrackedRuntime(runtime, settings);
+  const trackedClosureOwner = runtime?.closureOwner ?? null;
   const capacityRuleEnabled = thresholds.capacityRuleEnabled !== false;
   const capacityPerHourEnabled = thresholds.capacityPerHourEnabled === true;
   const capacityPerHourLimit =
@@ -128,9 +132,12 @@ export function decide(input: PolicyInput): PolicyDecision {
     capacityPerHourLimit != null &&
     currentHourPlacedCount >= capacityPerHourLimit;
 
-  const lastCloseUntil = trustedRuntime ? isoToUtcDT(runtime?.lastUpuseCloseUntil ?? null) : null;
-  const lastCloseReason = trustedRuntime ? (runtime?.lastUpuseCloseReason ?? null) as CloseReason | null : null;
-  const lastCloseAt = trustedRuntime ? isoToUtcDT(runtime?.lastUpuseCloseAt ?? null) : null;
+  const monitorOwnedTrackedRuntime = trustedRuntime && trackedClosureOwner !== "EXTERNAL";
+  const lastCloseUntil = monitorOwnedTrackedRuntime
+    ? isoToUtcDT(runtime?.closureObservedUntil ?? runtime?.lastUpuseCloseUntil ?? null)
+    : null;
+  const lastCloseReason = monitorOwnedTrackedRuntime ? (runtime?.lastUpuseCloseReason ?? null) as CloseReason | null : null;
+  const lastCloseAt = monitorOwnedTrackedRuntime ? isoToUtcDT(runtime?.lastUpuseCloseAt ?? null) : null;
 
   const isExternalOpenEarly =
     lastCloseUntil && now < lastCloseUntil && availability.availabilityState === "OPEN";
@@ -163,6 +170,7 @@ export function decide(input: PolicyInput): PolicyDecision {
 
   // If currently temporary closed, optionally early re-open when UPuse owns this closure.
   if (availability.availabilityState === "CLOSED_UNTIL") {
+    if (trackedClosureOwner === "EXTERNAL") return { type: "NOOP" };
     if (!isMonitorOwnedClosure(availability, lastCloseUntil, lastCloseAt, settings)) return { type: "NOOP" };
 
     if (lastCloseReason === "LATE" && metrics.lateNow === 0) return { type: "EARLY_OPEN", reason: "LATE" };

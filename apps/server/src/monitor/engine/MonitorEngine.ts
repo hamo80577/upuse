@@ -33,6 +33,7 @@ type ScheduledCycleState = {
   timer: NodeJS.Timeout | null;
   inFlight: Promise<void> | null;
   pending: boolean;
+  pendingOptions?: CycleOptions;
   completedRuns: number;
   waiters: Array<{ targetRun: number; resolve: () => void }>;
 };
@@ -49,6 +50,19 @@ function normalizeRecentActivePickers(value: number) {
 
 function capacityLimit(recentActivePickers: number) {
   return normalizeRecentActivePickers(recentActivePickers) * 3;
+}
+
+function mergePendingCycleOptions(
+  current?: CycleOptions,
+  incoming?: CycleOptions,
+): CycleOptions | undefined {
+  if (!current && !incoming) return undefined;
+
+  if (current?.forceOrdersSync || incoming?.forceOrdersSync) {
+    return { forceOrdersSync: true };
+  }
+
+  return undefined;
 }
 
 function closeReasonLogTag(reason: CloseReason, metrics: OrdersMetrics, recentActivePickers: number) {
@@ -149,6 +163,7 @@ export class MonitorEngine {
       timer: null,
       inFlight: null,
       pending: false,
+      pendingOptions: undefined,
       completedRuns: 0,
       waiters: [],
     },
@@ -156,6 +171,7 @@ export class MonitorEngine {
       timer: null,
       inFlight: null,
       pending: false,
+      pendingOptions: undefined,
       completedRuns: 0,
       waiters: [],
     },
@@ -192,6 +208,9 @@ export class MonitorEngine {
       lastUpuseCloseEventId: null,
       lastExternalCloseUntil: null,
       lastExternalCloseAt: null,
+      closureOwner: null,
+      closureObservedUntil: null,
+      closureObservedAt: null,
       externalOpenDetectedAt: null,
       lastActionAt: null,
     });
@@ -262,6 +281,7 @@ export class MonitorEngine {
     this.clearCycleTimer(source);
     state.inFlight = null;
     state.pending = false;
+    state.pendingOptions = undefined;
     state.completedRuns = 0;
     for (const waiter of state.waiters) waiter.resolve();
     state.waiters = [];
@@ -308,12 +328,15 @@ export class MonitorEngine {
 
         if (!this.isLifecycleActive(expectedLifecycleId)) {
           state.pending = false;
+          state.pendingOptions = undefined;
           return;
         }
 
         if (state.pending) {
+          const rerunOptions = state.pendingOptions;
           state.pending = false;
-          this.startScheduledCycle(source, undefined, expectedLifecycleId);
+          state.pendingOptions = undefined;
+          this.startScheduledCycle(source, rerunOptions, expectedLifecycleId);
           return;
         }
 
@@ -333,6 +356,7 @@ export class MonitorEngine {
 
     if (state.inFlight) {
       state.pending = true;
+      state.pendingOptions = mergePendingCycleOptions(state.pendingOptions, options);
     } else {
       this.startScheduledCycle(source, options, expectedLifecycleId);
     }
@@ -555,10 +579,30 @@ export class MonitorEngine {
     return Math.abs(actualUntil.diff(expectedUntil).as("seconds")) <= toleranceSeconds;
   }
 
+  private isObservedClosureMatch(runtime: RuntimeRow | undefined, closedUntil?: string) {
+    if (!closedUntil || !runtime?.closureObservedUntil) return false;
+
+    const observedUntil = DateTime.fromISO(runtime.closureObservedUntil, { zone: "utc" });
+    const actualUntil = DateTime.fromISO(closedUntil, { zone: "utc" });
+    if (!observedUntil.isValid || !actualUntil.isValid) return false;
+
+    return Math.abs(observedUntil.diff(actualUntil).as("seconds")) <= 5;
+  }
+
   private isMonitorOwnedClosure(runtime: RuntimeRow | undefined, availability?: AvailabilityRecord) {
     if (!availability || availability.availabilityState !== "CLOSED_UNTIL") return false;
     const settings = getSettings();
     if (!this.hasTrustedMonitorRuntime(runtime, settings)) return false;
+    if (runtime?.closureOwner === "EXTERNAL") return false;
+
+    if (runtime?.closureOwner === "UPUSE") {
+      return (
+        this.isObservedClosureMatch(runtime, availability.closedUntil) ||
+        this.isTrackedUpuseClosure(runtime, availability.closedUntil) ||
+        this.matchesExpectedMonitorCloseWindow(runtime, availability.closedUntil)
+      );
+    }
+
     return (
       this.isTrackedUpuseClosure(runtime, availability.closedUntil) ||
       this.matchesExpectedMonitorCloseWindow(runtime, availability.closedUntil)
@@ -568,10 +612,11 @@ export class MonitorEngine {
   private hasActiveTrackedMonitorWindow(runtime: RuntimeRow | undefined, nowIso: string) {
     const settings = getSettings();
     if (!this.hasTrustedMonitorRuntime(runtime, settings)) return false;
-    if (!runtime?.lastUpuseCloseUntil) return false;
+    const trackedCloseUntil = runtime?.closureObservedUntil ?? runtime?.lastUpuseCloseUntil;
+    if (!trackedCloseUntil) return false;
 
     const now = DateTime.fromISO(nowIso, { zone: "utc" });
-    const lastUntil = DateTime.fromISO(runtime.lastUpuseCloseUntil, { zone: "utc" });
+    const lastUntil = DateTime.fromISO(trackedCloseUntil, { zone: "utc" });
     if (!now.isValid || !lastUntil.isValid) return false;
 
     return now <= lastUntil.plus({ seconds: 120 });
@@ -594,7 +639,7 @@ export class MonitorEngine {
       : undefined;
   }
 
-  private buildClearedTrackedRuntimePatch(runtime: RuntimeRow | undefined) {
+  private buildClearedMonitorRuntimePatch(runtime: RuntimeRow | undefined) {
     const patch: RuntimePatch = {};
 
     if (runtime?.lastUpuseCloseUntil) patch.lastUpuseCloseUntil = null;
@@ -602,6 +647,16 @@ export class MonitorEngine {
     if (runtime?.lastUpuseCloseAt) patch.lastUpuseCloseAt = null;
     if (runtime?.lastUpuseCloseEventId) patch.lastUpuseCloseEventId = null;
     if (runtime?.externalOpenDetectedAt) patch.externalOpenDetectedAt = null;
+
+    return patch;
+  }
+
+  private buildClearedClosureObservationPatch(runtime: RuntimeRow | undefined) {
+    const patch: RuntimePatch = {};
+
+    if (runtime?.closureOwner) patch.closureOwner = null;
+    if (runtime?.closureObservedUntil) patch.closureObservedUntil = null;
+    if (runtime?.closureObservedAt) patch.closureObservedAt = null;
 
     return patch;
   }
@@ -614,12 +669,31 @@ export class MonitorEngine {
     recentActiveAvailable: boolean,
     runtime: RuntimeRow | undefined,
     closedUntil: string,
+    nowIso: string,
     settings: Settings,
   ) {
     const patch: RuntimePatch = {};
 
-    if (runtime?.lastUpuseCloseUntil !== closedUntil) {
+    if (!runtime?.lastUpuseCloseUntil) {
       patch.lastUpuseCloseUntil = closedUntil;
+    }
+
+    if (runtime?.closureOwner !== "UPUSE") {
+      patch.closureOwner = "UPUSE";
+    }
+
+    if (runtime?.closureObservedUntil !== closedUntil) {
+      patch.closureObservedUntil = closedUntil;
+    }
+
+    const nextObservedAt =
+      runtime?.closureOwner === "UPUSE" &&
+      runtime?.closureObservedUntil === closedUntil &&
+      runtime?.closureObservedAt
+        ? runtime.closureObservedAt
+        : nowIso;
+    if (runtime?.closureObservedAt !== nextObservedAt) {
+      patch.closureObservedAt = nextObservedAt;
     }
 
     if (!runtime?.lastUpuseCloseAt) {
@@ -647,12 +721,67 @@ export class MonitorEngine {
       patch.externalOpenDetectedAt = null;
     }
 
+    if (runtime?.lastExternalCloseUntil) {
+      patch.lastExternalCloseUntil = null;
+    }
+
+    if (runtime?.lastExternalCloseAt) {
+      patch.lastExternalCloseAt = null;
+    }
+
     if (!Object.keys(patch).length) {
       return runtime;
     }
 
     setRuntime(branch.id, patch);
     return getRuntime(branch.id) as RuntimeRow | undefined;
+  }
+
+  private syncExternalTemporaryClosureRuntime(
+    branch: ResolvedBranchMapping,
+    runtime: RuntimeRow | undefined,
+    externalClosedUntil: string,
+    nowIso: string,
+    clearTrackedMonitorRuntime: boolean,
+  ) {
+    const patch: RuntimePatch = {};
+    const observedAt =
+      runtime?.closureOwner === "EXTERNAL" &&
+      runtime?.closureObservedUntil === externalClosedUntil &&
+      runtime?.closureObservedAt
+        ? runtime.closureObservedAt
+        : runtime?.lastExternalCloseUntil === externalClosedUntil && runtime?.lastExternalCloseAt
+          ? runtime.lastExternalCloseAt
+          : nowIso;
+
+    if (runtime?.closureOwner !== "EXTERNAL") {
+      patch.closureOwner = "EXTERNAL";
+    }
+    if (runtime?.closureObservedUntil !== externalClosedUntil) {
+      patch.closureObservedUntil = externalClosedUntil;
+    }
+    if (runtime?.closureObservedAt !== observedAt) {
+      patch.closureObservedAt = observedAt;
+    }
+    if (runtime?.lastExternalCloseUntil !== externalClosedUntil) {
+      patch.lastExternalCloseUntil = externalClosedUntil;
+    }
+    if (runtime?.lastExternalCloseAt !== observedAt) {
+      patch.lastExternalCloseAt = observedAt;
+    }
+    if (runtime?.externalOpenDetectedAt) {
+      patch.externalOpenDetectedAt = null;
+    }
+
+    if (clearTrackedMonitorRuntime) {
+      Object.assign(patch, this.buildClearedMonitorRuntimePatch(runtime));
+    }
+
+    if (!Object.keys(patch).length) {
+      return runtime;
+    }
+
+    return setRuntime(branch.id, patch) as RuntimeRow | undefined;
   }
 
   private extractClosedUntilCandidate(payload: any): string | undefined {
@@ -702,30 +831,13 @@ export class MonitorEngine {
       }
 
       const monitorWindowStillActive = this.hasActiveTrackedMonitorWindow(runtime, nowIso);
-      const ownedByUpuse =
-        this.isMonitorOwnedClosure(runtime, availability) ||
-        Boolean(
-          availability.availabilityState === "CLOSED_UNTIL" &&
-          availability.closedUntil &&
-          monitorWindowStillActive &&
-          !runtime?.externalOpenDetectedAt,
-        );
-      const isExternalTempClose = Boolean(
-        availability.availabilityState === "CLOSED_UNTIL" && availability.closedUntil && !ownedByUpuse,
-      );
-      const isMonitorWindowAlias = Boolean(
+      const isMonitorOwnedTempClose = Boolean(
         availability.availabilityState === "CLOSED_UNTIL" &&
         availability.closedUntil &&
-        monitorWindowStillActive &&
-        !runtime?.externalOpenDetectedAt
+        this.isMonitorOwnedClosure(runtime, availability),
       );
 
-      if (
-        availability.availabilityState === "CLOSED_UNTIL" &&
-        availability.closedUntil &&
-        monitorWindowStillActive &&
-        !runtime?.externalOpenDetectedAt
-      ) {
+      if (isMonitorOwnedTempClose && availability.closedUntil) {
         runtime = this.syncTrackedMonitorRuntime(
           branch,
           metrics,
@@ -734,36 +846,27 @@ export class MonitorEngine {
           preparation.recentActiveAvailable,
           runtime,
           availability.closedUntil,
+          nowIso,
           settings,
         );
-
-        if (runtime?.lastExternalCloseUntil || runtime?.lastExternalCloseAt) {
-          setRuntime(branch.id, {
-            lastExternalCloseUntil: null,
-            lastExternalCloseAt: null,
-          });
-          runtime = getRuntime(branch.id) as RuntimeRow | undefined;
-        }
+        continue;
       }
 
-      if (isExternalTempClose) {
+      if (availability.availabilityState === "CLOSED_UNTIL" && availability.closedUntil) {
         const externalClosedUntil = availability.closedUntil;
-        const shouldPersistExternalWindow = Boolean(
-          externalClosedUntil &&
-          (runtime?.lastExternalCloseUntil !== externalClosedUntil || !runtime?.lastExternalCloseAt),
-        );
-        const trackedRuntimeReset = !monitorWindowStillActive ? this.buildClearedTrackedRuntimePatch(runtime) : {};
-        const shouldResetTrackedRuntime = Object.keys(trackedRuntimeReset).length > 0;
+        const shouldPersistExternalWindow =
+          runtime?.closureOwner !== "EXTERNAL" ||
+          runtime?.lastExternalCloseUntil !== externalClosedUntil ||
+          runtime?.lastExternalCloseAt == null;
 
-        if (externalClosedUntil && (shouldPersistExternalWindow || shouldResetTrackedRuntime)) {
-          runtime = setRuntime(branch.id, {
-            lastExternalCloseUntil: externalClosedUntil,
-            lastExternalCloseAt:
-              runtime?.lastExternalCloseUntil === externalClosedUntil && runtime?.lastExternalCloseAt
-                ? runtime.lastExternalCloseAt
-                : nowIso,
-            ...trackedRuntimeReset,
-          });
+        if (shouldPersistExternalWindow || !monitorWindowStillActive) {
+          runtime = this.syncExternalTemporaryClosureRuntime(
+            branch,
+            runtime,
+            externalClosedUntil,
+            nowIso,
+            !monitorWindowStillActive,
+          );
           const untilDt = DateTime.fromISO(externalClosedUntil, { zone: "utc" }).setZone("Africa/Cairo");
           const untilLabel = untilDt.isValid ? untilDt.toFormat("HH:mm") : null;
           if (shouldPersistExternalWindow) {
@@ -777,16 +880,15 @@ export class MonitorEngine {
         continue;
       }
 
-      if (runtime?.lastExternalCloseUntil || runtime?.lastExternalCloseAt) {
-        if (!isMonitorWindowAlias) {
-          if (availability.availabilityState === "OPEN") {
-            log(branch.id, "INFO", "OPEN — external source reopened");
-          } else if (availability.availabilityState === "CLOSED" || availability.availabilityState === "CLOSED_TODAY") {
-            log(branch.id, "WARN", "CLOSED — external source");
-          }
+      if (runtime?.lastExternalCloseUntil || runtime?.lastExternalCloseAt || runtime?.closureOwner === "EXTERNAL") {
+        if (availability.availabilityState === "OPEN") {
+          log(branch.id, "INFO", "OPEN — external source reopened");
+        } else if (availability.availabilityState === "CLOSED" || availability.availabilityState === "CLOSED_TODAY") {
+          log(branch.id, "WARN", "CLOSED — external source");
         }
 
         setRuntime(branch.id, {
+          ...this.buildClearedClosureObservationPatch(runtime),
           lastExternalCloseUntil: null,
           lastExternalCloseAt: null,
         });
@@ -891,6 +993,8 @@ export class MonitorEngine {
           closureSource = "EXTERNAL";
           sourceClosedReason = av.closedReason;
           totals.closed += 1;
+        } else if (av.availabilityState === "UNKNOWN") {
+          totals.unknown += 1;
         }
       } else {
         totals.unknown += 1;
@@ -1203,16 +1307,21 @@ export class MonitorEngine {
           preparation.recentActiveAvailable,
           runtime,
           avCached.closedUntil,
+          nowIso,
           settings,
         );
       }
 
       if (
         avCached?.availabilityState === "OPEN" &&
-        this.hasTrustedMonitorRuntime(runtime, settings) &&
-        runtime?.lastUpuseCloseUntil
+        (runtime?.closureOwner === "UPUSE" ||
+          (runtime?.closureOwner == null && this.hasTrustedMonitorRuntime(runtime, settings))) &&
+        (runtime?.closureObservedUntil || runtime?.lastUpuseCloseUntil)
       ) {
-        const lastCloseUntil = DateTime.fromISO(runtime.lastUpuseCloseUntil, { zone: "utc" });
+        const lastCloseUntil = DateTime.fromISO(
+          runtime?.closureObservedUntil ?? runtime?.lastUpuseCloseUntil ?? "",
+          { zone: "utc" },
+        );
         const now = DateTime.fromISO(nowIso, { zone: "utc" });
         if (lastCloseUntil.isValid && now >= lastCloseUntil) {
           if (runtime?.externalOpenDetectedAt) {
@@ -1229,6 +1338,7 @@ export class MonitorEngine {
 
           if (!this.isLifecycleActive(expectedLifecycleId)) return;
           setRuntime(branch.id, {
+            ...this.buildClearedClosureObservationPatch(runtime),
             lastUpuseCloseUntil: null,
             lastUpuseCloseReason: null,
             lastUpuseCloseAt: null,
@@ -1359,6 +1469,9 @@ export class MonitorEngine {
             lastUpuseCloseEventId: closeEventId,
             lastExternalCloseUntil: null,
             lastExternalCloseAt: null,
+            closureOwner: "UPUSE",
+            closureObservedUntil: actualUntil,
+            closureObservedAt: nowIso,
             externalOpenDetectedAt: null,
             lastActionAt: nowIso,
           });
@@ -1395,6 +1508,7 @@ export class MonitorEngine {
               preparation.recentActiveAvailable,
               rt,
               current.closedUntil,
+              nowIso,
               settings,
             ) as any;
           }
@@ -1427,6 +1541,7 @@ export class MonitorEngine {
 
           if (!this.isLifecycleActive(expectedLifecycleId)) return;
           setRuntime(branch.id, {
+            ...this.buildClearedClosureObservationPatch(rt),
             lastUpuseCloseUntil: null,
             lastUpuseCloseReason: null,
             lastUpuseCloseAt: null,

@@ -277,6 +277,53 @@ describe("policyEngine.decide", () => {
     expect(decision).toEqual({ type: "CLOSE", reason: "UNASSIGNED" });
   });
 
+  it("ignores stale tracked windows once the closure owner is external", () => {
+    const tempCloseDecision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        unassignedNow: 0,
+      },
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
+      availability: tempCloseAvailability({
+        closedUntil: "2026-03-03T13:30:00.000Z",
+        modifiedBy: "external_source",
+      }),
+      runtime: {
+        closureOwner: "EXTERNAL",
+        lastUpuseCloseReason: "UNASSIGNED",
+        lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
+        lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
+        lastUpuseCloseEventId: 30,
+      },
+      nowUtcIso: "2026-03-03T10:08:00.000Z",
+      settings: baseSettings(),
+    });
+
+    const openDecision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        unassignedNow: 7,
+      },
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
+      availability: openAvailability(),
+      runtime: {
+        closureOwner: "EXTERNAL",
+        lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
+        lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
+        lastUpuseCloseEventId: 31,
+      },
+      nowUtcIso: "2026-03-03T10:08:00.000Z",
+      settings: baseSettings(),
+    });
+
+    expect(tempCloseDecision).toEqual({ type: "NOOP" });
+    expect(openDecision).toEqual({ type: "CLOSE", reason: "UNASSIGNED" });
+  });
+
   it("treats UNKNOWN upstream availability state as a safe no-op", () => {
     const decision = decide({
       branch: baseBranch(),
