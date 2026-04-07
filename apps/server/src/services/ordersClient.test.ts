@@ -173,7 +173,7 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
     expect(result.pickers).toEqual({
       todayCount: 4,
       activePreparingCount: 2,
-      recentActiveCount: 2,
+      recentActiveCount: 3,
       items: [
         {
           shopperId: 101,
@@ -189,7 +189,7 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
           ordersToday: 2,
           firstPickupAt: "2026-03-05T10:40:00.000Z",
           lastPickupAt: "2026-03-05T10:40:00.000Z",
-          recentlyActive: false,
+          recentlyActive: true,
         },
         {
           shopperId: 404,

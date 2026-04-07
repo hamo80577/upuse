@@ -10,8 +10,8 @@ export function describeLogMessage(message: string) {
     return {
       title: "Temporary close re-applied",
       detail: until
-        ? `Active orders stayed at ${active} above picker capacity ${cap} from ${pickers} recent active pickers (30m) after grace. Source timer ends at ${until}.`
-        : `Active orders stayed at ${active} above picker capacity ${cap} from ${pickers} recent active pickers (30m) after grace.`,
+        ? `Active orders stayed at ${active} above picker capacity ${cap} from ${pickers} recent active pickers (60m) after grace. Source timer ends at ${until}.`
+        : `Active orders stayed at ${active} above picker capacity ${cap} from ${pickers} recent active pickers (60m) after grace.`,
     };
   }
 
@@ -41,8 +41,8 @@ export function describeLogMessage(message: string) {
     return {
       title: "Temporary close applied",
       detail: until
-        ? `Active orders reached ${active}, above picker capacity ${cap} from ${pickers} recent active pickers (30m). Source timer ends at ${until}.`
-        : `Active orders reached ${active}, above picker capacity ${cap} from ${pickers} recent active pickers (30m).`,
+        ? `Active orders reached ${active}, above picker capacity ${cap} from ${pickers} recent active pickers (60m). Source timer ends at ${until}.`
+        : `Active orders reached ${active}, above picker capacity ${cap} from ${pickers} recent active pickers (60m).`,
     };
   }
 

@@ -16,7 +16,7 @@ import {
 import { BASE, BRANCH_DETAIL_MAX_PAGES, initMetrics, type DetailCacheEntry, type VendorOrdersDetailResult } from "./types.js";
 
 const detailCache = new Map<string, DetailCacheEntry>();
-const PICKER_RECENT_ACTIVE_WINDOW_MS = 30 * 60 * 1000;
+const PICKER_RECENT_ACTIVE_WINDOW_MS = 60 * 60 * 1000;
 
 interface PickerAccumulator {
   shopperId: number;

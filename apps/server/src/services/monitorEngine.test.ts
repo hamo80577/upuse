@@ -543,6 +543,92 @@ describe("monitorEngine.getSnapshot", () => {
     expect(branch.closeReason).toBeUndefined();
   });
 
+  it("does not infer capacity when the recent-active picker count is zero", () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 30,
+      availabilityRefreshSeconds: 30,
+      maxVendorsPerOrdersRequest: 50,
+    });
+
+    mockListBranches.mockReturnValue([
+      {
+        id: 31,
+        name: "Branch 31",
+        chainName: "",
+        ordersVendorId: 3131,
+        availabilityVendorId: "av-31",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        enabled: true,
+      },
+    ]);
+
+    mockGetRuntime.mockReturnValue({
+      branchId: 31,
+      lastUpuseCloseUntil: "2026-03-04T13:16:59.000Z",
+      lastUpuseCloseReason: null,
+      lastUpuseCloseAt: null,
+      lastUpuseCloseEventId: 61,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      externalOpenDetectedAt: null,
+      lastActionAt: "2026-03-03T14:48:24.286Z",
+    });
+
+    const engine = new MonitorEngine() as any;
+    engine.ordersFresh = true;
+    engine.ordersByVendor = new Map([
+      [
+        3131,
+        {
+          totalToday: 12,
+          cancelledToday: 1,
+          doneToday: 3,
+          activeNow: 10,
+          lateNow: 0,
+          unassignedNow: 0,
+        },
+      ],
+    ]);
+    engine.preparationByVendor = new Map([
+      [
+        3131,
+        {
+          preparingNow: 10,
+          preparingPickersNow: 0,
+          recentActivePickers: 0,
+          recentActiveAvailable: true,
+        },
+      ],
+    ]);
+    engine.availabilityByVendor = new Map([
+      [
+        "av-31",
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "CLOSED_UNTIL",
+          platformRestaurantId: "av-31",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID,
+          closedUntil: "2026-03-04T13:16:59.000Z",
+          modifiedBy: "log_vendor_monitor",
+        },
+      ],
+    ]);
+
+    const branch = engine.getSnapshot().branches[0];
+
+    expect(branch.closeReason).toBeUndefined();
+  });
+
   it("does not infer capacity when the chain disables the capacity rule", () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",

@@ -376,7 +376,7 @@ describe("policyEngine.decide", () => {
     expect(decision).toEqual({ type: "NOOP" });
   });
 
-  it("treats a fresh zero recent-active signal as zero capacity", () => {
+  it("does not close on capacity when the recent-active picker count is zero", () => {
     const decision = decide({
       branch: baseBranch(),
       metrics: {
@@ -390,7 +390,7 @@ describe("policyEngine.decide", () => {
       settings: baseSettings(),
     });
 
-    expect(decision).toEqual({ type: "CLOSE", reason: "CAPACITY" });
+    expect(decision).toEqual({ type: "NOOP" });
   });
 
   it("does not close on capacity when active orders only meet the cap", () => {
@@ -545,6 +545,29 @@ describe("policyEngine.decide", () => {
         ...baseSettings(),
         chains: [{ name: "Chain A", lateThreshold: 5, unassignedThreshold: 5, capacityRuleEnabled: false }],
       },
+    });
+
+    expect(decision).toEqual({ type: "EARLY_OPEN", reason: "CAPACITY" });
+  });
+
+  it("reopens capacity-owned closes when the recent-active picker count drops below one", () => {
+    const decision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        activeNow: 5,
+      },
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
+      availability: tempCloseAvailability(),
+      runtime: {
+        lastUpuseCloseReason: "CAPACITY",
+        lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
+        lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
+        lastUpuseCloseEventId: 22,
+      },
+      nowUtcIso: "2026-03-03T10:05:00.000Z",
+      settings: baseSettings(),
     });
 
     expect(decision).toEqual({ type: "EARLY_OPEN", reason: "CAPACITY" });

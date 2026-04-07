@@ -120,12 +120,15 @@ export function decide(input: PolicyInput): PolicyDecision {
       ? thresholds.capacityPerHourLimit
       : null;
   const normalizedRecentActivePickers = normalizeRecentActivePickers(recentActivePickers);
+  const capacityRuleCanApply =
+    capacityRuleEnabled &&
+    recentActiveAvailable &&
+    normalizedRecentActivePickers >= 1;
 
   const exceedLate = metrics.lateNow >= thresholds.lateThreshold && thresholds.lateThreshold > 0;
   const exceedUnassigned = metrics.unassignedNow >= thresholds.unassignedThreshold && thresholds.unassignedThreshold > 0;
   const exceedCapacity =
-    capacityRuleEnabled &&
-    recentActiveAvailable &&
+    capacityRuleCanApply &&
     metrics.activeNow > capacityLimit(normalizedRecentActivePickers);
   const exceedCapacityPerHour =
     capacityPerHourEnabled &&
@@ -176,6 +179,9 @@ export function decide(input: PolicyInput): PolicyDecision {
     if (lastCloseReason === "LATE" && metrics.lateNow === 0) return { type: "EARLY_OPEN", reason: "LATE" };
     if (lastCloseReason === "UNASSIGNED" && metrics.unassignedNow === 0) return { type: "EARLY_OPEN", reason: "UNASSIGNED" };
     if (lastCloseReason === "CAPACITY" && !capacityRuleEnabled) {
+      return { type: "EARLY_OPEN", reason: "CAPACITY" };
+    }
+    if (lastCloseReason === "CAPACITY" && recentActiveAvailable && normalizedRecentActivePickers < 1) {
       return { type: "EARLY_OPEN", reason: "CAPACITY" };
     }
     if (lastCloseReason === "CAPACITY" && recentActiveAvailable && metrics.activeNow <= normalizedRecentActivePickers) {

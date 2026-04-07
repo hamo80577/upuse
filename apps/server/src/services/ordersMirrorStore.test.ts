@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   mockPrepare,
@@ -38,6 +38,7 @@ import {
   extractTransportType,
   fetchOrdersWindow,
   getCurrentHourPlacedCountByVendor,
+  getMirrorBranchDetail,
 } from "./ordersMirrorStore.js";
 
 describe("ordersMirrorStore.fetchOrdersWindow", () => {
@@ -47,6 +48,10 @@ describe("ordersMirrorStore.fetchOrdersWindow", () => {
     process.env.UPUSE_ORDERS_ENTITY_SYNC_MAX_PAGES = "2";
     process.env.UPUSE_ORDERS_WINDOW_SPLIT_MAX_DEPTH = "8";
     process.env.UPUSE_ORDERS_WINDOW_MIN_SPAN_MS = "1000";
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("splits the entity-wide window before requesting pages beyond the API-safe limit", async () => {
@@ -182,5 +187,95 @@ describe("ordersMirrorStore.fetchOrdersWindow", () => {
       [10, 5],
       [20, 0],
     ]));
+  });
+
+  it("uses a 60-minute recent picker activity window for mirror branch detail", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-05T10:00:00.000Z"));
+
+    const pickerCountGet = vi.fn(() => ({
+      todayCount: 0,
+      activePreparingCount: 0,
+      recentActiveCount: 0,
+    }));
+    const pickerRowsAll = vi.fn(() => []);
+
+    mockPrepare.mockImplementation((sql: string) => {
+      if (sql.includes("FROM orders_entity_sync_state")) {
+        return {
+          get: vi.fn(() => ({
+            dayKey: "2026-03-05",
+            globalEntityId: "HF_EG",
+            lastBootstrapSyncAt: "2026-03-05T09:58:00.000Z",
+            lastActiveSyncAt: "2026-03-05T09:59:00.000Z",
+            lastHistorySyncAt: null,
+            lastFullHistorySweepAt: null,
+            lastSuccessfulSyncAt: "2026-03-05T09:59:00.000Z",
+            lastHistoryCursorAt: null,
+            consecutiveFailures: 0,
+            lastErrorAt: null,
+            lastErrorCode: null,
+            lastErrorMessage: null,
+            staleSince: null,
+            bootstrapCompletedAt: "2026-03-05T09:58:00.000Z",
+          })),
+          all: vi.fn(() => []),
+          run: vi.fn(),
+        };
+      }
+
+      if (sql.includes("COUNT(DISTINCT CASE WHEN shopperId IS NOT NULL AND lastActiveSeenAt IS NOT NULL")) {
+        return {
+          get: pickerCountGet,
+          all: vi.fn(() => []),
+          run: vi.fn(),
+        };
+      }
+
+      if (sql.includes("MAX(CASE WHEN lastActiveSeenAt IS NOT NULL AND lastActiveSeenAt <= ? AND lastActiveSeenAt >= ? THEN 1 ELSE 0 END) AS recentlyActive")) {
+        return {
+          get: vi.fn(() => null),
+          all: pickerRowsAll,
+          run: vi.fn(),
+        };
+      }
+
+      if (sql.includes("FROM orders_mirror")) {
+        return {
+          get: vi.fn(() => null),
+          all: vi.fn(() => []),
+          run: vi.fn(),
+        };
+      }
+
+      return {
+        get: vi.fn(() => null),
+        all: vi.fn(() => []),
+        run: vi.fn(),
+      };
+    });
+
+    const detail = getMirrorBranchDetail({
+      dayKey: "2026-03-05",
+      globalEntityId: "HF_EG",
+      vendorId: 10,
+      ordersRefreshSeconds: 30,
+    });
+
+    expect(detail.cacheState).toBe("fresh");
+    expect(pickerCountGet).toHaveBeenCalledWith(
+      "2026-03-05T10:00:00.000Z",
+      "2026-03-05T09:00:00.000Z",
+      "2026-03-05",
+      "HF_EG",
+      10,
+    );
+    expect(pickerRowsAll).toHaveBeenCalledWith(
+      "2026-03-05T10:00:00.000Z",
+      "2026-03-05T09:00:00.000Z",
+      "2026-03-05",
+      "HF_EG",
+      10,
+    );
   });
 });

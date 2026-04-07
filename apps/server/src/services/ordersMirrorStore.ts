@@ -30,7 +30,7 @@ const BOOTSTRAP_SYNC_PAGE_SIZE = 500;
 const ACTIVE_SYNC_PAGE_SIZE = 500;
 const HISTORY_SYNC_PAGE_SIZE = 500;
 const HISTORY_OVERLAP_MS = 10 * 60 * 1000;
-const PICKER_RECENT_ACTIVE_WINDOW_MS = 30 * 60 * 1000;
+const PICKER_RECENT_ACTIVE_WINDOW_MS = 60 * 60 * 1000;
 
 export type BranchDetailCacheState = "fresh" | "warming" | "stale";
 export type MirrorSyncPhase = "bootstrap" | "active" | "history" | "repair";

@@ -520,11 +520,14 @@ export class MonitorEngine {
     recentActiveAvailable: boolean,
   ): CloseReason | undefined {
     const thresholds = this.resolveThresholds(branch, settings);
+    const normalizedRecentActivePickers = normalizeRecentActivePickers(recentActivePickers);
+    const capacityRuleCanApply = thresholds.capacityRuleEnabled !== false
+      && recentActiveAvailable
+      && normalizedRecentActivePickers >= 1;
     const exceedLate = metrics.lateNow >= thresholds.lateThreshold && thresholds.lateThreshold > 0;
     const exceedUnassigned = metrics.unassignedNow >= thresholds.unassignedThreshold && thresholds.unassignedThreshold > 0;
-    const exceedCapacity = thresholds.capacityRuleEnabled !== false
-      && recentActiveAvailable
-      && metrics.activeNow > capacityLimit(recentActivePickers);
+    const exceedCapacity = capacityRuleCanApply
+      && metrics.activeNow > capacityLimit(normalizedRecentActivePickers);
     const exceedCapacityPerHour = thresholds.capacityPerHourEnabled === true
       && typeof thresholds.capacityPerHourLimit === "number"
       && currentHourPlacedCount >= thresholds.capacityPerHourLimit;
