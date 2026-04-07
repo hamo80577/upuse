@@ -139,17 +139,32 @@ export function useBranchMappingState() {
     return normalizedChains;
   };
 
-  const saveGlobalThresholds = async (lateThreshold: number, unassignedThreshold: number) => {
+  const saveGlobalThresholds = async (
+    lateThreshold: number,
+    lateReopenThreshold: number,
+    unassignedThreshold: number,
+    unassignedReopenThreshold: number,
+    readyThreshold: number,
+    readyReopenThreshold: number,
+  ) => {
     await api.putSettings({
       lateThreshold: Math.round(lateThreshold),
+      lateReopenThreshold: Math.round(lateReopenThreshold),
       unassignedThreshold: Math.round(unassignedThreshold),
+      unassignedReopenThreshold: Math.round(unassignedReopenThreshold),
+      readyThreshold: Math.round(readyThreshold),
+      readyReopenThreshold: Math.round(readyReopenThreshold),
     });
     setSettings((current) => (
       current
         ? {
             ...current,
             lateThreshold: Math.round(lateThreshold),
+            lateReopenThreshold: Math.round(lateReopenThreshold),
             unassignedThreshold: Math.round(unassignedThreshold),
+            unassignedReopenThreshold: Math.round(unassignedReopenThreshold),
+            readyThreshold: Math.round(readyThreshold),
+            readyReopenThreshold: Math.round(readyReopenThreshold),
           }
         : current
     ));
@@ -158,14 +173,22 @@ export function useBranchMappingState() {
   const saveBranchThresholdOverride = async (
     branchId: number,
     lateThresholdOverride: number | null,
+    lateReopenThresholdOverride: number | null,
     unassignedThresholdOverride: number | null,
+    unassignedReopenThresholdOverride: number | null,
+    readyThresholdOverride: number | null,
+    readyReopenThresholdOverride: number | null,
     capacityRuleEnabledOverride: boolean | null,
     capacityPerHourEnabledOverride: boolean | null,
     capacityPerHourLimitOverride: number | null,
   ) => {
     const response = await api.setBranchThresholdOverrides(branchId, {
       lateThresholdOverride,
+      lateReopenThresholdOverride,
       unassignedThresholdOverride,
+      unassignedReopenThresholdOverride,
+      readyThresholdOverride,
+      readyReopenThresholdOverride,
       capacityRuleEnabledOverride,
       capacityPerHourEnabledOverride,
       capacityPerHourLimitOverride,

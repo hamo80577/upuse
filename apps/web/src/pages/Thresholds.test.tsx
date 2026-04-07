@@ -59,9 +59,21 @@ describe("ThresholdsPage", () => {
       ordersToken: "",
       availabilityToken: "",
       chainNames: ["Chain A"],
-      chains: [{ name: "Chain A", lateThreshold: 5, unassignedThreshold: 5 }],
+      chains: [{
+        name: "Chain A",
+        lateThreshold: 5,
+        lateReopenThreshold: 1,
+        unassignedThreshold: 5,
+        unassignedReopenThreshold: 1,
+        readyThreshold: 2,
+        readyReopenThreshold: 1,
+      }],
       lateThreshold: 5,
+      lateReopenThreshold: 1,
       unassignedThreshold: 5,
+      unassignedReopenThreshold: 1,
+      readyThreshold: 2,
+      readyReopenThreshold: 1,
       tempCloseMinutes: 30,
       graceMinutes: 5,
       ordersRefreshSeconds: 30,
@@ -98,13 +110,21 @@ describe("ThresholdsPage", () => {
 
     await waitFor(() => {
       expect(screen.getByLabelText("Default Late Threshold")).toBeInTheDocument();
+      expect(screen.getByLabelText("Default Late Reopen Threshold")).toBeInTheDocument();
       expect(screen.getByLabelText("Default Unassigned Threshold")).toBeInTheDocument();
+      expect(screen.getByLabelText("Default Unassigned Reopen Threshold")).toBeInTheDocument();
+      expect(screen.getByLabelText("Default Ready To Pickup Threshold")).toBeInTheDocument();
+      expect(screen.getByLabelText("Default Ready To Pickup Reopen Threshold")).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole("tab", { name: "Overrides" }));
 
     expect(screen.queryByLabelText("Default Late Threshold")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Default Late Reopen Threshold")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Default Unassigned Threshold")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Default Unassigned Reopen Threshold")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Default Ready To Pickup Threshold")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Default Ready To Pickup Reopen Threshold")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save Defaults" })).not.toBeInTheDocument();
   });
 });

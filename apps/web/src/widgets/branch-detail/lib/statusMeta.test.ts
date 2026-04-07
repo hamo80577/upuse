@@ -51,4 +51,10 @@ describe("statusPanelMeta", () => {
       label: "Capacity / Hour Trigger",
     }));
   });
+
+  it("labels Ready To Pickup closures distinctly in the trigger badge", () => {
+    expect(closeReasonMeta("READY_TO_PICKUP")).toEqual(expect.objectContaining({
+      label: "Ready To Pickup Trigger",
+    }));
+  });
 });

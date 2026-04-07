@@ -1,4 +1,4 @@
-export type CloseReason = "LATE" | "UNASSIGNED" | "CAPACITY" | "CAPACITY_HOUR";
+export type CloseReason = "LATE" | "UNASSIGNED" | "READY_TO_PICKUP" | "CAPACITY" | "CAPACITY_HOUR";
 export type AppUserRole = "admin" | "user";
 export type ThresholdSource = "branch" | "chain" | "global";
 export type BranchCatalogState = "available" | "missing";
@@ -6,7 +6,11 @@ export type BranchCatalogState = "available" | "missing";
 export interface ChainThreshold {
   name: string;
   lateThreshold: number;
+  lateReopenThreshold?: number;
   unassignedThreshold: number;
+  unassignedReopenThreshold?: number;
+  readyThreshold?: number;
+  readyReopenThreshold?: number;
   capacityRuleEnabled?: boolean;
   capacityPerHourEnabled?: boolean;
   capacityPerHourLimit?: number | null;
@@ -14,7 +18,11 @@ export interface ChainThreshold {
 
 export interface ThresholdProfile {
   lateThreshold: number;
+  lateReopenThreshold?: number;
   unassignedThreshold: number;
+  unassignedReopenThreshold?: number;
+  readyThreshold?: number;
+  readyReopenThreshold?: number;
   capacityRuleEnabled?: boolean;
   capacityPerHourEnabled?: boolean;
   capacityPerHourLimit?: number | null;
@@ -40,6 +48,7 @@ export interface OrdersMetrics {
   activeNow: number;
   lateNow: number;
   unassignedNow: number;
+  readyNow?: number;
 }
 
 export interface BranchLiveOrder {
@@ -110,7 +119,11 @@ export interface BranchMappingItem {
   enabled: boolean;
   catalogState: BranchCatalogState;
   lateThresholdOverride?: number | null;
+  lateReopenThresholdOverride?: number | null;
   unassignedThresholdOverride?: number | null;
+  unassignedReopenThresholdOverride?: number | null;
+  readyThresholdOverride?: number | null;
+  readyReopenThresholdOverride?: number | null;
   capacityRuleEnabledOverride?: boolean | null;
   capacityPerHourEnabledOverride?: boolean | null;
   capacityPerHourLimitOverride?: number | null;
@@ -487,7 +500,11 @@ export interface SettingsMasked {
   chains: ChainThreshold[];
 
   lateThreshold: number;
+  lateReopenThreshold?: number;
   unassignedThreshold: number;
+  unassignedReopenThreshold?: number;
+  readyThreshold?: number;
+  readyReopenThreshold?: number;
 
   tempCloseMinutes: number;
   graceMinutes: number;

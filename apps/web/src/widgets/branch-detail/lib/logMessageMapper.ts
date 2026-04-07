@@ -1,4 +1,11 @@
 export function describeLogMessage(message: string) {
+  const describeThresholdKind = (rawKind: string) => {
+    const normalized = rawKind.trim().toLowerCase();
+    if (normalized === "late") return "Late";
+    if (normalized === "unassigned") return "Unassigned";
+    return "Ready To Pickup";
+  };
+
   const reapplyAfterGraceCapacityMatch = message.match(
     /^TEMP CLOSE — re-applied after external open grace \(Capacity active=(\d+) cap=(\d+) (?:pickers|recentActivePickers)=(\d+)\)(?: until ([0-9]{2}:[0-9]{2}))?$/i,
   );
@@ -16,10 +23,10 @@ export function describeLogMessage(message: string) {
   }
 
   const reapplyAfterGraceMatch = message.match(
-    /^TEMP CLOSE — re-applied after external open grace \((Late|Unassigned)=(\d+)\)(?: until ([0-9]{2}:[0-9]{2}))?$/i,
+    /^TEMP CLOSE — re-applied after external open grace \((Late|Unassigned|Ready To Pickup)=(\d+)\)(?: until ([0-9]{2}:[0-9]{2}))?$/i,
   );
   if (reapplyAfterGraceMatch) {
-    const kind = reapplyAfterGraceMatch[1].toLowerCase() === "late" ? "Late" : "Unassigned";
+    const kind = describeThresholdKind(reapplyAfterGraceMatch[1]);
     const count = reapplyAfterGraceMatch[2];
     const until = reapplyAfterGraceMatch[3];
     return {
@@ -46,9 +53,9 @@ export function describeLogMessage(message: string) {
     };
   }
 
-  const thresholdMatch = message.match(/^TEMP CLOSE — (Late|Unassigned)=(\d+)(?: until ([0-9]{2}:[0-9]{2}))?$/i);
+  const thresholdMatch = message.match(/^TEMP CLOSE — (Late|Unassigned|Ready To Pickup)=(\d+)(?: until ([0-9]{2}:[0-9]{2}))?$/i);
   if (thresholdMatch) {
-    const kind = thresholdMatch[1].toLowerCase() === "late" ? "Late" : "Unassigned";
+    const kind = describeThresholdKind(thresholdMatch[1]);
     const count = thresholdMatch[2];
     const until = thresholdMatch[3];
     return {
@@ -66,10 +73,13 @@ export function describeLogMessage(message: string) {
     };
   }
 
-  if (message === "OPEN — recovered to zero") {
+  if (message === "OPEN — recovered to zero" || message === "OPEN — recovered to reopen threshold") {
     return {
       title: "Reopened by monitor",
-      detail: "The tracked trigger returned to zero.",
+      detail:
+        message === "OPEN — recovered to zero"
+          ? "The tracked trigger returned to zero."
+          : "The tracked trigger returned to its reopen threshold.",
     };
   }
 

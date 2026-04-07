@@ -119,6 +119,22 @@ export function decide(input: PolicyInput): PolicyDecision {
     typeof thresholds.capacityPerHourLimit === "number"
       ? thresholds.capacityPerHourLimit
       : null;
+  const readyThreshold =
+    typeof thresholds.readyThreshold === "number"
+      ? thresholds.readyThreshold
+      : 0;
+  const lateReopenThreshold =
+    typeof thresholds.lateReopenThreshold === "number"
+      ? thresholds.lateReopenThreshold
+      : 0;
+  const unassignedReopenThreshold =
+    typeof thresholds.unassignedReopenThreshold === "number"
+      ? thresholds.unassignedReopenThreshold
+      : 0;
+  const readyReopenThreshold =
+    typeof thresholds.readyReopenThreshold === "number"
+      ? thresholds.readyReopenThreshold
+      : 0;
   const normalizedRecentActivePickers = normalizeRecentActivePickers(recentActivePickers);
   const capacityRuleCanApply =
     capacityRuleEnabled &&
@@ -127,6 +143,7 @@ export function decide(input: PolicyInput): PolicyDecision {
 
   const exceedLate = metrics.lateNow >= thresholds.lateThreshold && thresholds.lateThreshold > 0;
   const exceedUnassigned = metrics.unassignedNow >= thresholds.unassignedThreshold && thresholds.unassignedThreshold > 0;
+  const exceedReady = (metrics.readyNow ?? 0) >= readyThreshold && readyThreshold > 0;
   const exceedCapacity =
     capacityRuleCanApply &&
     metrics.activeNow > capacityLimit(normalizedRecentActivePickers);
@@ -166,6 +183,7 @@ export function decide(input: PolicyInput): PolicyDecision {
     // After grace, enforce as normal
     if (exceedLate) return { type: "CLOSE", reason: "LATE" };
     if (exceedUnassigned) return { type: "CLOSE", reason: "UNASSIGNED" };
+    if (exceedReady) return { type: "CLOSE", reason: "READY_TO_PICKUP" };
     if (exceedCapacity) return { type: "CLOSE", reason: "CAPACITY" };
     if (exceedCapacityPerHour) return { type: "CLOSE", reason: "CAPACITY_HOUR" };
     return { type: "NOOP" };
@@ -176,8 +194,15 @@ export function decide(input: PolicyInput): PolicyDecision {
     if (trackedClosureOwner === "EXTERNAL") return { type: "NOOP" };
     if (!isMonitorOwnedClosure(availability, lastCloseUntil, lastCloseAt, settings)) return { type: "NOOP" };
 
-    if (lastCloseReason === "LATE" && metrics.lateNow === 0) return { type: "EARLY_OPEN", reason: "LATE" };
-    if (lastCloseReason === "UNASSIGNED" && metrics.unassignedNow === 0) return { type: "EARLY_OPEN", reason: "UNASSIGNED" };
+    if (lastCloseReason === "LATE" && (thresholds.lateThreshold <= 0 || metrics.lateNow <= lateReopenThreshold)) {
+      return { type: "EARLY_OPEN", reason: "LATE" };
+    }
+    if (lastCloseReason === "UNASSIGNED" && (thresholds.unassignedThreshold <= 0 || metrics.unassignedNow <= unassignedReopenThreshold)) {
+      return { type: "EARLY_OPEN", reason: "UNASSIGNED" };
+    }
+    if (lastCloseReason === "READY_TO_PICKUP" && (readyThreshold <= 0 || (metrics.readyNow ?? 0) <= readyReopenThreshold)) {
+      return { type: "EARLY_OPEN", reason: "READY_TO_PICKUP" };
+    }
     if (lastCloseReason === "CAPACITY" && !capacityRuleEnabled) {
       return { type: "EARLY_OPEN", reason: "CAPACITY" };
     }
@@ -205,6 +230,7 @@ export function decide(input: PolicyInput): PolicyDecision {
   if (availability.availabilityState === "OPEN") {
     if (exceedLate) return { type: "CLOSE", reason: "LATE" };
     if (exceedUnassigned) return { type: "CLOSE", reason: "UNASSIGNED" };
+    if (exceedReady) return { type: "CLOSE", reason: "READY_TO_PICKUP" };
     if (exceedCapacity) return { type: "CLOSE", reason: "CAPACITY" };
     if (exceedCapacityPerHour) return { type: "CLOSE", reason: "CAPACITY_HOUR" };
   }

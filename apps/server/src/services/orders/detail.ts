@@ -18,6 +18,10 @@ import { BASE, BRANCH_DETAIL_MAX_PAGES, initMetrics, type DetailCacheEntry, type
 const detailCache = new Map<string, DetailCacheEntry>();
 const PICKER_RECENT_ACTIVE_WINDOW_MS = 60 * 60 * 1000;
 
+function isReadyToPickupStatus(status: unknown) {
+  return typeof status === "string" && status === "READY_FOR_PICKUP";
+}
+
 interface PickerAccumulator {
   shopperId: number;
   shopperFirstName: string;
@@ -227,6 +231,7 @@ export async function fetchVendorOrdersDetail(params: {
           } else {
             metrics.activeNow += 1;
             if (order?.pickupAt && isPastPickup(nowIso, order.pickupAt)) metrics.lateNow += 1;
+            if (isReadyToPickupStatus(order?.status)) metrics.readyNow = (metrics.readyNow ?? 0) + 1;
             if (isUnassigned) metrics.unassignedNow += 1;
           }
         }

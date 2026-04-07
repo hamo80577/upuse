@@ -68,6 +68,7 @@ function mergePendingCycleOptions(
 function closeReasonLogTag(reason: CloseReason, metrics: OrdersMetrics, recentActivePickers: number) {
   if (reason === "LATE") return `Late=${metrics.lateNow}`;
   if (reason === "UNASSIGNED") return `Unassigned=${metrics.unassignedNow}`;
+  if (reason === "READY_TO_PICKUP") return `Ready To Pickup=${metrics.readyNow ?? 0}`;
   if (reason === "CAPACITY_HOUR") {
     return "Capacity / Hour limit reached";
   }
@@ -501,7 +502,11 @@ export class MonitorEngine {
       BranchMapping,
       | "chainName"
       | "lateThresholdOverride"
+      | "lateReopenThresholdOverride"
       | "unassignedThresholdOverride"
+      | "unassignedReopenThresholdOverride"
+      | "readyThresholdOverride"
+      | "readyReopenThresholdOverride"
       | "capacityRuleEnabledOverride"
       | "capacityPerHourEnabledOverride"
       | "capacityPerHourLimitOverride"
@@ -520,12 +525,17 @@ export class MonitorEngine {
     recentActiveAvailable: boolean,
   ): CloseReason | undefined {
     const thresholds = this.resolveThresholds(branch, settings);
+    const readyThreshold =
+      typeof thresholds.readyThreshold === "number"
+        ? thresholds.readyThreshold
+        : 0;
     const normalizedRecentActivePickers = normalizeRecentActivePickers(recentActivePickers);
     const capacityRuleCanApply = thresholds.capacityRuleEnabled !== false
       && recentActiveAvailable
       && normalizedRecentActivePickers >= 1;
     const exceedLate = metrics.lateNow >= thresholds.lateThreshold && thresholds.lateThreshold > 0;
     const exceedUnassigned = metrics.unassignedNow >= thresholds.unassignedThreshold && thresholds.unassignedThreshold > 0;
+    const exceedReady = (metrics.readyNow ?? 0) >= readyThreshold && readyThreshold > 0;
     const exceedCapacity = capacityRuleCanApply
       && metrics.activeNow > capacityLimit(normalizedRecentActivePickers);
     const exceedCapacityPerHour = thresholds.capacityPerHourEnabled === true
@@ -534,6 +544,7 @@ export class MonitorEngine {
 
     if (exceedLate) return "LATE";
     if (exceedUnassigned) return "UNASSIGNED";
+    if (exceedReady) return "READY_TO_PICKUP";
     if (exceedCapacity) return "CAPACITY";
     if (exceedCapacityPerHour) return "CAPACITY_HOUR";
     return undefined;
@@ -1539,7 +1550,7 @@ export class MonitorEngine {
             eventId: rt?.lastUpuseCloseEventId,
             reopenedAt: nowIso,
             mode: "MONITOR_RECOVERED",
-            note: "Trigger recovered to zero and monitor reopened the branch",
+            note: "Trigger recovered to its reopen threshold and monitor reopened the branch",
           });
 
           if (!this.isLifecycleActive(expectedLifecycleId)) return;
@@ -1554,7 +1565,7 @@ export class MonitorEngine {
             externalOpenDetectedAt: null,
             lastActionAt: nowIso,
           });
-          log(branch.id, "INFO", "OPEN — recovered to zero");
+          log(branch.id, "INFO", "OPEN — recovered to reopen threshold");
           return;
         }
       });

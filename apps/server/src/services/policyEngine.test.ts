@@ -10,7 +10,11 @@ function baseSettings(): Settings {
     chainNames: [],
     chains: [],
     lateThreshold: 5,
+    lateReopenThreshold: 0,
     unassignedThreshold: 5,
+    unassignedReopenThreshold: 0,
+    readyThreshold: 0,
+    readyReopenThreshold: 0,
     tempCloseMinutes: 30,
     graceMinutes: 5,
     ordersRefreshSeconds: 30,
@@ -30,7 +34,11 @@ function baseBranch(): ResolvedBranchMapping {
     globalEntityId: TEST_GLOBAL_ENTITY_ID,
     enabled: true,
     lateThresholdOverride: null,
+    lateReopenThresholdOverride: null,
     unassignedThresholdOverride: null,
+    unassignedReopenThresholdOverride: null,
+    readyThresholdOverride: null,
+    readyReopenThresholdOverride: null,
     capacityRuleEnabledOverride: null,
     capacityPerHourEnabledOverride: null,
     capacityPerHourLimitOverride: null,
@@ -45,6 +53,7 @@ function baseMetrics(): OrdersMetrics {
     activeNow: 0,
     lateNow: 0,
     unassignedNow: 0,
+    readyNow: 0,
   };
 }
 
@@ -113,6 +122,26 @@ describe("policyEngine.decide", () => {
     expect(decision).toEqual({ type: "CLOSE", reason: "UNASSIGNED" });
   });
 
+  it("closes on ready to pickup threshold while branch is open", () => {
+    const decision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        readyNow: 4,
+      },
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
+      availability: openAvailability(),
+      nowUtcIso: "2026-03-03T10:00:00.000Z",
+      settings: {
+        ...baseSettings(),
+        readyThreshold: 4,
+      },
+    });
+
+    expect(decision).toEqual({ type: "CLOSE", reason: "READY_TO_PICKUP" });
+  });
+
   it("reopens only when the original trigger clears", () => {
     const branch = baseBranch();
     const settings = baseSettings();
@@ -159,6 +188,106 @@ describe("policyEngine.decide", () => {
 
     expect(reopenUnassigned).toEqual({ type: "EARLY_OPEN", reason: "UNASSIGNED" });
     expect(noReopenForLateOwnedClose).toEqual({ type: "NOOP" });
+  });
+
+  it("reopens late and unassigned closes when they recover to their reopen thresholds", () => {
+    const branch = baseBranch();
+    const settings = {
+      ...baseSettings(),
+      lateReopenThreshold: 1,
+      unassignedReopenThreshold: 2,
+    };
+
+    const reopenLate = decide({
+      branch,
+      metrics: {
+        ...baseMetrics(),
+        lateNow: 1,
+      },
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
+      availability: tempCloseAvailability(),
+      runtime: {
+        lastUpuseCloseReason: "LATE",
+        lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
+        lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
+        lastUpuseCloseEventId: 91,
+      },
+      nowUtcIso: "2026-03-03T10:05:00.000Z",
+      settings,
+    });
+
+    const reopenUnassigned = decide({
+      branch,
+      metrics: {
+        ...baseMetrics(),
+        unassignedNow: 2,
+      },
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
+      availability: tempCloseAvailability(),
+      runtime: {
+        lastUpuseCloseReason: "UNASSIGNED",
+        lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
+        lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
+        lastUpuseCloseEventId: 92,
+      },
+      nowUtcIso: "2026-03-03T10:05:00.000Z",
+      settings,
+    });
+
+    expect(reopenLate).toEqual({ type: "EARLY_OPEN", reason: "LATE" });
+    expect(reopenUnassigned).toEqual({ type: "EARLY_OPEN", reason: "UNASSIGNED" });
+  });
+
+  it("reopens ready-to-pickup-owned closes only when the ready count returns to its reopen threshold", () => {
+    const branch = baseBranch();
+    const settings = {
+      ...baseSettings(),
+      readyThreshold: 3,
+      readyReopenThreshold: 1,
+    };
+
+    const reopenReady = decide({
+      branch,
+      metrics: {
+        ...baseMetrics(),
+        readyNow: 1,
+      },
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
+      availability: tempCloseAvailability(),
+      runtime: {
+        lastUpuseCloseReason: "READY_TO_PICKUP",
+        lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
+        lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
+        lastUpuseCloseEventId: 17,
+      },
+      nowUtcIso: "2026-03-03T10:05:00.000Z",
+      settings,
+    });
+
+    const keepClosedWhileReadyRemains = decide({
+      branch,
+      metrics: {
+        ...baseMetrics(),
+        readyNow: 2,
+      },
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
+      availability: tempCloseAvailability(),
+      runtime: {
+        lastUpuseCloseReason: "READY_TO_PICKUP",
+        lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
+        lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
+        lastUpuseCloseEventId: 19,
+      },
+      nowUtcIso: "2026-03-03T10:05:00.000Z",
+      settings,
+    });
+
+    expect(reopenReady).toEqual({ type: "EARLY_OPEN", reason: "READY_TO_PICKUP" });
+    expect(keepClosedWhileReadyRemains).toEqual({ type: "NOOP" });
   });
 
   it("respects external open grace behavior", () => {
@@ -230,6 +359,36 @@ describe("policyEngine.decide", () => {
     });
 
     expect(decision).toEqual({ type: "NOOP" });
+  });
+
+  it("applies branch reopen overrides even when the close thresholds stay inherited", () => {
+    const decision = decide({
+      branch: {
+        ...baseBranch(),
+        chainName: "Chain A",
+        lateReopenThresholdOverride: 2,
+      },
+      metrics: {
+        ...baseMetrics(),
+        lateNow: 2,
+      },
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
+      availability: tempCloseAvailability(),
+      runtime: {
+        lastUpuseCloseReason: "LATE",
+        lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
+        lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
+        lastUpuseCloseEventId: 93,
+      },
+      nowUtcIso: "2026-03-03T10:05:00.000Z",
+      settings: {
+        ...baseSettings(),
+        chains: [{ name: "Chain A", lateThreshold: 5, lateReopenThreshold: 0, unassignedThreshold: 5 }],
+      },
+    });
+
+    expect(decision).toEqual({ type: "EARLY_OPEN", reason: "LATE" });
   });
 
   it("ignores source propagation noise immediately after a monitor close", () => {

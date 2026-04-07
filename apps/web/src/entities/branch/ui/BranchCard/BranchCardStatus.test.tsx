@@ -77,4 +77,18 @@ describe("BranchCardStatus", () => {
 
     expect(screen.getByText("Capacity / Hour Trigger")).toBeInTheDocument();
   });
+
+  it("shows the Ready To Pickup trigger label when the ready rule closes the branch", () => {
+    render(
+      <BranchCardStatus
+        branch={createBranch({ closeReason: "READY_TO_PICKUP" })}
+        nowMs={Date.parse("2026-03-18T12:00:00.000Z")}
+        progressValue={50}
+        canTrackProgress
+        timerReached={false}
+      />,
+    );
+
+    expect(screen.getByText("Ready To Pickup Trigger")).toBeInTheDocument();
+  });
 });

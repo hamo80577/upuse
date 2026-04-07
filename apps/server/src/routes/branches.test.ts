@@ -93,7 +93,11 @@ function branchMapping(overrides?: Record<string, unknown>) {
     enabled: true,
     catalogState: "available",
     lateThresholdOverride: null,
+    lateReopenThresholdOverride: null,
     unassignedThresholdOverride: null,
+    unassignedReopenThresholdOverride: null,
+    readyThresholdOverride: null,
+    readyReopenThresholdOverride: null,
     capacityRuleEnabledOverride: null,
     capacityPerHourEnabledOverride: null,
     capacityPerHourLimitOverride: null,
@@ -122,7 +126,11 @@ function branchSnapshot(overrides?: Record<string, unknown>) {
     statusColor: "green",
     thresholds: {
       lateThreshold: 5,
+      lateReopenThreshold: 0,
       unassignedThreshold: 5,
+      unassignedReopenThreshold: 0,
+      readyThreshold: 0,
+      readyReopenThreshold: 0,
       capacityRuleEnabled: true,
       capacityPerHourEnabled: false,
       capacityPerHourLimit: null,
@@ -135,6 +143,7 @@ function branchSnapshot(overrides?: Record<string, unknown>) {
       activeNow: 3,
       lateNow: 0,
       unassignedNow: 1,
+      readyNow: 0,
     },
     preparingNow: 1,
     preparingPickersNow: 1,
@@ -171,9 +180,22 @@ describe("branches routes", () => {
     mockGetSettings.mockReturnValue({
       globalEntityId: TEST_GLOBAL_ENTITY_ID,
       ordersRefreshSeconds: 30,
-      chains: [{ name: "Chain A", lateThreshold: 5, unassignedThreshold: 5, capacityRuleEnabled: true }],
+      chains: [{
+        name: "Chain A",
+        lateThreshold: 5,
+        lateReopenThreshold: 0,
+        unassignedThreshold: 5,
+        unassignedReopenThreshold: 0,
+        readyThreshold: 0,
+        readyReopenThreshold: 0,
+        capacityRuleEnabled: true,
+      }],
       lateThreshold: 5,
+      lateReopenThreshold: 0,
       unassignedThreshold: 5,
+      unassignedReopenThreshold: 0,
+      readyThreshold: 0,
+      readyReopenThreshold: 0,
     });
   });
 
@@ -278,9 +300,14 @@ describe("branches routes", () => {
   });
 
   it("updates branch threshold overrides through the narrow endpoint", () => {
+    mockGetBranchById.mockReturnValue(branchMapping());
     mockSetBranchThresholdOverrides.mockReturnValue(branchMapping({
       lateThresholdOverride: 7,
+      lateReopenThresholdOverride: 3,
       unassignedThresholdOverride: 9,
+      unassignedReopenThresholdOverride: 4,
+      readyThresholdOverride: 4,
+      readyReopenThresholdOverride: 1,
       capacityRuleEnabledOverride: false,
       capacityPerHourEnabledOverride: true,
       capacityPerHourLimitOverride: 5,
@@ -289,7 +316,11 @@ describe("branches routes", () => {
       params: { id: "7" },
       body: {
         lateThresholdOverride: 7,
+        lateReopenThresholdOverride: 3,
         unassignedThresholdOverride: 9,
+        unassignedReopenThresholdOverride: 4,
+        readyThresholdOverride: 4,
+        readyReopenThresholdOverride: 1,
         capacityRuleEnabledOverride: false,
         capacityPerHourEnabledOverride: true,
         capacityPerHourLimitOverride: 5,
@@ -301,7 +332,11 @@ describe("branches routes", () => {
 
     expect(mockSetBranchThresholdOverrides).toHaveBeenCalledWith(7, {
       lateThresholdOverride: 7,
+      lateReopenThresholdOverride: 3,
       unassignedThresholdOverride: 9,
+      unassignedReopenThresholdOverride: 4,
+      readyThresholdOverride: 4,
+      readyReopenThresholdOverride: 1,
       capacityRuleEnabledOverride: false,
       capacityPerHourEnabledOverride: true,
       capacityPerHourLimitOverride: 5,
@@ -310,11 +345,43 @@ describe("branches routes", () => {
       ok: true,
       item: branchMapping({
         lateThresholdOverride: 7,
+        lateReopenThresholdOverride: 3,
         unassignedThresholdOverride: 9,
+        unassignedReopenThresholdOverride: 4,
+        readyThresholdOverride: 4,
+        readyReopenThresholdOverride: 1,
         capacityRuleEnabledOverride: false,
         capacityPerHourEnabledOverride: true,
         capacityPerHourLimitOverride: 5,
       }),
+    });
+  });
+
+  it("rejects branch reopen overrides that exceed the effective close threshold", () => {
+    mockGetBranchById.mockReturnValue(branchMapping());
+    const req: any = {
+      params: { id: "7" },
+      body: {
+        lateThresholdOverride: null,
+        lateReopenThresholdOverride: 6,
+        unassignedThresholdOverride: null,
+        unassignedReopenThresholdOverride: null,
+        readyThresholdOverride: null,
+        readyReopenThresholdOverride: null,
+        capacityRuleEnabledOverride: null,
+        capacityPerHourEnabledOverride: null,
+        capacityPerHourLimitOverride: null,
+      },
+    };
+    const res = createResponse();
+
+    updateBranchThresholdOverridesRoute(req, res);
+
+    expect(mockSetBranchThresholdOverrides).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({
+      ok: false,
+      message: "Late reopen threshold cannot be greater than the close threshold.",
     });
   });
 

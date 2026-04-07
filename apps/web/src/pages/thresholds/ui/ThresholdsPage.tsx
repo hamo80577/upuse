@@ -29,7 +29,15 @@ export function ThresholdsPage() {
 
   const [toast, setToast] = useState<{ type: "success" | "error" | "info"; msg: string } | null>(null);
   const [rulesMode, setRulesMode] = useState<"chains" | "overrides">("chains");
-  const [thresholdForm, setThresholdForm] = useState({ chains: [] as ChainThreshold[], lateThreshold: 5, unassignedThreshold: 5 });
+  const [thresholdForm, setThresholdForm] = useState({
+    chains: [] as ChainThreshold[],
+    lateThreshold: 5,
+    lateReopenThreshold: 0,
+    unassignedThreshold: 5,
+    unassignedReopenThreshold: 0,
+    readyThreshold: 0,
+    readyReopenThreshold: 0,
+  });
   const [chainEditor, setChainEditor] = useState<ChainEditorDraft>(emptyChainEditor());
   const [editingChainIndex, setEditingChainIndex] = useState<number | null>(null);
   const [branchThresholdEditor, setBranchThresholdEditor] = useState<BranchThresholdEditorDraft>(emptyBranchThresholdEditor());
@@ -41,13 +49,21 @@ export function ThresholdsPage() {
     setThresholdForm({
       chains: normalizeChains(settings.chains),
       lateThreshold: settings.lateThreshold,
+      lateReopenThreshold: settings.lateReopenThreshold ?? 0,
       unassignedThreshold: settings.unassignedThreshold,
+      unassignedReopenThreshold: settings.unassignedReopenThreshold ?? 0,
+      readyThreshold: settings.readyThreshold ?? 0,
+      readyReopenThreshold: settings.readyReopenThreshold ?? 0,
     });
   }, [settings]);
 
   const globalThresholds = {
     lateThreshold: Number(thresholdForm.lateThreshold ?? settings?.lateThreshold ?? 5),
+    lateReopenThreshold: Number(thresholdForm.lateReopenThreshold ?? settings?.lateReopenThreshold ?? 0),
     unassignedThreshold: Number(thresholdForm.unassignedThreshold ?? settings?.unassignedThreshold ?? 5),
+    unassignedReopenThreshold: Number(thresholdForm.unassignedReopenThreshold ?? settings?.unassignedReopenThreshold ?? 0),
+    readyThreshold: Number(thresholdForm.readyThreshold ?? settings?.readyThreshold ?? 0),
+    readyReopenThreshold: Number(thresholdForm.readyReopenThreshold ?? settings?.readyReopenThreshold ?? 0),
     capacityRuleEnabled: true,
     capacityPerHourEnabled: false,
     capacityPerHourLimit: null,
@@ -101,7 +117,11 @@ export function ThresholdsPage() {
   const upsertChain = async () => {
     const name = chainEditor.name.trim();
     const lateThreshold = Number(chainEditor.lateThreshold);
+    const lateReopenThreshold = Number(chainEditor.lateReopenThreshold);
     const unassignedThreshold = Number(chainEditor.unassignedThreshold);
+    const unassignedReopenThreshold = Number(chainEditor.unassignedReopenThreshold);
+    const readyThreshold = Number(chainEditor.readyThreshold);
+    const readyReopenThreshold = Number(chainEditor.readyReopenThreshold);
     const capacityPerHourLimitRaw = chainEditor.capacityPerHourLimit.trim();
     const capacityPerHourLimit = capacityPerHourLimitRaw ? Number(capacityPerHourLimitRaw) : null;
 
@@ -110,8 +130,24 @@ export function ThresholdsPage() {
       return;
     }
 
-    if (!Number.isFinite(lateThreshold) || lateThreshold < 0 || !Number.isFinite(unassignedThreshold) || unassignedThreshold < 0) {
+    if (
+      !Number.isFinite(lateThreshold) || lateThreshold < 0
+      || !Number.isFinite(lateReopenThreshold) || lateReopenThreshold < 0
+      || !Number.isFinite(unassignedThreshold) || unassignedThreshold < 0
+      || !Number.isFinite(unassignedReopenThreshold) || unassignedReopenThreshold < 0
+      || !Number.isFinite(readyThreshold) || readyThreshold < 0
+      || !Number.isFinite(readyReopenThreshold) || readyReopenThreshold < 0
+    ) {
       setToast({ type: "error", msg: "Enter valid thresholds" });
+      return;
+    }
+
+    if (
+      lateReopenThreshold > lateThreshold
+      || unassignedReopenThreshold > unassignedThreshold
+      || readyReopenThreshold > readyThreshold
+    ) {
+      setToast({ type: "error", msg: "Reopen thresholds must be less than or equal to close thresholds" });
       return;
     }
 
@@ -133,7 +169,11 @@ export function ThresholdsPage() {
     nextChains.push({
       name,
       lateThreshold: Math.round(lateThreshold),
+      lateReopenThreshold: Math.round(lateReopenThreshold),
       unassignedThreshold: Math.round(unassignedThreshold),
+      unassignedReopenThreshold: Math.round(unassignedReopenThreshold),
+      readyThreshold: Math.round(readyThreshold),
+      readyReopenThreshold: Math.round(readyReopenThreshold),
       capacityRuleEnabled: chainEditor.capacityRuleEnabled,
       capacityPerHourEnabled: chainEditor.capacityPerHourEnabled,
       capacityPerHourLimit: capacityPerHourLimit == null ? null : Math.round(capacityPerHourLimit),
@@ -143,20 +183,47 @@ export function ThresholdsPage() {
 
   const saveGlobalThresholds = async () => {
     const lateThreshold = Number(thresholdForm.lateThreshold);
+    const lateReopenThreshold = Number(thresholdForm.lateReopenThreshold);
     const unassignedThreshold = Number(thresholdForm.unassignedThreshold);
+    const unassignedReopenThreshold = Number(thresholdForm.unassignedReopenThreshold);
+    const readyThreshold = Number(thresholdForm.readyThreshold);
+    const readyReopenThreshold = Number(thresholdForm.readyReopenThreshold);
 
     if (!canManageThresholds) {
       setToast({ type: "info", msg: "No access" });
       return;
     }
 
-    if (!Number.isFinite(lateThreshold) || lateThreshold < 0 || !Number.isFinite(unassignedThreshold) || unassignedThreshold < 0) {
+    if (
+      !Number.isFinite(lateThreshold) || lateThreshold < 0
+      || !Number.isFinite(lateReopenThreshold) || lateReopenThreshold < 0
+      || !Number.isFinite(unassignedThreshold) || unassignedThreshold < 0
+      || !Number.isFinite(unassignedReopenThreshold) || unassignedReopenThreshold < 0
+      || !Number.isFinite(readyThreshold) || readyThreshold < 0
+      || !Number.isFinite(readyReopenThreshold) || readyReopenThreshold < 0
+    ) {
       setToast({ type: "error", msg: "Enter valid thresholds" });
       return;
     }
 
+    if (
+      lateReopenThreshold > lateThreshold
+      || unassignedReopenThreshold > unassignedThreshold
+      || readyReopenThreshold > readyThreshold
+    ) {
+      setToast({ type: "error", msg: "Reopen thresholds must be less than or equal to close thresholds" });
+      return;
+    }
+
     try {
-      await persistGlobalThresholds(lateThreshold, unassignedThreshold);
+      await persistGlobalThresholds(
+        lateThreshold,
+        lateReopenThreshold,
+        unassignedThreshold,
+        unassignedReopenThreshold,
+        readyThreshold,
+        readyReopenThreshold,
+      );
       setToast({ type: "success", msg: "Defaults saved" });
     } catch (error) {
       setToast({ type: "error", msg: describeApiError(error, "Default threshold save failed") });
@@ -168,7 +235,11 @@ export function ThresholdsPage() {
     setEditingThresholdBranchId(branch.id);
     setBranchThresholdEditor({
       lateThreshold: branch.lateThresholdOverride == null ? "" : String(branch.lateThresholdOverride),
+      lateReopenThreshold: branch.lateReopenThresholdOverride == null ? "" : String(branch.lateReopenThresholdOverride),
       unassignedThreshold: branch.unassignedThresholdOverride == null ? "" : String(branch.unassignedThresholdOverride),
+      unassignedReopenThreshold: branch.unassignedReopenThresholdOverride == null ? "" : String(branch.unassignedReopenThresholdOverride),
+      readyThreshold: branch.readyThresholdOverride == null ? "" : String(branch.readyThresholdOverride),
+      readyReopenThreshold: branch.readyReopenThresholdOverride == null ? "" : String(branch.readyReopenThresholdOverride),
       capacityRuleEnabled: branch.capacityRuleEnabledOverride ?? (effective.capacityRuleEnabled !== false),
       capacityPerHourEnabled: branch.capacityPerHourEnabledOverride ?? (effective.capacityPerHourEnabled === true),
       capacityPerHourLimit:
@@ -188,10 +259,18 @@ export function ThresholdsPage() {
     }
 
     const lateThresholdRaw = branchThresholdEditor.lateThreshold.trim();
+    const lateReopenThresholdRaw = branchThresholdEditor.lateReopenThreshold.trim();
     const unassignedThresholdRaw = branchThresholdEditor.unassignedThreshold.trim();
+    const unassignedReopenThresholdRaw = branchThresholdEditor.unassignedReopenThreshold.trim();
+    const readyThresholdRaw = branchThresholdEditor.readyThreshold.trim();
+    const readyReopenThresholdRaw = branchThresholdEditor.readyReopenThreshold.trim();
     const capacityPerHourLimitRaw = branchThresholdEditor.capacityPerHourLimit.trim();
     const hasLateThreshold = lateThresholdRaw.length > 0;
+    const hasLateReopenThreshold = lateReopenThresholdRaw.length > 0;
     const hasUnassignedThreshold = unassignedThresholdRaw.length > 0;
+    const hasUnassignedReopenThreshold = unassignedReopenThresholdRaw.length > 0;
+    const hasReadyThreshold = readyThresholdRaw.length > 0;
+    const hasReadyReopenThreshold = readyReopenThresholdRaw.length > 0;
     const hasCapacityPerHourLimit = capacityPerHourLimitRaw.length > 0;
 
     if (hasLateThreshold !== hasUnassignedThreshold) {
@@ -200,12 +279,20 @@ export function ThresholdsPage() {
     }
 
     const lateThreshold = hasLateThreshold ? Number(lateThresholdRaw) : null;
+    const lateReopenThreshold = hasLateReopenThreshold ? Number(lateReopenThresholdRaw) : null;
     const unassignedThreshold = hasUnassignedThreshold ? Number(unassignedThresholdRaw) : null;
+    const unassignedReopenThreshold = hasUnassignedReopenThreshold ? Number(unassignedReopenThresholdRaw) : null;
+    const readyThreshold = hasReadyThreshold ? Number(readyThresholdRaw) : null;
+    const readyReopenThreshold = hasReadyReopenThreshold ? Number(readyReopenThresholdRaw) : null;
     const capacityPerHourLimit = hasCapacityPerHourLimit ? Number(capacityPerHourLimitRaw) : null;
 
     if (
       (lateThreshold != null && (!Number.isFinite(lateThreshold) || lateThreshold < 0))
+      || (lateReopenThreshold != null && (!Number.isFinite(lateReopenThreshold) || lateReopenThreshold < 0))
       || (unassignedThreshold != null && (!Number.isFinite(unassignedThreshold) || unassignedThreshold < 0))
+      || (unassignedReopenThreshold != null && (!Number.isFinite(unassignedReopenThreshold) || unassignedReopenThreshold < 0))
+      || (readyThreshold != null && (!Number.isFinite(readyThreshold) || readyThreshold < 0))
+      || (readyReopenThreshold != null && (!Number.isFinite(readyReopenThreshold) || readyReopenThreshold < 0))
     ) {
       setToast({ type: "error", msg: "Enter valid branch thresholds" });
       return;
@@ -222,6 +309,10 @@ export function ThresholdsPage() {
     const inherited = resolveEffectiveThresholds(
       {
         ...branch,
+        readyThresholdOverride: null,
+        readyReopenThresholdOverride: null,
+        lateReopenThresholdOverride: null,
+        unassignedReopenThresholdOverride: null,
         capacityRuleEnabledOverride: null,
         capacityPerHourEnabledOverride: null,
         capacityPerHourLimitOverride: null,
@@ -229,6 +320,28 @@ export function ThresholdsPage() {
       thresholdForm.chains,
       globalThresholds,
     );
+    const nextLateThreshold = lateThreshold == null ? inherited.lateThreshold ?? 0 : Math.round(lateThreshold);
+    const nextLateReopenThreshold = lateReopenThreshold == null ? inherited.lateReopenThreshold ?? 0 : Math.round(lateReopenThreshold);
+    const nextUnassignedThreshold = unassignedThreshold == null ? inherited.unassignedThreshold ?? 0 : Math.round(unassignedThreshold);
+    const nextUnassignedReopenThreshold =
+      unassignedReopenThreshold == null
+        ? inherited.unassignedReopenThreshold ?? 0
+        : Math.round(unassignedReopenThreshold);
+    const nextReadyThreshold = readyThreshold == null ? inherited.readyThreshold ?? 0 : Math.round(readyThreshold);
+    const nextReadyReopenThreshold =
+      readyReopenThreshold == null
+        ? inherited.readyReopenThreshold ?? 0
+        : Math.round(readyReopenThreshold);
+
+    if (
+      nextLateReopenThreshold > nextLateThreshold
+      || nextUnassignedReopenThreshold > nextUnassignedThreshold
+      || nextReadyReopenThreshold > nextReadyThreshold
+    ) {
+      setToast({ type: "error", msg: "Reopen thresholds must be less than or equal to close thresholds" });
+      return;
+    }
+
     const capacityRuleEnabledOverride =
       branchThresholdEditor.capacityRuleEnabled === (inherited.capacityRuleEnabled !== false)
         ? null
@@ -260,7 +373,11 @@ export function ThresholdsPage() {
       await persistBranchThresholdOverride(
         branch.id,
         lateThreshold == null ? null : Math.round(lateThreshold),
+        lateReopenThreshold == null ? null : Math.round(lateReopenThreshold),
         unassignedThreshold == null ? null : Math.round(unassignedThreshold),
+        unassignedReopenThreshold == null ? null : Math.round(unassignedReopenThreshold),
+        readyThreshold == null ? null : Math.round(readyThreshold),
+        readyReopenThreshold == null ? null : Math.round(readyReopenThreshold),
         capacityRuleEnabledOverride,
         capacityPerHourEnabledOverride,
         capacityPerHourLimitOverride,
@@ -283,7 +400,7 @@ export function ThresholdsPage() {
 
     try {
       setSavingThresholdBranchId(branch.id);
-      await persistBranchThresholdOverride(branch.id, null, null, null, null, null);
+      await persistBranchThresholdOverride(branch.id, null, null, null, null, null, null, null, null, null);
       setEditingThresholdBranchId(null);
       setBranchThresholdEditor(emptyBranchThresholdEditor());
       setToast({ type: "success", msg: "Using inherited thresholds" });
@@ -309,26 +426,62 @@ export function ThresholdsPage() {
 
             {rulesMode === "chains" ? (
               <>
-                <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
-                  <TextField
-                    label="Default Late Threshold"
-                    type="number"
-                    size="small"
-                    value={thresholdForm.lateThreshold}
-                    onChange={(event) => setThresholdForm((current) => ({ ...current, lateThreshold: Number(event.target.value) }))}
-                    disabled={!canManageThresholds}
-                  />
-                  <TextField
-                    label="Default Unassigned Threshold"
-                    type="number"
-                    size="small"
-                    value={thresholdForm.unassignedThreshold}
-                    onChange={(event) => setThresholdForm((current) => ({ ...current, unassignedThreshold: Number(event.target.value) }))}
-                    disabled={!canManageThresholds}
-                  />
-                  <Button variant="contained" onClick={() => void saveGlobalThresholds()} disabled={!canManageThresholds}>
-                    Save Defaults
-                  </Button>
+                <Stack spacing={1.2}>
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
+                    <TextField
+                      label="Default Late Threshold"
+                      type="number"
+                      size="small"
+                      value={thresholdForm.lateThreshold}
+                      onChange={(event) => setThresholdForm((current) => ({ ...current, lateThreshold: Number(event.target.value) }))}
+                      disabled={!canManageThresholds}
+                    />
+                    <TextField
+                      label="Default Late Reopen Threshold"
+                      type="number"
+                      size="small"
+                      value={thresholdForm.lateReopenThreshold}
+                      onChange={(event) => setThresholdForm((current) => ({ ...current, lateReopenThreshold: Number(event.target.value) }))}
+                      disabled={!canManageThresholds}
+                    />
+                    <TextField
+                      label="Default Unassigned Threshold"
+                      type="number"
+                      size="small"
+                      value={thresholdForm.unassignedThreshold}
+                      onChange={(event) => setThresholdForm((current) => ({ ...current, unassignedThreshold: Number(event.target.value) }))}
+                      disabled={!canManageThresholds}
+                    />
+                  </Stack>
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
+                    <TextField
+                      label="Default Unassigned Reopen Threshold"
+                      type="number"
+                      size="small"
+                      value={thresholdForm.unassignedReopenThreshold}
+                      onChange={(event) => setThresholdForm((current) => ({ ...current, unassignedReopenThreshold: Number(event.target.value) }))}
+                      disabled={!canManageThresholds}
+                    />
+                    <TextField
+                      label="Default Ready To Pickup Threshold"
+                      type="number"
+                      size="small"
+                      value={thresholdForm.readyThreshold}
+                      onChange={(event) => setThresholdForm((current) => ({ ...current, readyThreshold: Number(event.target.value) }))}
+                      disabled={!canManageThresholds}
+                    />
+                    <TextField
+                      label="Default Ready To Pickup Reopen Threshold"
+                      type="number"
+                      size="small"
+                      value={thresholdForm.readyReopenThreshold}
+                      onChange={(event) => setThresholdForm((current) => ({ ...current, readyReopenThreshold: Number(event.target.value) }))}
+                      disabled={!canManageThresholds}
+                    />
+                    <Button variant="contained" onClick={() => void saveGlobalThresholds()} disabled={!canManageThresholds}>
+                      Save Defaults
+                    </Button>
+                  </Stack>
                 </Stack>
 
                 <ChainThresholdManager
@@ -342,7 +495,11 @@ export function ThresholdsPage() {
                     setChainEditor({
                       name: chain.name,
                       lateThreshold: String(chain.lateThreshold),
+                      lateReopenThreshold: String(chain.lateReopenThreshold ?? 0),
                       unassignedThreshold: String(chain.unassignedThreshold),
+                      unassignedReopenThreshold: String(chain.unassignedReopenThreshold ?? 0),
+                      readyThreshold: String(chain.readyThreshold ?? 0),
+                      readyReopenThreshold: String(chain.readyReopenThreshold ?? 0),
                       capacityRuleEnabled: chain.capacityRuleEnabled !== false,
                       capacityPerHourEnabled: chain.capacityPerHourEnabled === true,
                       capacityPerHourLimit: chain.capacityPerHourLimit == null ? "" : String(chain.capacityPerHourLimit),

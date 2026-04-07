@@ -1,5 +1,6 @@
 import AccessTimeFilledRoundedIcon from "@mui/icons-material/AccessTimeFilledRounded";
 import GroupsRoundedIcon from "@mui/icons-material/GroupsRounded";
+import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
 import PersonOffRoundedIcon from "@mui/icons-material/PersonOffRounded";
 import ScheduleRoundedIcon from "@mui/icons-material/ScheduleRounded";
 import { Box, Chip, LinearProgress, Stack, Typography } from "@mui/material";
@@ -25,6 +26,15 @@ function triggerMeta(reason?: BranchSnapshot["closeReason"]) {
       background: "rgba(254,226,226,0.94)",
       border: "rgba(248,113,113,0.22)",
       icon: <PersonOffRoundedIcon sx={{ fontSize: 13 }} />,
+    };
+  }
+  if (reason === "READY_TO_PICKUP") {
+    return {
+      label: "Ready To Pickup Trigger",
+      tone: "#1d4ed8",
+      background: "rgba(219,234,254,0.94)",
+      border: "rgba(96,165,250,0.24)",
+      icon: <Inventory2RoundedIcon sx={{ fontSize: 13 }} />,
     };
   }
   if (reason === "CAPACITY") {

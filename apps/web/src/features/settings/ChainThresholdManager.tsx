@@ -9,10 +9,18 @@ import type { ChainThreshold } from "../../api/types";
 export interface ChainEditorDraft {
   name: string;
   lateThreshold: string;
+  lateReopenThreshold: string;
   unassignedThreshold: string;
+  unassignedReopenThreshold: string;
+  readyThreshold: string;
+  readyReopenThreshold: string;
   capacityRuleEnabled: boolean;
   capacityPerHourEnabled: boolean;
   capacityPerHourLimit: string;
+}
+
+function thresholdChipLabel(label: string, closeThreshold: number, reopenThreshold: number | undefined) {
+  return `${label} ${closeThreshold} -> ${reopenThreshold ?? 0}`;
 }
 
 export function ChainThresholdManager(props: {
@@ -85,14 +93,18 @@ export function ChainThresholdManager(props: {
                   {chain.name}
                 </Typography>
                 <Typography variant="caption" sx={{ color: "text.secondary", display: { xs: "none", sm: "block" } }}>
-                  Late {chain.lateThreshold} • Unassigned {chain.unassignedThreshold}
+                  {thresholdChipLabel("Late", chain.lateThreshold, chain.lateReopenThreshold)}
+                  {" • "}
+                  {thresholdChipLabel("Unassigned", chain.unassignedThreshold, chain.unassignedReopenThreshold)}
+                  {" • "}
+                  {thresholdChipLabel("Ready", chain.readyThreshold ?? 0, chain.readyReopenThreshold)}
                 </Typography>
               </Box>
 
               <Stack direction="row" spacing={0.7} sx={{ flexWrap: "wrap" }}>
                 <Chip
                   size="small"
-                  label={`Late ${chain.lateThreshold}`}
+                  label={thresholdChipLabel("Late", chain.lateThreshold, chain.lateReopenThreshold)}
                   sx={{
                     fontWeight: 800,
                     bgcolor: "rgba(251,146,60,0.10)",
@@ -101,11 +113,20 @@ export function ChainThresholdManager(props: {
                 />
                 <Chip
                   size="small"
-                  label={`Unassigned ${chain.unassignedThreshold}`}
+                  label={thresholdChipLabel("Unassigned", chain.unassignedThreshold, chain.unassignedReopenThreshold)}
                   sx={{
                     fontWeight: 800,
                     bgcolor: "rgba(239,68,68,0.10)",
                     color: "#b91c1c",
+                  }}
+                />
+                <Chip
+                  size="small"
+                  label={thresholdChipLabel("Ready", chain.readyThreshold ?? 0, chain.readyReopenThreshold)}
+                  sx={{
+                    fontWeight: 800,
+                    bgcolor: "rgba(59,130,246,0.10)",
+                    color: "#1d4ed8",
                   }}
                 />
                 <Chip
@@ -190,6 +211,15 @@ export function ChainThresholdManager(props: {
             sx={{ width: { xs: "100%", md: 180 } }}
           />
           <TextField
+            label="Late Reopen Threshold"
+            type="number"
+            value={chainEditor.lateReopenThreshold}
+            onChange={(event) => props.onChangeEditor({ lateReopenThreshold: event.target.value })}
+            inputProps={{ min: 0 }}
+            disabled={readOnly}
+            sx={{ width: { xs: "100%", md: 220 } }}
+          />
+          <TextField
             label="Unassigned Threshold"
             type="number"
             value={chainEditor.unassignedThreshold}
@@ -197,6 +227,36 @@ export function ChainThresholdManager(props: {
             inputProps={{ min: 0 }}
             disabled={readOnly}
             sx={{ width: { xs: "100%", md: 180 } }}
+          />
+        </Stack>
+
+        <Stack direction={{ xs: "column", md: "row" }} spacing={1.2} sx={{ mt: 1.2 }}>
+          <TextField
+            label="Unassigned Reopen Threshold"
+            type="number"
+            value={chainEditor.unassignedReopenThreshold}
+            onChange={(event) => props.onChangeEditor({ unassignedReopenThreshold: event.target.value })}
+            inputProps={{ min: 0 }}
+            disabled={readOnly}
+            sx={{ width: { xs: "100%", md: 220 } }}
+          />
+          <TextField
+            label="Ready To Pickup Threshold"
+            type="number"
+            value={chainEditor.readyThreshold}
+            onChange={(event) => props.onChangeEditor({ readyThreshold: event.target.value })}
+            inputProps={{ min: 0 }}
+            disabled={readOnly}
+            sx={{ width: { xs: "100%", md: 220 } }}
+          />
+          <TextField
+            label="Ready To Pickup Reopen Threshold"
+            type="number"
+            value={chainEditor.readyReopenThreshold}
+            onChange={(event) => props.onChangeEditor({ readyReopenThreshold: event.target.value })}
+            inputProps={{ min: 0 }}
+            disabled={readOnly}
+            sx={{ width: { xs: "100%", md: 260 } }}
           />
         </Stack>
 

@@ -7,7 +7,11 @@ import type { BranchMappingItem, ChainThreshold, ThresholdProfile } from "../../
 
 export interface BranchThresholdEditorDraft {
   lateThreshold: string;
+  lateReopenThreshold: string;
   unassignedThreshold: string;
+  unassignedReopenThreshold: string;
+  readyThreshold: string;
+  readyReopenThreshold: string;
   capacityRuleEnabled: boolean;
   capacityPerHourEnabled: boolean;
   capacityPerHourLimit: string;
@@ -25,12 +29,29 @@ function safeText(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+function thresholdChipLabel(label: string, closeThreshold: number, reopenThreshold: number | undefined) {
+  return `${label} ${closeThreshold} -> ${reopenThreshold ?? 0}`;
+}
+
+function clampReopenThreshold(closeThreshold: number, reopenThreshold: number | undefined) {
+  const normalizedClose = Math.max(0, Math.round(closeThreshold));
+  const normalizedReopen =
+    typeof reopenThreshold === "number"
+      ? Math.max(0, Math.round(reopenThreshold))
+      : 0;
+  return Math.min(normalizedClose, normalizedReopen);
+}
+
 function resolveEffectiveThresholdProfile(
   branch: Pick<
     BranchMappingItem,
     | "chainName"
     | "lateThresholdOverride"
+    | "lateReopenThresholdOverride"
     | "unassignedThresholdOverride"
+    | "unassignedReopenThresholdOverride"
+    | "readyThresholdOverride"
+    | "readyReopenThresholdOverride"
     | "capacityRuleEnabledOverride"
     | "capacityPerHourEnabledOverride"
     | "capacityPerHourLimitOverride"
@@ -38,7 +59,15 @@ function resolveEffectiveThresholdProfile(
   chains: ChainThreshold[],
   globalThresholds: Pick<
     ThresholdProfile,
-    "lateThreshold" | "unassignedThreshold" | "capacityRuleEnabled" | "capacityPerHourEnabled" | "capacityPerHourLimit"
+    | "lateThreshold"
+    | "lateReopenThreshold"
+    | "unassignedThreshold"
+    | "unassignedReopenThreshold"
+    | "readyThreshold"
+    | "readyReopenThreshold"
+    | "capacityRuleEnabled"
+    | "capacityPerHourEnabled"
+    | "capacityPerHourLimit"
   >,
 ): ThresholdProfile {
   const chainKey = safeText(branch.chainName).trim().toLowerCase();
@@ -48,7 +77,11 @@ function resolveEffectiveThresholdProfile(
   const inherited = chain
     ? {
         lateThreshold: chain.lateThreshold,
+        lateReopenThreshold: chain.lateReopenThreshold ?? 0,
         unassignedThreshold: chain.unassignedThreshold,
+        unassignedReopenThreshold: chain.unassignedReopenThreshold ?? 0,
+        readyThreshold: chain.readyThreshold ?? 0,
+        readyReopenThreshold: chain.readyReopenThreshold ?? 0,
         capacityRuleEnabled: chain.capacityRuleEnabled !== false,
         capacityPerHourEnabled: chain.capacityPerHourEnabled === true,
         capacityPerHourLimit: chain.capacityPerHourLimit ?? null,
@@ -56,7 +89,11 @@ function resolveEffectiveThresholdProfile(
       }
     : {
         lateThreshold: globalThresholds.lateThreshold,
+        lateReopenThreshold: globalThresholds.lateReopenThreshold ?? 0,
         unassignedThreshold: globalThresholds.unassignedThreshold,
+        unassignedReopenThreshold: globalThresholds.unassignedReopenThreshold ?? 0,
+        readyThreshold: globalThresholds.readyThreshold ?? 0,
+        readyReopenThreshold: globalThresholds.readyReopenThreshold ?? 0,
         capacityRuleEnabled: globalThresholds.capacityRuleEnabled !== false,
         capacityPerHourEnabled: globalThresholds.capacityPerHourEnabled === true,
         capacityPerHourLimit: globalThresholds.capacityPerHourLimit ?? null,
@@ -66,15 +103,40 @@ function resolveEffectiveThresholdProfile(
   const hasThresholdOverride =
     typeof branch.lateThresholdOverride === "number" &&
     typeof branch.unassignedThresholdOverride === "number";
+  const hasLateReopenThresholdOverride = typeof branch.lateReopenThresholdOverride === "number";
+  const hasUnassignedReopenThresholdOverride = typeof branch.unassignedReopenThresholdOverride === "number";
+  const hasReadyThresholdOverride = typeof branch.readyThresholdOverride === "number";
+  const hasReadyReopenThresholdOverride = typeof branch.readyReopenThresholdOverride === "number";
   const hasCapacityOverride = typeof branch.capacityRuleEnabledOverride === "boolean";
   const hasCapacityPerHourOverride =
     typeof branch.capacityPerHourEnabledOverride === "boolean" &&
     typeof branch.capacityPerHourLimitOverride === "number";
 
-  if (hasThresholdOverride || hasCapacityOverride || hasCapacityPerHourOverride) {
+  if (
+    hasThresholdOverride
+    || hasLateReopenThresholdOverride
+    || hasUnassignedReopenThresholdOverride
+    || hasReadyThresholdOverride
+    || hasReadyReopenThresholdOverride
+    || hasCapacityOverride
+    || hasCapacityPerHourOverride
+  ) {
     return {
       lateThreshold: hasThresholdOverride ? branch.lateThresholdOverride as number : inherited.lateThreshold,
+      lateReopenThreshold: clampReopenThreshold(
+        hasThresholdOverride ? branch.lateThresholdOverride as number : inherited.lateThreshold,
+        hasLateReopenThresholdOverride ? branch.lateReopenThresholdOverride as number : inherited.lateReopenThreshold,
+      ),
       unassignedThreshold: hasThresholdOverride ? branch.unassignedThresholdOverride as number : inherited.unassignedThreshold,
+      unassignedReopenThreshold: clampReopenThreshold(
+        hasThresholdOverride ? branch.unassignedThresholdOverride as number : inherited.unassignedThreshold,
+        hasUnassignedReopenThresholdOverride ? branch.unassignedReopenThresholdOverride as number : inherited.unassignedReopenThreshold,
+      ),
+      readyThreshold: hasReadyThresholdOverride ? branch.readyThresholdOverride as number : inherited.readyThreshold,
+      readyReopenThreshold: clampReopenThreshold(
+        hasReadyThresholdOverride ? branch.readyThresholdOverride as number : inherited.readyThreshold,
+        hasReadyReopenThresholdOverride ? branch.readyReopenThresholdOverride as number : inherited.readyReopenThreshold,
+      ),
       capacityRuleEnabled: hasCapacityOverride ? branch.capacityRuleEnabledOverride as boolean : inherited.capacityRuleEnabled,
       capacityPerHourEnabled:
         hasCapacityPerHourOverride ? branch.capacityPerHourEnabledOverride as boolean : inherited.capacityPerHourEnabled,
@@ -96,7 +158,15 @@ function buildThresholdGroups(
   chains: ChainThreshold[],
   globalThresholds: Pick<
     ThresholdProfile,
-    "lateThreshold" | "unassignedThreshold" | "capacityRuleEnabled" | "capacityPerHourEnabled" | "capacityPerHourLimit"
+    | "lateThreshold"
+    | "lateReopenThreshold"
+    | "unassignedThreshold"
+    | "unassignedReopenThreshold"
+    | "readyThreshold"
+    | "readyReopenThreshold"
+    | "capacityRuleEnabled"
+    | "capacityPerHourEnabled"
+    | "capacityPerHourLimit"
   >,
 ) {
   const groups = new Map<string, ThresholdGroup>();
@@ -110,7 +180,11 @@ function buildThresholdGroups(
       overrideCount: 0,
       profile: {
         lateThreshold: chain.lateThreshold,
+        lateReopenThreshold: chain.lateReopenThreshold ?? 0,
         unassignedThreshold: chain.unassignedThreshold,
+        unassignedReopenThreshold: chain.unassignedReopenThreshold ?? 0,
+        readyThreshold: chain.readyThreshold ?? 0,
+        readyReopenThreshold: chain.readyReopenThreshold ?? 0,
         capacityRuleEnabled: chain.capacityRuleEnabled !== false,
         capacityPerHourEnabled: chain.capacityPerHourEnabled === true,
         capacityPerHourLimit: chain.capacityPerHourLimit ?? null,
@@ -128,6 +202,10 @@ function buildThresholdGroups(
       existing.branches.push(branch);
       if (
         (typeof branch.lateThresholdOverride === "number" && typeof branch.unassignedThresholdOverride === "number")
+        || typeof branch.lateReopenThresholdOverride === "number"
+        || typeof branch.unassignedReopenThresholdOverride === "number"
+        || typeof branch.readyThresholdOverride === "number"
+        || typeof branch.readyReopenThresholdOverride === "number"
         || typeof branch.capacityRuleEnabledOverride === "boolean"
         || (
           typeof branch.capacityPerHourEnabledOverride === "boolean" &&
@@ -145,6 +223,10 @@ function buildThresholdGroups(
       branches: [branch],
       overrideCount:
         (typeof branch.lateThresholdOverride === "number" && typeof branch.unassignedThresholdOverride === "number")
+        || typeof branch.lateReopenThresholdOverride === "number"
+        || typeof branch.unassignedReopenThresholdOverride === "number"
+        || typeof branch.readyThresholdOverride === "number"
+        || typeof branch.readyReopenThresholdOverride === "number"
         || typeof branch.capacityRuleEnabledOverride === "boolean"
         || (
           typeof branch.capacityPerHourEnabledOverride === "boolean" &&
@@ -154,7 +236,11 @@ function buildThresholdGroups(
           : 0,
       profile: {
         lateThreshold: globalThresholds.lateThreshold,
+        lateReopenThreshold: globalThresholds.lateReopenThreshold ?? 0,
         unassignedThreshold: globalThresholds.unassignedThreshold,
+        unassignedReopenThreshold: globalThresholds.unassignedReopenThreshold ?? 0,
+        readyThreshold: globalThresholds.readyThreshold ?? 0,
+        readyReopenThreshold: globalThresholds.readyReopenThreshold ?? 0,
         capacityRuleEnabled: globalThresholds.capacityRuleEnabled !== false,
         capacityPerHourEnabled: globalThresholds.capacityPerHourEnabled === true,
         capacityPerHourLimit: globalThresholds.capacityPerHourLimit ?? null,
@@ -193,7 +279,11 @@ export function BranchThresholdOverrideManager(props: {
   chains: ChainThreshold[];
   globalThresholds: {
     lateThreshold: number;
+    lateReopenThreshold?: number;
     unassignedThreshold: number;
+    unassignedReopenThreshold?: number;
+    readyThreshold?: number;
+    readyReopenThreshold?: number;
     capacityRuleEnabled: boolean;
     capacityPerHourEnabled: boolean;
     capacityPerHourLimit: number | null;
@@ -245,6 +335,10 @@ export function BranchThresholdOverrideManager(props: {
             size="small"
             label={`${branches.filter((branch) => (
               (typeof branch.lateThresholdOverride === "number" && typeof branch.unassignedThresholdOverride === "number")
+              || typeof branch.lateReopenThresholdOverride === "number"
+              || typeof branch.unassignedReopenThresholdOverride === "number"
+              || typeof branch.readyThresholdOverride === "number"
+              || typeof branch.readyReopenThresholdOverride === "number"
               || typeof branch.capacityRuleEnabledOverride === "boolean"
               || (
                 typeof branch.capacityPerHourEnabledOverride === "boolean" &&
@@ -286,13 +380,18 @@ export function BranchThresholdOverrideManager(props: {
                   <Stack direction="row" spacing={0.7} flexWrap="wrap">
                     <Chip
                       size="small"
-                      label={`Late ${group.profile.lateThreshold}`}
+                      label={thresholdChipLabel("Late", group.profile.lateThreshold, group.profile.lateReopenThreshold)}
                       sx={{ fontWeight: 800, bgcolor: "rgba(251,146,60,0.10)", color: "#c2410c" }}
                     />
                     <Chip
                       size="small"
-                      label={`Unassigned ${group.profile.unassignedThreshold}`}
+                      label={thresholdChipLabel("Unassigned", group.profile.unassignedThreshold, group.profile.unassignedReopenThreshold)}
                       sx={{ fontWeight: 800, bgcolor: "rgba(239,68,68,0.10)", color: "#b91c1c" }}
+                    />
+                    <Chip
+                      size="small"
+                      label={thresholdChipLabel("Ready", group.profile.readyThreshold ?? 0, group.profile.readyReopenThreshold)}
+                      sx={{ fontWeight: 800, bgcolor: "rgba(59,130,246,0.10)", color: "#1d4ed8" }}
                     />
                     <Chip
                       size="small"
@@ -341,6 +440,10 @@ export function BranchThresholdOverrideManager(props: {
                       const hasCustomOverride =
                         (typeof branch.lateThresholdOverride === "number" &&
                           typeof branch.unassignedThresholdOverride === "number")
+                        || typeof branch.lateReopenThresholdOverride === "number"
+                        || typeof branch.unassignedReopenThresholdOverride === "number"
+                        || typeof branch.readyThresholdOverride === "number"
+                        || typeof branch.readyReopenThresholdOverride === "number"
                         || typeof branch.capacityRuleEnabledOverride === "boolean"
                         || (
                           typeof branch.capacityPerHourEnabledOverride === "boolean" &&
@@ -374,13 +477,18 @@ export function BranchThresholdOverrideManager(props: {
                               <Stack direction="row" spacing={0.7} flexWrap="wrap">
                                 <Chip
                                   size="small"
-                                  label={`Late ${effective.lateThreshold}`}
+                                  label={thresholdChipLabel("Late", effective.lateThreshold, effective.lateReopenThreshold)}
                                   sx={{ fontWeight: 800, bgcolor: "rgba(251,146,60,0.10)", color: "#c2410c" }}
                                 />
                                 <Chip
                                   size="small"
-                                  label={`Unassigned ${effective.unassignedThreshold}`}
+                                  label={thresholdChipLabel("Unassigned", effective.unassignedThreshold, effective.unassignedReopenThreshold)}
                                   sx={{ fontWeight: 800, bgcolor: "rgba(239,68,68,0.10)", color: "#b91c1c" }}
+                                />
+                                <Chip
+                                  size="small"
+                                  label={thresholdChipLabel("Ready", effective.readyThreshold ?? 0, effective.readyReopenThreshold)}
+                                  sx={{ fontWeight: 800, bgcolor: "rgba(59,130,246,0.10)", color: "#1d4ed8" }}
                                 />
                                 <Chip
                                   size="small"
@@ -459,6 +567,16 @@ export function BranchThresholdOverrideManager(props: {
                                     sx={{ width: { xs: "100%", md: 180 } }}
                                   />
                                   <TextField
+                                    label="Late Reopen Threshold Override"
+                                    type="number"
+                                    value={branchEditor.lateReopenThreshold}
+                                    onChange={(event) => props.onChangeEditor({ lateReopenThreshold: event.target.value })}
+                                    placeholder={String(effective.lateReopenThreshold ?? 0)}
+                                    inputProps={{ min: 0 }}
+                                    disabled={readOnly || isSaving}
+                                    sx={{ width: { xs: "100%", md: 220 } }}
+                                  />
+                                  <TextField
                                     label="Unassigned Threshold Override"
                                     type="number"
                                     value={branchEditor.unassignedThreshold}
@@ -467,6 +585,39 @@ export function BranchThresholdOverrideManager(props: {
                                     inputProps={{ min: 0 }}
                                     disabled={readOnly || isSaving}
                                     sx={{ width: { xs: "100%", md: 200 } }}
+                                  />
+                                </Stack>
+
+                                <Stack direction={{ xs: "column", md: "row" }} spacing={1.1} sx={{ mt: 1.1 }}>
+                                  <TextField
+                                    label="Unassigned Reopen Threshold Override"
+                                    type="number"
+                                    value={branchEditor.unassignedReopenThreshold}
+                                    onChange={(event) => props.onChangeEditor({ unassignedReopenThreshold: event.target.value })}
+                                    placeholder={String(effective.unassignedReopenThreshold ?? 0)}
+                                    inputProps={{ min: 0 }}
+                                    disabled={readOnly || isSaving}
+                                    sx={{ width: { xs: "100%", md: 240 } }}
+                                  />
+                                  <TextField
+                                    label="Ready To Pickup Threshold Override"
+                                    type="number"
+                                    value={branchEditor.readyThreshold}
+                                    onChange={(event) => props.onChangeEditor({ readyThreshold: event.target.value })}
+                                    placeholder={String(effective.readyThreshold ?? 0)}
+                                    inputProps={{ min: 0 }}
+                                    disabled={readOnly || isSaving}
+                                    sx={{ width: { xs: "100%", md: 240 } }}
+                                  />
+                                  <TextField
+                                    label="Ready To Pickup Reopen Threshold Override"
+                                    type="number"
+                                    value={branchEditor.readyReopenThreshold}
+                                    onChange={(event) => props.onChangeEditor({ readyReopenThreshold: event.target.value })}
+                                    placeholder={String(effective.readyReopenThreshold ?? 0)}
+                                    inputProps={{ min: 0 }}
+                                    disabled={readOnly || isSaving}
+                                    sx={{ width: { xs: "100%", md: 280 } }}
                                   />
                                 </Stack>
 

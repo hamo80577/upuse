@@ -32,6 +32,10 @@ const HISTORY_SYNC_PAGE_SIZE = 500;
 const HISTORY_OVERLAP_MS = 10 * 60 * 1000;
 const PICKER_RECENT_ACTIVE_WINDOW_MS = 60 * 60 * 1000;
 
+function isReadyToPickupStatus(status: unknown) {
+  return typeof status === "string" && status === "READY_FOR_PICKUP";
+}
+
 export type BranchDetailCacheState = "fresh" | "warming" | "stale";
 export type MirrorSyncPhase = "bootstrap" | "active" | "history" | "repair";
 
@@ -216,6 +220,7 @@ function emptyMetrics(): OrdersMetrics {
     activeNow: 0,
     lateNow: 0,
     unassignedNow: 0,
+    readyNow: 0,
   };
 }
 
@@ -1577,6 +1582,7 @@ export function getMirrorBranchDetail(params: {
         if (row.isActiveNow === 1) {
           current.activeNow += 1;
           if (row.isUnassigned === 1) current.unassignedNow += 1;
+          if (isReadyToPickupStatus(row.status)) current.readyNow = (current.readyNow ?? 0) + 1;
           if (row.pickupAt && isPastPickup(nowIso, row.pickupAt)) current.lateNow += 1;
         }
         return current;

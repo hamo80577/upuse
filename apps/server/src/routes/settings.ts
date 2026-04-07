@@ -14,7 +14,11 @@ const SettingsPatch = z
       z.object({
         name: z.string().min(1).max(120),
         lateThreshold: z.number().int().min(0).max(999),
+        lateReopenThreshold: z.number().int().min(0).max(999).optional(),
         unassignedThreshold: z.number().int().min(0).max(999),
+        unassignedReopenThreshold: z.number().int().min(0).max(999).optional(),
+        readyThreshold: z.number().int().min(0).max(999).optional(),
+        readyReopenThreshold: z.number().int().min(0).max(999).optional(),
         capacityRuleEnabled: z.boolean().optional(),
         capacityPerHourEnabled: z.boolean().optional(),
         capacityPerHourLimit: z.number().int().min(1).max(999).nullable().optional(),
@@ -28,7 +32,11 @@ const SettingsPatch = z
       }),
     ).max(200).optional(),
     lateThreshold: z.number().int().min(0).optional(),
+    lateReopenThreshold: z.number().int().min(0).optional(),
     unassignedThreshold: z.number().int().min(0).optional(),
+    unassignedReopenThreshold: z.number().int().min(0).optional(),
+    readyThreshold: z.number().int().min(0).optional(),
+    readyReopenThreshold: z.number().int().min(0).optional(),
     tempCloseMinutes: z.number().int().min(1).optional(),
     graceMinutes: z.number().int().min(0).optional(),
     ordersRefreshSeconds: z.number().int().min(10).optional(),
@@ -53,7 +61,15 @@ export function putSettingsRoute(req: Request, res: Response) {
   const patch = SettingsPatch.parse(body);
   const requestedKeys = Object.keys(patch);
   const touchesTokens = requestedKeys.some((key) => key === "ordersToken" || key === "availabilityToken");
-  const touchesThresholds = requestedKeys.some((key) => key === "chains" || key === "lateThreshold" || key === "unassignedThreshold");
+  const touchesThresholds = requestedKeys.some((key) =>
+    key === "chains"
+    || key === "lateThreshold"
+    || key === "lateReopenThreshold"
+    || key === "unassignedThreshold"
+    || key === "unassignedReopenThreshold"
+    || key === "readyThreshold"
+    || key === "readyReopenThreshold"
+  );
   const touchesAdminSettings = requestedKeys.some((key) =>
     key === "globalEntityId"
     || key === "tempCloseMinutes"

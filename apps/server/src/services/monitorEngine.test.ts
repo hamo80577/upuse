@@ -148,6 +148,7 @@ describe("monitorEngine.getSnapshot", () => {
         activeNow: 0,
         lateNow: 0,
         unassignedNow: 0,
+        readyNow: 0,
       },
       fetchedAt: null,
       unassignedOrders: [],
@@ -263,7 +264,11 @@ describe("monitorEngine.getSnapshot", () => {
     expect(branch.closeStartedAt).not.toBe("2026-03-03T14:48:24.286Z");
     expect(branch.thresholds).toEqual({
       lateThreshold: 4,
+      lateReopenThreshold: 0,
       unassignedThreshold: 5,
+      unassignedReopenThreshold: 0,
+      readyThreshold: 0,
+      readyReopenThreshold: 0,
       capacityRuleEnabled: true,
       capacityPerHourEnabled: false,
       capacityPerHourLimit: null,
@@ -449,7 +454,11 @@ describe("monitorEngine.getSnapshot", () => {
     expect(branch.closeReason).toBe("CAPACITY_HOUR");
     expect(branch.thresholds).toEqual({
       lateThreshold: 4,
+      lateReopenThreshold: 0,
       unassignedThreshold: 5,
+      unassignedReopenThreshold: 0,
+      readyThreshold: 0,
+      readyReopenThreshold: 0,
       capacityRuleEnabled: true,
       capacityPerHourEnabled: true,
       capacityPerHourLimit: 5,
@@ -714,11 +723,115 @@ describe("monitorEngine.getSnapshot", () => {
     expect(branch.closeReason).toBeUndefined();
     expect(branch.thresholds).toEqual({
       lateThreshold: 4,
+      lateReopenThreshold: 0,
       unassignedThreshold: 5,
+      unassignedReopenThreshold: 0,
+      readyThreshold: 0,
+      readyReopenThreshold: 0,
       capacityRuleEnabled: false,
       capacityPerHourEnabled: false,
       capacityPerHourLimit: null,
       source: "chain",
+    });
+  });
+
+  it("infers ready to pickup as the monitor close reason from the tracked window when the ready threshold is reached", () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      readyThreshold: 3,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 30,
+      availabilityRefreshSeconds: 30,
+      maxVendorsPerOrdersRequest: 50,
+    });
+
+    mockListBranches.mockReturnValue([
+      {
+        id: 41,
+        name: "Branch 41",
+        chainName: "",
+        ordersVendorId: 4141,
+        availabilityVendorId: "av-41",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        enabled: true,
+      },
+    ]);
+
+    mockGetRuntime.mockReturnValue({
+      branchId: 41,
+      lastUpuseCloseUntil: "2026-03-04T13:16:59.000Z",
+      lastUpuseCloseReason: null,
+      lastUpuseCloseAt: null,
+      lastUpuseCloseEventId: 71,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      externalOpenDetectedAt: null,
+      lastActionAt: "2026-03-03T14:48:24.286Z",
+    });
+
+    const engine = new MonitorEngine() as any;
+    engine.ordersFresh = true;
+    engine.ordersByVendor = new Map([
+      [
+        4141,
+        {
+          totalToday: 12,
+          cancelledToday: 1,
+          doneToday: 3,
+          activeNow: 3,
+          lateNow: 0,
+          unassignedNow: 0,
+          readyNow: 3,
+        },
+      ],
+    ]);
+    engine.preparationByVendor = new Map([
+      [
+        4141,
+        {
+          preparingNow: 3,
+          preparingPickersNow: 1,
+          recentActivePickers: 1,
+          recentActiveAvailable: true,
+        },
+      ],
+    ]);
+    engine.availabilityByVendor = new Map([
+      [
+        "av-41",
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "CLOSED_UNTIL",
+          platformRestaurantId: "av-41",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID,
+          closedUntil: "2026-03-04T13:16:59.000Z",
+          modifiedBy: "log_vendor_monitor",
+        },
+      ],
+    ]);
+
+    const branch = engine.getSnapshot().branches[0];
+
+    expect(branch.closeReason).toBe("READY_TO_PICKUP");
+    expect(branch.thresholds).toEqual({
+      lateThreshold: 4,
+      lateReopenThreshold: 0,
+      unassignedThreshold: 5,
+      unassignedReopenThreshold: 0,
+      readyThreshold: 3,
+      readyReopenThreshold: 0,
+      capacityRuleEnabled: true,
+      capacityPerHourEnabled: false,
+      capacityPerHourLimit: null,
+      source: "global",
     });
   });
 
@@ -1037,7 +1150,11 @@ describe("monitorEngine.getSnapshot", () => {
     expect(branch.closeStartedAt).toBe("2026-03-04T13:18:00.000Z");
     expect(branch.thresholds).toEqual({
       lateThreshold: 4,
+      lateReopenThreshold: 0,
       unassignedThreshold: 5,
+      unassignedReopenThreshold: 0,
+      readyThreshold: 0,
+      readyReopenThreshold: 0,
       capacityRuleEnabled: true,
       capacityPerHourEnabled: false,
       capacityPerHourLimit: null,

@@ -10,12 +10,25 @@ interface SettingsRow {
   chainNamesJson: string;
   chainThresholdsJson: string;
   lateThreshold: number;
+  lateReopenThreshold?: number;
   unassignedThreshold: number;
+  unassignedReopenThreshold?: number;
+  readyThreshold?: number;
+  readyReopenThreshold?: number;
   tempCloseMinutes: number;
   graceMinutes: number;
   ordersRefreshSeconds: number;
   availabilityRefreshSeconds: number;
   maxVendorsPerOrdersRequest: number;
+}
+
+function clampReopenThreshold(closeThreshold: number, reopenThreshold: number | undefined) {
+  const normalizedClose = Math.max(0, Math.round(closeThreshold));
+  const normalizedReopen =
+    typeof reopenThreshold === "number"
+      ? Math.max(0, Math.round(reopenThreshold))
+      : 0;
+  return Math.min(normalizedClose, normalizedReopen);
 }
 
 const SettingsSchema = z.object({
@@ -27,7 +40,11 @@ const SettingsSchema = z.object({
     z.object({
       name: z.string().trim().min(1).max(120),
       lateThreshold: z.number().int().min(0).max(999),
+      lateReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
       unassignedThreshold: z.number().int().min(0).max(999),
+      unassignedReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
+      readyThreshold: z.number().int().min(0).max(999).optional().default(0),
+      readyReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
       capacityRuleEnabled: z.boolean().optional().default(true),
       capacityPerHourEnabled: z.boolean().optional().default(false),
       capacityPerHourLimit: z.number().int().min(1).max(999).nullable().optional().default(null),
@@ -38,11 +55,36 @@ const SettingsSchema = z.object({
         message: "Capacity / hour limit is required when the hourly rule is enabled.",
         path: ["capacityPerHourLimit"],
       });
+      if (value.lateReopenThreshold > value.lateThreshold) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Late reopen threshold cannot be greater than the close threshold.",
+          path: ["lateReopenThreshold"],
+        });
+      }
+      if (value.unassignedReopenThreshold > value.unassignedThreshold) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Unassigned reopen threshold cannot be greater than the close threshold.",
+          path: ["unassignedReopenThreshold"],
+        });
+      }
+      if ((value.readyReopenThreshold ?? 0) > (value.readyThreshold ?? 0)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Ready to pickup reopen threshold cannot be greater than the close threshold.",
+          path: ["readyReopenThreshold"],
+        });
+      }
     }),
   ).max(200),
 
   lateThreshold: z.number().int().min(0).max(999),
+  lateReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
   unassignedThreshold: z.number().int().min(0).max(999),
+  unassignedReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
+  readyThreshold: z.number().int().min(0).max(999).optional().default(0),
+  readyReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
 
   tempCloseMinutes: z.number().int().min(1).max(720),
   graceMinutes: z.number().int().min(0).max(60),
@@ -51,6 +93,28 @@ const SettingsSchema = z.object({
   availabilityRefreshSeconds: z.number().int().min(10).max(600),
 
   maxVendorsPerOrdersRequest: z.number().int().min(1).max(200),
+}).superRefine((value, ctx) => {
+  if ((value.lateReopenThreshold ?? 0) > value.lateThreshold) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Late reopen threshold cannot be greater than the close threshold.",
+      path: ["lateReopenThreshold"],
+    });
+  }
+  if ((value.unassignedReopenThreshold ?? 0) > value.unassignedThreshold) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Unassigned reopen threshold cannot be greater than the close threshold.",
+      path: ["unassignedReopenThreshold"],
+    });
+  }
+  if ((value.readyReopenThreshold ?? 0) > (value.readyThreshold ?? 0)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Ready to pickup reopen threshold cannot be greater than the close threshold.",
+      path: ["readyReopenThreshold"],
+    });
+  }
 });
 
 function normalizeChainNames(values: string[]) {
@@ -84,7 +148,14 @@ function normalizeChainThresholds(values: ChainThreshold[]) {
     out.push({
       name,
       lateThreshold: Math.max(0, Math.round(item.lateThreshold)),
+      lateReopenThreshold: clampReopenThreshold(item.lateThreshold, item.lateReopenThreshold),
       unassignedThreshold: Math.max(0, Math.round(item.unassignedThreshold)),
+      unassignedReopenThreshold: clampReopenThreshold(item.unassignedThreshold, item.unassignedReopenThreshold),
+      readyThreshold:
+        typeof item.readyThreshold === "number"
+          ? Math.max(0, Math.round(item.readyThreshold))
+          : 0,
+      readyReopenThreshold: clampReopenThreshold(item.readyThreshold ?? 0, item.readyReopenThreshold),
       capacityRuleEnabled: item.capacityRuleEnabled !== false,
       capacityPerHourEnabled: item.capacityPerHourEnabled === true,
       capacityPerHourLimit:
@@ -114,7 +185,11 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
       fallbackNames.map((name) => ({
         name,
         lateThreshold: 5,
+        lateReopenThreshold: 0,
         unassignedThreshold: 5,
+        unassignedReopenThreshold: 0,
+        readyThreshold: 0,
+        readyReopenThreshold: 0,
         capacityRuleEnabled: true,
         capacityPerHourEnabled: false,
         capacityPerHourLimit: null,
@@ -138,7 +213,11 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
         parsed.map((name) => ({
           name,
           lateThreshold: 5,
+          lateReopenThreshold: 0,
           unassignedThreshold: 5,
+          unassignedReopenThreshold: 0,
+          readyThreshold: 0,
+          readyReopenThreshold: 0,
           capacityRuleEnabled: true,
           capacityPerHourEnabled: false,
           capacityPerHourLimit: null,
@@ -156,7 +235,11 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
             | {
                 name: string;
                 lateThreshold: number;
+                lateReopenThreshold?: number;
                 unassignedThreshold: number;
+                unassignedReopenThreshold?: number;
+                readyThreshold?: number;
+                readyReopenThreshold?: number;
                 capacityRuleEnabled?: boolean;
                 capacityPerHourEnabled?: boolean;
                 capacityPerHourLimit?: number | null;
@@ -177,7 +260,11 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
             name: string;
             threshold?: number;
             lateThreshold?: number;
+            lateReopenThreshold?: number;
             unassignedThreshold?: number;
+            unassignedReopenThreshold?: number;
+            readyThreshold?: number;
+            readyReopenThreshold?: number;
             capacityRuleEnabled?: boolean;
             capacityPerHourEnabled?: boolean;
             capacityPerHourLimit?: number | null;
@@ -191,10 +278,26 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
               typeof legacyValue.lateThreshold === "number"
                 ? legacyValue.lateThreshold
                 : fallbackThreshold,
+            lateReopenThreshold:
+              typeof legacyValue.lateReopenThreshold === "number"
+                ? legacyValue.lateReopenThreshold
+                : 0,
             unassignedThreshold:
               typeof legacyValue.unassignedThreshold === "number"
                 ? legacyValue.unassignedThreshold
                 : fallbackThreshold,
+            unassignedReopenThreshold:
+              typeof legacyValue.unassignedReopenThreshold === "number"
+                ? legacyValue.unassignedReopenThreshold
+                : 0,
+            readyThreshold:
+              typeof legacyValue.readyThreshold === "number"
+                ? legacyValue.readyThreshold
+                : 0,
+            readyReopenThreshold:
+              typeof legacyValue.readyReopenThreshold === "number"
+                ? legacyValue.readyReopenThreshold
+                : 0,
             capacityRuleEnabled: legacyValue.capacityRuleEnabled !== false,
             capacityPerHourEnabled: legacyValue.capacityPerHourEnabled === true,
             capacityPerHourLimit:
@@ -224,7 +327,11 @@ export function getSettings(): Settings {
     chainNames: chains.map((item) => item.name),
     chains,
     lateThreshold: row.lateThreshold,
+    lateReopenThreshold: clampReopenThreshold(row.lateThreshold, row.lateReopenThreshold),
     unassignedThreshold: row.unassignedThreshold,
+    unassignedReopenThreshold: clampReopenThreshold(row.unassignedThreshold, row.unassignedReopenThreshold),
+    readyThreshold: typeof row.readyThreshold === "number" ? row.readyThreshold : 0,
+    readyReopenThreshold: clampReopenThreshold(row.readyThreshold ?? 0, row.readyReopenThreshold),
     tempCloseMinutes: row.tempCloseMinutes,
     graceMinutes: row.graceMinutes,
     ordersRefreshSeconds: row.ordersRefreshSeconds,
@@ -251,6 +358,18 @@ export function updateSettings(patch: Partial<Settings>) {
     ...patch,
     chainNames: normalizedChains.map((item) => item.name),
     chains: normalizedChains,
+    lateReopenThreshold: clampReopenThreshold(
+      patch.lateThreshold ?? current.lateThreshold,
+      patch.lateReopenThreshold ?? current.lateReopenThreshold,
+    ),
+    unassignedReopenThreshold: clampReopenThreshold(
+      patch.unassignedThreshold ?? current.unassignedThreshold,
+      patch.unassignedReopenThreshold ?? current.unassignedReopenThreshold,
+    ),
+    readyReopenThreshold: clampReopenThreshold(
+      patch.readyThreshold ?? current.readyThreshold ?? 0,
+      patch.readyReopenThreshold ?? current.readyReopenThreshold,
+    ),
   };
   SettingsSchema.parse(merged);
 
@@ -262,7 +381,11 @@ export function updateSettings(patch: Partial<Settings>) {
       chainNamesJson = ?,
       chainThresholdsJson = ?,
       lateThreshold = ?,
+      lateReopenThreshold = ?,
       unassignedThreshold = ?,
+      unassignedReopenThreshold = ?,
+      readyThreshold = ?,
+      readyReopenThreshold = ?,
       tempCloseMinutes = ?,
       graceMinutes = ?,
       ordersRefreshSeconds = ?,
@@ -276,7 +399,11 @@ export function updateSettings(patch: Partial<Settings>) {
     JSON.stringify(merged.chainNames),
     JSON.stringify(merged.chains),
     merged.lateThreshold,
+    merged.lateReopenThreshold ?? 0,
     merged.unassignedThreshold,
+    merged.unassignedReopenThreshold ?? 0,
+    merged.readyThreshold ?? 0,
+    merged.readyReopenThreshold ?? 0,
     merged.tempCloseMinutes,
     merged.graceMinutes,
     merged.ordersRefreshSeconds,

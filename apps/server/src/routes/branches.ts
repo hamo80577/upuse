@@ -40,7 +40,11 @@ const BranchMonitoringBody = z.object({
 
 const BranchThresholdOverrideBody = z.object({
   lateThresholdOverride: z.number().int().min(0).max(999).nullable(),
+  lateReopenThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
   unassignedThresholdOverride: z.number().int().min(0).max(999).nullable(),
+  unassignedReopenThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
+  readyThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
+  readyReopenThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
   capacityRuleEnabledOverride: z.boolean().nullable().optional().default(null),
   capacityPerHourEnabledOverride: z.boolean().nullable().optional().default(null),
   capacityPerHourLimitOverride: z.number().int().min(1).max(999).nullable().optional().default(null),
@@ -86,6 +90,34 @@ function emptyOrdersMetrics(): OrdersMetrics {
     activeNow: 0,
     lateNow: 0,
     unassignedNow: 0,
+    readyNow: 0,
+  };
+}
+
+function resolveEffectiveCloseThresholds(
+  branch: BranchMapping,
+  overrides: z.infer<typeof BranchThresholdOverrideBody>,
+) {
+  const inherited = resolveBranchThresholdProfile(
+    {
+      ...branch,
+      lateThresholdOverride: null,
+      lateReopenThresholdOverride: null,
+      unassignedThresholdOverride: null,
+      unassignedReopenThresholdOverride: null,
+      readyThresholdOverride: null,
+      readyReopenThresholdOverride: null,
+      capacityRuleEnabledOverride: null,
+      capacityPerHourEnabledOverride: null,
+      capacityPerHourLimitOverride: null,
+    },
+    getSettings(),
+  );
+
+  return {
+    lateThreshold: overrides.lateThresholdOverride ?? inherited.lateThreshold,
+    unassignedThreshold: overrides.unassignedThresholdOverride ?? inherited.unassignedThreshold,
+    readyThreshold: overrides.readyThresholdOverride ?? inherited.readyThreshold ?? 0,
   };
 }
 
@@ -277,6 +309,31 @@ export function updateBranchThresholdOverridesRoute(req: Request, res: Response)
   }
 
   const parsed = BranchThresholdOverrideBody.parse(req.body);
+  const branch = getBranchById(id);
+  if (!branch) {
+    return res.status(404).json({ ok: false, message: "Branch not found" });
+  }
+
+  const effectiveCloseThresholds = resolveEffectiveCloseThresholds(branch, parsed);
+  if (
+    parsed.lateReopenThresholdOverride != null &&
+    parsed.lateReopenThresholdOverride > effectiveCloseThresholds.lateThreshold
+  ) {
+    return res.status(400).json({ ok: false, message: "Late reopen threshold cannot be greater than the close threshold." });
+  }
+  if (
+    parsed.unassignedReopenThresholdOverride != null &&
+    parsed.unassignedReopenThresholdOverride > effectiveCloseThresholds.unassignedThreshold
+  ) {
+    return res.status(400).json({ ok: false, message: "Unassigned reopen threshold cannot be greater than the close threshold." });
+  }
+  if (
+    parsed.readyReopenThresholdOverride != null &&
+    parsed.readyReopenThresholdOverride > effectiveCloseThresholds.readyThreshold
+  ) {
+    return res.status(400).json({ ok: false, message: "Ready to pickup reopen threshold cannot be greater than the close threshold." });
+  }
+
   try {
     const updated = setBranchThresholdOverrides(id, parsed);
     if (!updated) {

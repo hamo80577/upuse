@@ -12,6 +12,7 @@ export function statusChip(branch: BranchSnapshot) {
 export function closeReasonMeta(reason?: BranchSnapshot["closeReason"]) {
   if (reason === "LATE") return { label: "Late Trigger", tone: "#9a3412", background: "rgba(255,237,213,0.94)", border: "rgba(251,146,60,0.22)" };
   if (reason === "UNASSIGNED") return { label: "Unassigned Trigger", tone: "#b91c1c", background: "rgba(254,226,226,0.94)", border: "rgba(248,113,113,0.22)" };
+  if (reason === "READY_TO_PICKUP") return { label: "Ready To Pickup Trigger", tone: "#1d4ed8", background: "rgba(219,234,254,0.94)", border: "rgba(96,165,250,0.24)" };
   if (reason === "CAPACITY") return { label: "Capacity Trigger", tone: "#155e75", background: "rgba(236,254,255,0.96)", border: "rgba(34,211,238,0.22)" };
   if (reason === "CAPACITY_HOUR") return { label: "Capacity / Hour Trigger", tone: "#1d4ed8", background: "rgba(239,246,255,0.96)", border: "rgba(96,165,250,0.24)" };
   return null;

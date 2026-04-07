@@ -88,6 +88,22 @@ function normalizeBranchItem(item: BranchMappingItem | LegacyBranchMappingItem):
         : item.capacityPerHourEnabledOverride == null
           ? null
           : Boolean(item.capacityPerHourEnabledOverride),
+    readyThresholdOverride:
+      typeof item.readyThresholdOverride === "number" && Number.isFinite(item.readyThresholdOverride)
+        ? Math.max(0, Math.round(item.readyThresholdOverride))
+        : null,
+    lateReopenThresholdOverride:
+      typeof item.lateReopenThresholdOverride === "number" && Number.isFinite(item.lateReopenThresholdOverride)
+        ? Math.max(0, Math.round(item.lateReopenThresholdOverride))
+        : null,
+    unassignedReopenThresholdOverride:
+      typeof item.unassignedReopenThresholdOverride === "number" && Number.isFinite(item.unassignedReopenThresholdOverride)
+        ? Math.max(0, Math.round(item.unassignedReopenThresholdOverride))
+        : null,
+    readyReopenThresholdOverride:
+      typeof item.readyReopenThresholdOverride === "number" && Number.isFinite(item.readyReopenThresholdOverride)
+        ? Math.max(0, Math.round(item.readyReopenThresholdOverride))
+        : null,
     capacityPerHourLimitOverride:
       typeof item.capacityPerHourLimitOverride === "number" && Number.isFinite(item.capacityPerHourLimitOverride)
         ? Math.max(1, Math.round(item.capacityPerHourLimitOverride))
@@ -385,7 +401,11 @@ export const api = {
     id: number,
     payload: {
       lateThresholdOverride: number | null;
+      lateReopenThresholdOverride: number | null;
       unassignedThresholdOverride: number | null;
+      unassignedReopenThresholdOverride: number | null;
+      readyThresholdOverride: number | null;
+      readyReopenThresholdOverride: number | null;
       capacityRuleEnabledOverride: boolean | null;
       capacityPerHourEnabledOverride: boolean | null;
       capacityPerHourLimitOverride: number | null;

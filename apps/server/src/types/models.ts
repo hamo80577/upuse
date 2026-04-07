@@ -5,13 +5,17 @@ export type AppUserRole = "admin" | "user";
 export type ThresholdSource = "branch" | "chain" | "global";
 export type BranchCatalogState = "available" | "missing";
 
-export type CloseReason = "LATE" | "UNASSIGNED" | "CAPACITY" | "CAPACITY_HOUR";
+export type CloseReason = "LATE" | "UNASSIGNED" | "READY_TO_PICKUP" | "CAPACITY" | "CAPACITY_HOUR";
 export type MonitorIssueSource = "orders" | "availability";
 
 export interface ChainThreshold {
   name: string;
   lateThreshold: number;
+  lateReopenThreshold?: number;
   unassignedThreshold: number;
+  unassignedReopenThreshold?: number;
+  readyThreshold?: number;
+  readyReopenThreshold?: number;
   capacityRuleEnabled?: boolean;
   capacityPerHourEnabled?: boolean;
   capacityPerHourLimit?: number | null;
@@ -19,7 +23,11 @@ export interface ChainThreshold {
 
 export interface ThresholdProfile {
   lateThreshold: number;
+  lateReopenThreshold?: number;
   unassignedThreshold: number;
+  unassignedReopenThreshold?: number;
+  readyThreshold?: number;
+  readyReopenThreshold?: number;
   capacityRuleEnabled?: boolean;
   capacityPerHourEnabled?: boolean;
   capacityPerHourLimit?: number | null;
@@ -45,7 +53,11 @@ export interface Settings {
   chains: ChainThreshold[];
 
   lateThreshold: number;
+  lateReopenThreshold?: number;
   unassignedThreshold: number;
+  unassignedReopenThreshold?: number;
+  readyThreshold?: number;
+  readyReopenThreshold?: number;
 
   tempCloseMinutes: number; // default 30
   graceMinutes: number; // default 5
@@ -65,7 +77,11 @@ export interface BranchMapping {
   enabled: boolean;
   catalogState: BranchCatalogState;
   lateThresholdOverride?: number | null;
+  lateReopenThresholdOverride?: number | null;
   unassignedThresholdOverride?: number | null;
+  unassignedReopenThresholdOverride?: number | null;
+  readyThresholdOverride?: number | null;
+  readyReopenThresholdOverride?: number | null;
   capacityRuleEnabledOverride?: boolean | null;
   capacityPerHourEnabledOverride?: boolean | null;
   capacityPerHourLimitOverride?: number | null;
@@ -95,6 +111,7 @@ export interface OrdersMetrics {
   activeNow: number; // isCompleted = false
   lateNow: number; // activeNow and now > pickupAt
   unassignedNow: number; // activeNow and (status UNASSIGNED or shopper null)
+  readyNow?: number; // activeNow and status READY_FOR_PICKUP
 }
 
 export interface BranchLiveOrder {

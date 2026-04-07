@@ -39,6 +39,7 @@ export function initMetrics(): OrdersMetrics {
     activeNow: 0,
     lateNow: 0,
     unassignedNow: 0,
+    readyNow: 0,
   };
 }
 

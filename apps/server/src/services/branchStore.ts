@@ -10,7 +10,11 @@ interface BranchRow {
   chainName: string | null;
   enabled: number;
   lateThresholdOverride: number | null;
+  lateReopenThresholdOverride: number | null;
   unassignedThresholdOverride: number | null;
+  unassignedReopenThresholdOverride: number | null;
+  readyThresholdOverride: number | null;
+  readyReopenThresholdOverride: number | null;
   capacityRuleEnabledOverride: number | null;
   capacityPerHourEnabledOverride: number | null;
   capacityPerHourLimitOverride: number | null;
@@ -44,7 +48,11 @@ const AddBranchSchema = z.object({
 
 const ThresholdOverrideSchema = z.object({
   lateThresholdOverride: z.number().int().min(0).max(999).nullable(),
+  lateReopenThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
   unassignedThresholdOverride: z.number().int().min(0).max(999).nullable(),
+  unassignedReopenThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
+  readyThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
+  readyReopenThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
   capacityRuleEnabledOverride: z.boolean().nullable().optional().default(null),
   capacityPerHourEnabledOverride: z.boolean().nullable().optional().default(null),
   capacityPerHourLimitOverride: z.number().int().min(1).max(999).nullable().optional().default(null),
@@ -81,7 +89,11 @@ function mapBranchRow(row: JoinedBranchRow): BranchMapping {
     enabled: !!row.enabled,
     catalogState: row.name && row.ordersVendorId ? "available" : "missing",
     lateThresholdOverride: row.lateThresholdOverride,
+    lateReopenThresholdOverride: row.lateReopenThresholdOverride,
     unassignedThresholdOverride: row.unassignedThresholdOverride,
+    unassignedReopenThresholdOverride: row.unassignedReopenThresholdOverride,
+    readyThresholdOverride: row.readyThresholdOverride,
+    readyReopenThresholdOverride: row.readyReopenThresholdOverride,
     capacityRuleEnabledOverride:
       row.capacityRuleEnabledOverride == null ? null : row.capacityRuleEnabledOverride === 1,
     capacityPerHourEnabledOverride:
@@ -112,7 +124,11 @@ function getJoinedBranchQuery(whereClause = "", orderClause = "ORDER BY LOWER(CO
       branches.chainName,
       branches.enabled,
       branches.lateThresholdOverride,
+      branches.lateReopenThresholdOverride,
       branches.unassignedThresholdOverride,
+      branches.unassignedReopenThresholdOverride,
+      branches.readyThresholdOverride,
+      branches.readyReopenThresholdOverride,
       branches.capacityRuleEnabledOverride,
       branches.capacityPerHourEnabledOverride,
       branches.capacityPerHourLimitOverride,
@@ -164,12 +180,16 @@ export function addBranch(input: { availabilityVendorId: string; chainName?: str
       chainName,
       enabled,
       lateThresholdOverride,
+      lateReopenThresholdOverride,
       unassignedThresholdOverride,
+      unassignedReopenThresholdOverride,
+      readyThresholdOverride,
+      readyReopenThresholdOverride,
       capacityRuleEnabledOverride,
       capacityPerHourEnabledOverride,
       capacityPerHourLimitOverride
     )
-    VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL)
+    VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
   `).run(
     catalogItem.availabilityVendorId,
     parsed.chainName,
@@ -196,7 +216,11 @@ export function setBranchThresholdOverrides(
   id: number,
   overrides: {
     lateThresholdOverride: number | null;
+    lateReopenThresholdOverride: number | null;
     unassignedThresholdOverride: number | null;
+    unassignedReopenThresholdOverride: number | null;
+    readyThresholdOverride: number | null;
+    readyReopenThresholdOverride: number | null;
     capacityRuleEnabledOverride: boolean | null;
     capacityPerHourEnabledOverride: boolean | null;
     capacityPerHourLimitOverride: number | null;
@@ -207,14 +231,22 @@ export function setBranchThresholdOverrides(
   db.prepare(`
     UPDATE branches
     SET lateThresholdOverride = ?,
+        lateReopenThresholdOverride = ?,
         unassignedThresholdOverride = ?,
+        unassignedReopenThresholdOverride = ?,
+        readyThresholdOverride = ?,
+        readyReopenThresholdOverride = ?,
         capacityRuleEnabledOverride = ?,
         capacityPerHourEnabledOverride = ?,
         capacityPerHourLimitOverride = ?
     WHERE id = ?
   `).run(
     parsed.lateThresholdOverride,
+    parsed.lateReopenThresholdOverride,
     parsed.unassignedThresholdOverride,
+    parsed.unassignedReopenThresholdOverride,
+    parsed.readyThresholdOverride,
+    parsed.readyReopenThresholdOverride,
     parsed.capacityRuleEnabledOverride == null ? null : (parsed.capacityRuleEnabledOverride ? 1 : 0),
     parsed.capacityPerHourEnabledOverride == null ? null : (parsed.capacityPerHourEnabledOverride ? 1 : 0),
     parsed.capacityPerHourLimitOverride,

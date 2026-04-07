@@ -164,7 +164,11 @@ describe("putSettingsRoute", () => {
       chainNames: [],
       chains: [],
       lateThreshold: patch.lateThreshold ?? 5,
+      lateReopenThreshold: patch.lateReopenThreshold ?? 0,
       unassignedThreshold: patch.unassignedThreshold ?? 5,
+      unassignedReopenThreshold: patch.unassignedReopenThreshold ?? 0,
+      readyThreshold: patch.readyThreshold ?? 0,
+      readyReopenThreshold: patch.readyReopenThreshold ?? 0,
       tempCloseMinutes: patch.tempCloseMinutes ?? 30,
       graceMinutes: patch.graceMinutes ?? 5,
       ordersRefreshSeconds: patch.ordersRefreshSeconds ?? 30,
@@ -196,6 +200,58 @@ describe("putSettingsRoute", () => {
         ordersToken: "upda…oken",
         availabilityToken: "avai…oken",
         lateThreshold: 9,
+      },
+    });
+  });
+
+  it("accepts ready to pickup threshold updates", () => {
+    const req: any = {
+      authUser: { role: "user" },
+      body: {
+        readyThreshold: 6,
+      },
+    };
+    const res = createResponse();
+
+    putSettingsRoute(req, res);
+
+    expect(mockUpdateSettings).toHaveBeenCalledWith({
+      readyThreshold: 6,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      settings: {
+        readyThreshold: 6,
+      },
+    });
+  });
+
+  it("accepts reopen threshold updates", () => {
+    const req: any = {
+      authUser: { role: "user" },
+      body: {
+        lateReopenThreshold: 2,
+        unassignedReopenThreshold: 1,
+        readyReopenThreshold: 1,
+      },
+    };
+    const res = createResponse();
+
+    putSettingsRoute(req, res);
+
+    expect(mockUpdateSettings).toHaveBeenCalledWith({
+      lateReopenThreshold: 2,
+      unassignedReopenThreshold: 1,
+      readyReopenThreshold: 1,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      settings: {
+        lateReopenThreshold: 2,
+        unassignedReopenThreshold: 1,
+        readyReopenThreshold: 1,
       },
     });
   });
@@ -243,6 +299,58 @@ describe("putSettingsRoute", () => {
         capacityRuleEnabled: true,
         capacityPerHourEnabled: true,
         capacityPerHourLimit: 5,
+      }],
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("accepts chain ready to pickup threshold updates", () => {
+    const req: any = {
+      authUser: { role: "user" },
+      body: {
+        chains: [{ name: "Chain A", lateThreshold: 6, unassignedThreshold: 8, readyThreshold: 4, capacityRuleEnabled: false }],
+      },
+    };
+    const res = createResponse();
+
+    putSettingsRoute(req, res);
+
+    expect(mockUpdateSettings).toHaveBeenCalledWith({
+      chains: [{ name: "Chain A", lateThreshold: 6, unassignedThreshold: 8, readyThreshold: 4, capacityRuleEnabled: false }],
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("accepts chain reopen threshold updates", () => {
+    const req: any = {
+      authUser: { role: "user" },
+      body: {
+        chains: [{
+          name: "Chain A",
+          lateThreshold: 6,
+          lateReopenThreshold: 2,
+          unassignedThreshold: 8,
+          unassignedReopenThreshold: 3,
+          readyThreshold: 4,
+          readyReopenThreshold: 1,
+          capacityRuleEnabled: false,
+        }],
+      },
+    };
+    const res = createResponse();
+
+    putSettingsRoute(req, res);
+
+    expect(mockUpdateSettings).toHaveBeenCalledWith({
+      chains: [{
+        name: "Chain A",
+        lateThreshold: 6,
+        lateReopenThreshold: 2,
+        unassignedThreshold: 8,
+        unassignedReopenThreshold: 3,
+        readyThreshold: 4,
+        readyReopenThreshold: 1,
+        capacityRuleEnabled: false,
       }],
     });
     expect(res.statusCode).toBe(200);

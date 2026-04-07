@@ -197,11 +197,19 @@ function migrateBranchesTableToLocalCatalogShape() {
     "chainName",
     "enabled",
     "lateThresholdOverride",
+    "lateReopenThresholdOverride",
     "unassignedThresholdOverride",
+    "unassignedReopenThresholdOverride",
+    "readyThresholdOverride",
+    "readyReopenThresholdOverride",
     "capacityRuleEnabledOverride",
     "capacityPerHourEnabledOverride",
     "capacityPerHourLimitOverride",
   ]);
+  const hasLateReopenThresholdOverride = branchColumns.some((column) => column.name === "lateReopenThresholdOverride");
+  const hasUnassignedReopenThresholdOverride = branchColumns.some((column) => column.name === "unassignedReopenThresholdOverride");
+  const hasReadyThresholdOverride = branchColumns.some((column) => column.name === "readyThresholdOverride");
+  const hasReadyReopenThresholdOverride = branchColumns.some((column) => column.name === "readyReopenThresholdOverride");
   const hasCapacityRuleEnabledOverride = branchColumns.some((column) => column.name === "capacityRuleEnabledOverride");
   const hasCapacityPerHourEnabledOverride = branchColumns.some((column) => column.name === "capacityPerHourEnabledOverride");
   const hasCapacityPerHourLimitOverride = branchColumns.some((column) => column.name === "capacityPerHourLimitOverride");
@@ -228,7 +236,11 @@ function migrateBranchesTableToLocalCatalogShape() {
         chainName TEXT NOT NULL DEFAULT '',
         enabled INTEGER NOT NULL DEFAULT 1,
         lateThresholdOverride INTEGER,
+        lateReopenThresholdOverride INTEGER,
         unassignedThresholdOverride INTEGER,
+        unassignedReopenThresholdOverride INTEGER,
+        readyThresholdOverride INTEGER,
+        readyReopenThresholdOverride INTEGER,
         capacityRuleEnabledOverride INTEGER,
         capacityPerHourEnabledOverride INTEGER,
         capacityPerHourLimitOverride INTEGER
@@ -240,7 +252,11 @@ function migrateBranchesTableToLocalCatalogShape() {
         chainName,
         enabled,
         lateThresholdOverride,
+        lateReopenThresholdOverride,
         unassignedThresholdOverride,
+        unassignedReopenThresholdOverride,
+        readyThresholdOverride,
+        readyReopenThresholdOverride,
         capacityRuleEnabledOverride,
         capacityPerHourEnabledOverride,
         capacityPerHourLimitOverride
@@ -251,7 +267,11 @@ function migrateBranchesTableToLocalCatalogShape() {
         COALESCE(chainName, ''),
         CASE WHEN enabled IS NULL THEN 1 ELSE enabled END,
         lateThresholdOverride,
+        ${hasLateReopenThresholdOverride ? "lateReopenThresholdOverride" : "NULL"},
         unassignedThresholdOverride,
+        ${hasUnassignedReopenThresholdOverride ? "unassignedReopenThresholdOverride" : "NULL"},
+        ${hasReadyThresholdOverride ? "readyThresholdOverride" : "NULL"},
+        ${hasReadyReopenThresholdOverride ? "readyReopenThresholdOverride" : "NULL"},
         ${hasCapacityRuleEnabledOverride ? "capacityRuleEnabledOverride" : "NULL"},
         ${hasCapacityPerHourEnabledOverride ? "capacityPerHourEnabledOverride" : "NULL"},
         ${hasCapacityPerHourLimitOverride ? "capacityPerHourLimitOverride" : "NULL"}
@@ -282,7 +302,11 @@ export function migrate() {
       chainNamesJson TEXT NOT NULL DEFAULT '[]',
       chainThresholdsJson TEXT NOT NULL DEFAULT '[]',
       lateThreshold INTEGER NOT NULL,
+      lateReopenThreshold INTEGER NOT NULL DEFAULT 0,
       unassignedThreshold INTEGER NOT NULL,
+      unassignedReopenThreshold INTEGER NOT NULL DEFAULT 0,
+      readyThreshold INTEGER NOT NULL DEFAULT 0,
+      readyReopenThreshold INTEGER NOT NULL DEFAULT 0,
       tempCloseMinutes INTEGER NOT NULL,
       graceMinutes INTEGER NOT NULL,
       ordersRefreshSeconds INTEGER NOT NULL,
@@ -296,7 +320,11 @@ export function migrate() {
       chainName TEXT NOT NULL DEFAULT '',
       enabled INTEGER NOT NULL DEFAULT 1,
       lateThresholdOverride INTEGER,
+      lateReopenThresholdOverride INTEGER,
       unassignedThresholdOverride INTEGER,
+      unassignedReopenThresholdOverride INTEGER,
+      readyThresholdOverride INTEGER,
+      readyReopenThresholdOverride INTEGER,
       capacityRuleEnabledOverride INTEGER,
       capacityPerHourEnabledOverride INTEGER,
       capacityPerHourLimitOverride INTEGER
@@ -570,6 +598,18 @@ export function migrate() {
   if (!settingsColumns.some((column) => column.name === "chainThresholdsJson")) {
     db.exec("ALTER TABLE settings ADD COLUMN chainThresholdsJson TEXT NOT NULL DEFAULT '[]'");
   }
+  if (!settingsColumns.some((column) => column.name === "readyThreshold")) {
+    db.exec("ALTER TABLE settings ADD COLUMN readyThreshold INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!settingsColumns.some((column) => column.name === "lateReopenThreshold")) {
+    db.exec("ALTER TABLE settings ADD COLUMN lateReopenThreshold INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!settingsColumns.some((column) => column.name === "unassignedReopenThreshold")) {
+    db.exec("ALTER TABLE settings ADD COLUMN unassignedReopenThreshold INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!settingsColumns.some((column) => column.name === "readyReopenThreshold")) {
+    db.exec("ALTER TABLE settings ADD COLUMN readyReopenThreshold INTEGER NOT NULL DEFAULT 0");
+  }
   const branchRuntimeColumns = db.prepare("PRAGMA table_info(branch_runtime)").all() as Array<{ name: string }>;
   if (!branchRuntimeColumns.some((column) => column.name === "lastExternalCloseUntil")) {
     db.exec("ALTER TABLE branch_runtime ADD COLUMN lastExternalCloseUntil TEXT");
@@ -590,6 +630,18 @@ export function migrate() {
     db.exec("ALTER TABLE branch_runtime ADD COLUMN closureObservedAt TEXT");
   }
   const branchesColumns = db.prepare("PRAGMA table_info(branches)").all() as Array<{ name: string }>;
+  if (!branchesColumns.some((column) => column.name === "lateReopenThresholdOverride")) {
+    db.exec("ALTER TABLE branches ADD COLUMN lateReopenThresholdOverride INTEGER");
+  }
+  if (!branchesColumns.some((column) => column.name === "unassignedReopenThresholdOverride")) {
+    db.exec("ALTER TABLE branches ADD COLUMN unassignedReopenThresholdOverride INTEGER");
+  }
+  if (!branchesColumns.some((column) => column.name === "readyThresholdOverride")) {
+    db.exec("ALTER TABLE branches ADD COLUMN readyThresholdOverride INTEGER");
+  }
+  if (!branchesColumns.some((column) => column.name === "readyReopenThresholdOverride")) {
+    db.exec("ALTER TABLE branches ADD COLUMN readyReopenThresholdOverride INTEGER");
+  }
   if (!branchesColumns.some((column) => column.name === "capacityPerHourEnabledOverride")) {
     db.exec("ALTER TABLE branches ADD COLUMN capacityPerHourEnabledOverride INTEGER");
   }
@@ -702,7 +754,11 @@ export function migrate() {
       chainNamesJson: "[]",
       chainThresholdsJson: "[]",
       lateThreshold: 5,
+      lateReopenThreshold: 0,
       unassignedThreshold: 5,
+      unassignedReopenThreshold: 0,
+      readyThreshold: 0,
+      readyReopenThreshold: 0,
       tempCloseMinutes: 30,
       graceMinutes: 5,
       ordersRefreshSeconds: 30,
@@ -713,12 +769,12 @@ export function migrate() {
       INSERT INTO settings (
         id, ordersTokenEnc, availabilityTokenEnc, globalEntityId,
         chainNamesJson, chainThresholdsJson,
-        lateThreshold, unassignedThreshold, tempCloseMinutes, graceMinutes,
+        lateThreshold, lateReopenThreshold, unassignedThreshold, unassignedReopenThreshold, readyThreshold, readyReopenThreshold, tempCloseMinutes, graceMinutes,
         ordersRefreshSeconds, availabilityRefreshSeconds, maxVendorsPerOrdersRequest
       ) VALUES (
         1, @ordersTokenEnc, @availabilityTokenEnc, @globalEntityId,
         @chainNamesJson, @chainThresholdsJson,
-        @lateThreshold, @unassignedThreshold, @tempCloseMinutes, @graceMinutes,
+        @lateThreshold, @lateReopenThreshold, @unassignedThreshold, @unassignedReopenThreshold, @readyThreshold, @readyReopenThreshold, @tempCloseMinutes, @graceMinutes,
         @ordersRefreshSeconds, @availabilityRefreshSeconds, @maxVendorsPerOrdersRequest
       )
     `).run(defaultSettings);
@@ -756,7 +812,11 @@ export function migrate() {
             chainNames.map((name) => ({
               name,
               lateThreshold: 5,
+              lateReopenThreshold: 0,
               unassignedThreshold: 5,
+              unassignedReopenThreshold: 0,
+              readyThreshold: 0,
+              readyReopenThreshold: 0,
               capacityRuleEnabled: true,
               capacityPerHourEnabled: false,
               capacityPerHourLimit: null,
