@@ -1,8 +1,10 @@
 import HubIcon from "@mui/icons-material/Hub";
+import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
 import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownRounded";
 import LeaderboardRoundedIcon from "@mui/icons-material/LeaderboardRounded";
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import ManageAccountsRoundedIcon from "@mui/icons-material/ManageAccountsRounded";
+import QrCodeScannerRoundedIcon from "@mui/icons-material/QrCodeScannerRounded";
 import SettingsIcon from "@mui/icons-material/Settings";
 import StorefrontIcon from "@mui/icons-material/Storefront";
 import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
@@ -38,27 +40,38 @@ function navMenuItemSx(isActive: boolean) {
   };
 }
 
+type WorkspaceSystem = "upuse" | "scano";
+
 function TopBarBase(props: {
-  running: boolean;
+  running?: boolean;
   degraded?: boolean;
   degradedLabel?: string;
   degradedColor?: "warning" | "error";
   branchSummary?: Array<Pick<BranchSnapshot, "branchId" | "name" | "status">>;
-  onStart: () => void;
-  onStop: () => void;
+  onStart?: () => void;
+  onStop?: () => void;
   canControlMonitor?: boolean;
 }) {
   const nav = useNavigate();
   const loc = useLocation();
-  const { user, isAdmin, canManageMonitor, logout } = useAuth();
+  const { user, isAdmin, canAccessScano, canManageMonitor, canManageScanoSettings, canManageScanoTasks, canSwitchSystems, logout, scanoRole } = useAuth();
   const [loggingOut, setLoggingOut] = useState(false);
   const [userMenuAnchor, setUserMenuAnchor] = useState<HTMLElement | null>(null);
   const canControlMonitor = props.canControlMonitor ?? canManageMonitor;
   const active = (path: string) => loc.pathname === path;
   const activeGroup = (path: string) => loc.pathname === path || loc.pathname.startsWith(`${path}/`);
+  const scanoActive = activeGroup("/scano");
+  const currentSystem: WorkspaceSystem = scanoActive ? "scano" : "upuse";
+  const running = props.running ?? false;
+  const showUpuseControls = currentSystem === "upuse";
+  const showMonitorAction = showUpuseControls && typeof props.onStart === "function" && typeof props.onStop === "function";
   const performanceActive = active("/performance");
   const branchesActive = active("/branches");
   const thresholdsActive = active("/thresholds") || activeGroup("/settings/thresholds");
+  const scanoAssignTaskActive = active("/scano/assign-task") || (canManageScanoTasks && activeGroup("/scano/tasks/"));
+  const scanoMasterProductActive = active("/scano/master-product");
+  const scanoMyTasksActive = active("/scano/my-tasks") || (!canManageScanoTasks && activeGroup("/scano/tasks/"));
+  const scanoSettingsActive = active("/scano/settings");
   const userInitials = getUserInitials(user?.name);
   const handleMenuClose = () => setUserMenuAnchor(null);
   const handleNavigate = (path: string) => {
@@ -66,7 +79,32 @@ function TopBarBase(props: {
     nav(path);
   };
 
-  const navigationItems = [
+  const handleSystemSwitch = (system: WorkspaceSystem) => {
+    handleMenuClose();
+    if (system === currentSystem) {
+      return;
+    }
+    nav(`/system-switch/${system}`);
+  };
+
+  const systemItems = [
+    {
+      label: "UPuse",
+      caption: "Operations workspace",
+      icon: <HubIcon fontSize="small" />,
+      isActive: currentSystem === "upuse",
+      onClick: () => handleSystemSwitch("upuse"),
+    },
+    ...(canAccessScano ? [{
+      label: "Scano",
+      caption: "Standalone workspace",
+      icon: <QrCodeScannerRoundedIcon fontSize="small" />,
+      isActive: currentSystem === "scano",
+      onClick: () => handleSystemSwitch("scano"),
+    }] : []),
+  ];
+
+  const upuseNavigationItems = [
     {
       label: "Dashboard",
       caption: "Live board",
@@ -103,6 +141,37 @@ function TopBarBase(props: {
       onClick: () => handleNavigate("/settings"),
     },
   ];
+  const navigationItems = currentSystem === "upuse"
+    ? upuseNavigationItems
+    : [
+        ...(canManageScanoTasks ? [{
+          label: "Assign Task",
+          caption: "Scano tasks",
+          icon: <QrCodeScannerRoundedIcon fontSize="small" />,
+          isActive: scanoAssignTaskActive,
+          onClick: () => handleNavigate("/scano/assign-task"),
+        }, {
+          label: "Master Product",
+          caption: "Chain imports",
+          icon: <Inventory2RoundedIcon fontSize="small" />,
+          isActive: scanoMasterProductActive,
+          onClick: () => handleNavigate("/scano/master-product"),
+        }] : []),
+        ...(!canManageScanoTasks && scanoRole === "scanner" ? [{
+          label: "My Tasks",
+          caption: "Assigned work",
+          icon: <QrCodeScannerRoundedIcon fontSize="small" />,
+          isActive: scanoMyTasksActive,
+          onClick: () => handleNavigate("/scano/my-tasks"),
+        }] : []),
+        ...(canManageScanoSettings ? [{
+          label: "Scano Settings",
+          caption: "Catalog token",
+          icon: <SettingsIcon fontSize="small" />,
+          isActive: scanoSettingsActive,
+          onClick: () => handleNavigate("/scano/settings"),
+        }] : []),
+      ];
 
   const handleLogout = async () => {
     if (loggingOut) return;
@@ -135,13 +204,13 @@ function TopBarBase(props: {
 
         <Box sx={{ flex: 1, minWidth: { xs: 0, sm: 24 } }} />
 
-        {props.branchSummary ? (
+        {showUpuseControls && props.branchSummary ? (
           <Box sx={{ display: { xs: "none", sm: "block" } }}>
             <BranchStateTicker branches={props.branchSummary} />
           </Box>
         ) : null}
 
-        {props.degraded ? (
+        {showUpuseControls && props.degraded ? (
           <Chip
             label={props.degradedLabel ?? "Degraded"}
             variant="outlined"
@@ -150,32 +219,38 @@ function TopBarBase(props: {
           />
         ) : null}
 
-        <Chip
-          label={props.running ? "Running" : "Stopped"}
-          variant={props.running ? "filled" : "outlined"}
-          color={props.running ? "success" : "default"}
-          sx={{ height: { xs: 28, sm: 32 }, fontWeight: 800 }}
-        />
+        {showUpuseControls ? (
+          <>
+            <Chip
+              label={running ? "Running" : "Stopped"}
+              variant={running ? "filled" : "outlined"}
+              color={running ? "success" : "default"}
+              sx={{ height: { xs: 28, sm: 32 }, fontWeight: 800 }}
+            />
 
-        {canControlMonitor ? (
-          <Button
-            variant={props.running ? "outlined" : "contained"}
-            color={props.running ? "inherit" : "success"}
-            onClick={props.running ? props.onStop : props.onStart}
-            sx={{ minWidth: { xs: 96, sm: 150 }, px: { xs: 1.5, sm: 2 }, fontWeight: 800 }}
-          >
-            {props.running ? "Stop" : "Start"}
-          </Button>
-        ) : (
-          <Button variant="outlined" disabled sx={{ minWidth: { xs: 96, sm: 150 }, px: { xs: 1.5, sm: 2 }, fontWeight: 800 }}>
-            <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
-              Locked
-            </Box>
-            <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
-              Read Only
-            </Box>
-          </Button>
-        )}
+            {showMonitorAction ? (
+              canControlMonitor ? (
+                <Button
+                  variant={running ? "outlined" : "contained"}
+                  color={running ? "inherit" : "success"}
+                  onClick={running ? props.onStop : props.onStart}
+                  sx={{ minWidth: { xs: 96, sm: 150 }, px: { xs: 1.5, sm: 2 }, fontWeight: 800 }}
+                >
+                  {running ? "Stop" : "Start"}
+                </Button>
+              ) : (
+                <Button variant="outlined" disabled sx={{ minWidth: { xs: 96, sm: 150 }, px: { xs: 1.5, sm: 2 }, fontWeight: 800 }}>
+                  <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
+                    Locked
+                  </Box>
+                  <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+                    Read Only
+                  </Box>
+                </Button>
+              )
+            ) : null}
+          </>
+        ) : null}
 
         <Stack
           direction="row"
@@ -220,7 +295,11 @@ function TopBarBase(props: {
                   {user?.name ?? "Signed in"}
                 </Typography>
                 <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }} noWrap>
-                  {user?.role === "admin" ? "Admin" : "User"}
+                  {currentSystem === "scano" && user?.isPrimaryAdmin
+                    ? "Scano Admin"
+                    : currentSystem === "scano" && scanoRole
+                    ? scanoRole === "team_lead" ? "Scano Team Lead" : "Scano Scanner"
+                    : user?.role === "admin" ? "Admin" : "User"}
                 </Typography>
               </Box>
 
@@ -239,10 +318,12 @@ function TopBarBase(props: {
                 mt: 1,
                 minWidth: 290,
                 maxWidth: 320,
+                maxHeight: "min(80vh, 560px)",
                 borderRadius: 2,
                 border: "1px solid rgba(148,163,184,0.14)",
                 boxShadow: "0 22px 44px rgba(15,23,42,0.12)",
-                overflow: "hidden",
+                overflowX: "hidden",
+                overflowY: "auto",
               },
             }}
           >
@@ -270,11 +351,51 @@ function TopBarBase(props: {
               </Box>
             </Stack>
 
-            <Divider />
+            {canSwitchSystems ? (
+              <>
+                <Divider />
+
+                <Box sx={{ px: 1.5, pt: 1.1, pb: 0.45 }}>
+                  <Typography variant="caption" sx={{ color: "#64748b", fontWeight: 900, letterSpacing: 0.3 }}>
+                    Systems
+                  </Typography>
+                </Box>
+
+                {systemItems.map((item) => (
+                  <MenuItem
+                    key={item.label}
+                    selected={item.isActive}
+                    onClick={item.onClick}
+                    sx={navMenuItemSx(item.isActive)}
+                  >
+                    <ListItemIcon sx={{ minWidth: 36, color: item.isActive ? "#1d4ed8" : "#475569" }}>
+                      {item.icon}
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={item.label}
+                      secondary={item.caption}
+                      primaryTypographyProps={{
+                        fontWeight: item.isActive ? 900 : 800,
+                        color: "#0f172a",
+                        fontSize: 14,
+                      }}
+                      secondaryTypographyProps={{
+                        color: "text.secondary",
+                        fontSize: 12,
+                      }}
+                    />
+                  </MenuItem>
+                ))}
+
+                <Divider sx={{ mt: 0.8 }} />
+              </>
+            ) : (
+              <Divider />
+            )}
 
             <Box sx={{ px: 1.5, pt: 1.1, pb: 0.45 }}>
               <Typography variant="caption" sx={{ color: "#64748b", fontWeight: 900, letterSpacing: 0.3 }}>
-                Navigation
+                {currentSystem === "upuse" ? "UPuse Navigation" : "Scano Navigation"}
               </Typography>
             </Box>
 
@@ -306,7 +427,7 @@ function TopBarBase(props: {
 
             <Divider sx={{ mt: 0.8 }} />
 
-            {isAdmin ? (
+            {currentSystem === "upuse" && isAdmin ? (
               <MenuItem
                 onClick={() => handleNavigate("/users")}
                 sx={navMenuItemSx(active("/users"))}

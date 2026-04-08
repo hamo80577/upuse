@@ -35,7 +35,7 @@ const roleCapabilities: Record<AppUserRole, ReadonlySet<AppCapability>> = {
   ]),
 };
 
-export function hasCapability(role: AppUserRole | undefined, capability: AppCapability) {
-  if (!role) return false;
+export function hasCapability(role: AppUserRole | undefined, capability: AppCapability, upuseAccess = true) {
+  if (!role || !upuseAccess) return false;
   return roleCapabilities[role]?.has(capability) ?? false;
 }

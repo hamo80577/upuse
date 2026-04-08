@@ -112,6 +112,8 @@ describe("authorization capabilities", () => {
     expect(res.body).toEqual({
       ok: false,
       message: "Forbidden",
+      code: "FORBIDDEN",
+      errorOrigin: "authorization",
     });
   });
 

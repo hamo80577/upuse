@@ -15,12 +15,13 @@ export const theme = createTheme({
   shape: { borderRadius: 8 },
   typography: {
     fontFamily: [
-      "Inter",
+      "Segoe UI",
+      "Tahoma",
+      "Noto Sans Arabic",
+      "Arial",
+      "Helvetica Neue",
       "system-ui",
       "-apple-system",
-      "Segoe UI",
-      "Roboto",
-      "Arial",
       "sans-serif",
     ].join(","),
     h5: { fontWeight: 800 },

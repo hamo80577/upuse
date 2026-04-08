@@ -1,0 +1,135 @@
+headers (
+Request URL
+https: //catalog-backlog-eg.deliveryhero.io/api/v2/chains?page=1&pageSize=10&name=carr
+Request Method
+GET
+Status Code
+200 OK
+Remote Address
+104.19.167.109: 443
+Referrer Policy
+strict-origin-when-cross-origin
+access-control-allow-origin
+*
+alt-svc
+h3=":443"; ma=86400
+cache-control
+no-cache, no-store, max-age=0, must-revalidate
+cf-cache-status
+DYNAMIC
+cf-ray
+9e7020649e4e1f37-MRS
+content-encoding
+br
+content-type
+application/json
+date
+Sat,
+04 Apr 2026 11: 55: 52 GMT
+expires
+0
+pragma
+no-cache
+priority
+u=1,i
+server
+cloudflare
+server-timing
+cfExtPri
+set-cookie
+__cf_bm=4nnrAM2dVHdUq_bIOiOZDJBKbqXfg6QZz7PqY3lFBWY-1775303752-1.0.1.1-uH63DXIgh0N7ae.XXo9CsfKkg5zSQrrPcREbG_cgwdAn0Q4VQ05I4ZIjSjL_0dmvR0zvFB9KNsbW3xmbv36jSfNg.FuRG7VJvQWArvcgy.I; path=/; expires=Sat,
+04-Apr-26 12: 25: 52 GMT; domain=.deliveryhero.io; HttpOnly; Secure; SameSite=None
+strict-transport-security
+max-age=31536000 ; includeSubDomains
+vary
+Origin,Access-Control-Request-Method,Access-Control-Request-Headers
+x-content-type-options
+nosniff
+x-envoy-upstream-service-time
+231
+x-frame-options
+DENY
+x-xss-protection
+0
+:authority
+catalog-backlog-eg.deliveryhero.io
+:method
+GET
+:path
+/api/v2/chains?page=1&pageSize=10&name=carr
+:scheme
+https
+accept
+application/json, text/plain, */*
+accept-encoding
+gzip, deflate, br, zstd
+accept-language
+en-US,en;q=0.9
+authorization
+Bearer eyJhbGciOiJQUzI1NiIsImtpZCI6ImlhbS16bGgwLXBzMjU2IiwidHlwIjoiSldUIn0.eyJhdWQiOiJvcHMtcG9ydGFsLWJhY2tvZmZpY2UiLCJleHAiOjE3NzUzMDc0MDAsImp0aSI6IjEwOWQyMzIwLTA1OGQtNDcxNy05NDYzLTM0NmE3NDg5OTc0MCIsImlhdCI6MTc3NTMwMDIwMCwiaXNzIjoiaHR0cDovL3Jtcy5kZWxpdmVyeWhlcm8ubmV0LyIsInN1YiI6Im1vaGFtZWQubWFobW91ZC40MTI4NjBfaWJzLmV4dEB0YWxhYmF0LmNvbSIsInV1aWQiOiIxNWI4NDMzMS0zMzJmLTQwOTctYTI0YS0zYzAyNjJlMTBjMmEiLCJuYW1lIjoibW9oYW1lZCBtYWhtb3VkLjQxMjg2MF9pYnMiLCJuYW1lc3BhY2VzIjpbIkdMT0JBTCIsImVnIl0sImFwcGxpY2F0aW9ucyI6eyJvcHMtcG9ydGFsLWNhdGFsb2ciOiJDYXRhbG9nIn0sInBlcm1pc3Npb25zIjp7Im9wcy1wb3J0YWwtY2F0YWxvZyI6eyJHTE9CQUwiOlsiaW1wb3J0Ojp2ZW5kb3JfcHJvZHVjdDo6Y3JlYXRlIiwiaW1wb3J0Ojp2ZW5kb3JfcHJvZHVjdDo6cmVhZCIsImltcG9ydDo6dmVuZG9yX3Byb2R1Y3Q6OnVwZGF0ZSIsInBsYXRmb3JtOjoyOjpyZWFkIiwidXNlciJdLCJlZyI6WyJjYXRlZ29yeTo6YWxsOjpyZWFkIiwiY2F0ZWdvcnlUcmVlOjphbGw6OnJlYWQiLCJjaGFpbjo6YWxsOjpjcmVhdGUiLCJjaGFpbjo6YWxsOjpkZWxldGUiLCJjaGFpbjo6YWxsOjpyZWFkIiwiY2hhaW46OmFsbDo6dXBkYXRlIiwiY2hhaW5Qcm9kdWN0czo6YWxsOjpjcmVhdGUiLCJjaGFpblByb2R1Y3RzOjphbGw6OnJlYWQiLCJjaGFpblByb2R1Y3RzOjphbGw6OnVwZGF0ZSIsImNvbWJvOjphbGw6OmFsbCIsImNvbWJvOjphbGw6OmNyZWF0ZSIsImNvbWJvOjphbGw6OmRlbGV0ZSIsImNvbWJvOjphbGw6OnJlYWQiLCJjb21ibzo6YWxsOjp1cGRhdGUiLCJpbXBvcnQ6OnZlbmRvcl9wcm9kdWN0X2NhdGVnb3J5X3JlcGxpY2F0aW9uOjpjcmVhdGUiLCJpbXBvcnQ6OnZlbmRvcl9wcm9kdWN0X2NhdGVnb3J5X3JlcGxpY2F0aW9uOjpyZWFkIiwiaW1wb3J0Ojp2ZW5kb3JfcHJvZHVjdF9jYXRlZ29yeV9yZXBsaWNhdGlvbjo6dXBkYXRlIiwiaW1wb3J0Ojp2ZW5kb3JfcHJvZHVjdF9jYXRlZ29yeV9yZXBsaWNhdGlvbjo6d3JpdGUiLCJwbGF0Zm9ybVZlbmRvcjo6YWxsOjpjcmVhdGUiLCJwbGF0Zm9ybVZlbmRvcjo6YWxsOjpkZWxldGUiLCJwbGF0Zm9ybVZlbmRvcjo6YWxsOjpyZWFkIiwicGxhdGZvcm1WZW5kb3I6OmFsbDo6dXBkYXRlIiwicHJvZHVjdDo6YWxsOjpjcmVhdGUiLCJwcm9kdWN0OjphbGw6OnJlYWQiLCJwcm9kdWN0OjphbGw6OnVwZGF0ZSIsInNjaGVkdWxlOjphbGw6OmFsbCIsInNjaGVkdWxlOjphbGw6OmNyZWF0ZSIsInNjaGVkdWxlOjphbGw6OmRlbGV0ZSIsInNjaGVkdWxlOjphbGw6OnJlYWQiLCJzY2hlZHVsZTo6YWxsOjp1cGRhdGUiLCJ2ZW5kb3I6OmFsbDo6Y3JlYXRlIiwidmVuZG9yOjphbGw6OmRlbGV0ZSIsInZlbmRvcjo6YWxsOjpyZWFkIiwidmVuZG9yOjphbGw6OnVwZGF0ZSIsInZlbmRvckNhdGVnb3J5VHJlZVNvdXJjZTo6YWxsOjpjcmVhdGUiLCJ2ZW5kb3JDYXRlZ29yeVRyZWVTb3VyY2U6OmFsbDo6cmVhZCIsInZlbmRvckNhdGVnb3J5VHJlZVNvdXJjZTo6YWxsOjp1cGRhdGUiXX19fQ.SDIvyisCQRXQThFjmy_iTLCDR76bdqPVZu0Zvtp1eubaW3fWHNf5XWs_wl_kyTiKcb6S0LSffBPWhTH-HwRynMpbLG-EZk-BvggW4lzCMAvisqOh9Zjxxl0W0RhazsD_4N42PYrHh148vxb4c7-xfE28q9db-QmHnQNrcgAbm-IDsMbgY0Winsnii0lidEQNgrNAsSjpFGRflU-otXyRTyJ0Kh7R6Gdr8H4netSZ5GwRXTyVambSzs50LsOnD4mA8XMKcs4Yc5Nuolq3NZn5xkP-bRaL_ea8mnDDNT9gzYNj1-C1hywCjwfDBv0EUB8N-mJBccFEDF2G-ZCbKEGz-A
+origin
+https://portal.talabat.com
+priority
+u=1, i
+referer
+https://portal.talabat.com/
+sec-ch-ua
+"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"
+sec-ch-ua-mobile
+?0
+sec-ch-ua-platform
+"Windows"
+sec-fetch-dest
+empty
+sec-fetch-mode
+cors
+sec-fetch-site
+cross-site
+user-agent
+Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36
+
+)
+payload(
+page=1&pageSize=10&name=carr
+)
+
+response(
+{
+    "data": [
+        {
+            "id": 754,
+            "active": true,
+            "name": "Carrot",
+            "platformNames": [
+                "Talabat Egypt Shops"
+            ],
+            "globalId": "eee68aef-7d9b-432a-97e6-8430d7ac1cb4",
+            "type": "SHOP"
+        },
+        {
+            "id": 1037,
+            "active": true,
+            "name": "Carrefour",
+            "platformNames": [
+                "Talabat Egypt Shops"
+            ],
+            "globalId": "afc3f7ba-0a0b-41b6-8460-fe3251d9ab5a",
+            "type": "SHOP"
+        },
+        {
+            "id": 1824,
+            "active": true,
+            "name": "SUPER MARKET CASH& CARRY",
+            "platformNames": [
+                "Talabat Egypt Shops"
+            ],
+            "globalId": "040a3e75-ff69-46a2-bf54-10689a19aadd",
+            "type": "SHOP"
+        }
+    ],
+    "totalPages": 1,
+    "pageIndex": 1,
+    "totalRecords": 3
+}
+    )
+بنعمل سيرش بي اسم الاتشين بيرجع الداتا بتاعت الاتشين 

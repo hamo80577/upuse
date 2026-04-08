@@ -45,6 +45,88 @@ describe("httpClient", () => {
     window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, unauthorizedListener);
   });
 
+  it("does not broadcast the unauthorized event for business-api 401 responses when the auth recheck succeeds", async () => {
+    const unauthorizedListener = vi.fn();
+    window.addEventListener(AUTH_UNAUTHORIZED_EVENT, unauthorizedListener);
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "Scano catalog token is invalid." }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true, user: { id: 1 } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    await expect(requestJson<{ ok: boolean }>("/api/scano/settings/test")).rejects.toThrow("Scano catalog token is invalid.");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/auth/me");
+    expect(unauthorizedListener).not.toHaveBeenCalled();
+    window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, unauthorizedListener);
+  });
+
+  it("dispatches a single unauthorized event only after a business-api 401 recheck confirms the session expired", async () => {
+    const unauthorizedListener = vi.fn();
+    window.addEventListener(AUTH_UNAUTHORIZED_EVENT, unauthorizedListener);
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "Unauthorized" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "Unauthorized" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    await expect(requestJson<{ ok: boolean }>("/api/scano/chains")).rejects.toThrow("Unauthorized");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/auth/me");
+    expect(unauthorizedListener).toHaveBeenCalledTimes(1);
+    window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, unauthorizedListener);
+  });
+
+  it("reuses a single in-flight auth recheck for concurrent business-api 401 responses", async () => {
+    const unauthorizedListener = vi.fn();
+    window.addEventListener(AUTH_UNAUTHORIZED_EVENT, unauthorizedListener);
+
+    fetchMock.mockImplementation(async (url: string | URL | Request) => {
+      const nextUrl = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      if (nextUrl === "/api/auth/me") {
+        return new Response(JSON.stringify({ message: "Unauthorized" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      return new Response(JSON.stringify({ message: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    await Promise.allSettled([
+      requestJson<{ ok: boolean }>("/api/scano/chains"),
+      requestJson<{ ok: boolean }>("/api/scano/branches?chainId=1"),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/auth/me")).toHaveLength(1);
+    expect(unauthorizedListener).toHaveBeenCalledTimes(1);
+    window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, unauthorizedListener);
+  });
+
   it("does not broadcast the unauthorized event for a normal login failure", async () => {
     const unauthorizedListener = vi.fn();
     window.addEventListener(AUTH_UNAUTHORIZED_EVENT, unauthorizedListener);

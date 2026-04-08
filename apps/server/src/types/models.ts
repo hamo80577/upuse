@@ -2,6 +2,7 @@ export type AvailabilityState = "OPEN" | "CLOSED_UNTIL" | "CLOSED" | "CLOSED_TOD
 export type OrdersVendorId = number;
 export type AvailabilityVendorId = string;
 export type AppUserRole = "admin" | "user";
+export type ScanoRole = "team_lead" | "scanner";
 export type ThresholdSource = "branch" | "chain" | "global";
 export type BranchCatalogState = "available" | "missing";
 
@@ -66,6 +67,12 @@ export interface Settings {
   availabilityRefreshSeconds: number; // default 30
 
   maxVendorsPerOrdersRequest: number; // default 50
+}
+
+export interface ScanoSettings {
+  catalogBaseUrl: string;
+  catalogToken: string;
+  updatedAt: string;
 }
 
 export interface BranchMapping {
@@ -588,6 +595,10 @@ export interface AppUser {
   role: AppUserRole;
   active: boolean;
   createdAt: string;
+  upuseAccess: boolean;
+  isPrimaryAdmin: boolean;
+  scanoMemberId?: number;
+  scanoRole?: ScanoRole;
 }
 
 export interface AuthSession {
@@ -610,4 +621,449 @@ export interface AuthMeResponse {
 export interface AuthUsersResponse {
   ok: true;
   items: AppUser[];
+}
+
+export interface ScanoCatalogPage<TItem> {
+  items: TItem[];
+  pageIndex: number;
+  totalPages: number;
+  totalRecords: number;
+}
+
+export interface ScanoChainOption {
+  id: number;
+  active: boolean;
+  name: string;
+  globalId: string;
+  type: string;
+}
+
+export interface ScanoBranchOption {
+  id: number;
+  globalId: string;
+  name: string;
+  chainId: number;
+  chainName: string;
+  globalEntityId: string;
+  countryCode: string;
+  additionalRemoteId: string;
+}
+
+export interface ScanoTeamMember {
+  id: number;
+  name: string;
+  linkedUserId: number;
+  linkedUserName: string;
+  linkedUserEmail: string;
+  role: ScanoRole;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ScanoTaskStatus = "pending" | "in_progress" | "awaiting_review" | "completed";
+export type ScanoTaskId = string;
+export type ScanoScanSource = "manual" | "scanner" | "camera";
+export type ScanoYesNoFlag = "yes" | "no";
+export type ScanoTaskScanOutcome = "matched_external" | "matched_master" | "manual_only" | "duplicate_blocked";
+export type ScanoTaskProductSource = "vendor" | "chain" | "master" | "manual";
+
+export interface ScanoTaskAssignee {
+  id: number;
+  name: string;
+  linkedUserId: number;
+}
+
+export interface ScanoTaskPermissions {
+  canEdit: boolean;
+  canStart: boolean;
+  canManageAssignees: boolean;
+  canComplete: boolean;
+  canDownloadReviewPackage: boolean;
+  canConfirmReviewExport: boolean;
+}
+
+export interface ScanoTaskProgress {
+  startedCount: number;
+  endedCount: number;
+  totalCount: number;
+}
+
+export interface ScanoTaskViewerState {
+  hasStarted: boolean;
+  hasEnded: boolean;
+  canEnter: boolean;
+  canEnd: boolean;
+  canResume: boolean;
+}
+
+export interface ScanoTaskParticipantState {
+  id: number;
+  name: string;
+  linkedUserId: number;
+  startedAt: string | null;
+  lastEnteredAt: string | null;
+  endedAt: string | null;
+}
+
+export interface ScanoTaskCounters {
+  scannedProductsCount: number;
+  vendorCount: number;
+  vendorEditedCount: number;
+  chainCount: number;
+  chainEditedCount: number;
+  masterCount: number;
+  manualCount: number;
+}
+
+export interface ScanoTaskScanItem {
+  id: number;
+  barcode: string;
+  source: ScanoScanSource;
+  outcome: ScanoTaskScanOutcome;
+  scannedAt: string;
+  taskProductId: string | null;
+  scannedBy: {
+    id: number;
+    name: string;
+    linkedUserId: number;
+  };
+}
+
+export interface ScanoExternalProductSearchResult {
+  id: string;
+  barcode: string;
+  barcodes?: string[];
+  itemNameEn: string | null;
+  itemNameAr: string | null;
+  image: string | null;
+}
+
+export interface ScanoExternalProductDetail {
+  id: string;
+  sku: string | null;
+  price: string | null;
+  barcode: string;
+  barcodes: string[];
+  itemNameEn: string | null;
+  itemNameAr: string | null;
+  images: string[];
+}
+
+export interface ScanoProductAssignmentCheck {
+  chain: ScanoYesNoFlag;
+  vendor: ScanoYesNoFlag;
+  sku: string | null;
+  price: string | null;
+}
+
+export interface ScanoRunnerMasterIndexItem {
+  barcode: string;
+  sku: string | null;
+  price: string | null;
+  itemNameEn: string | null;
+  itemNameAr: string | null;
+  image: string | null;
+}
+
+export interface ScanoRunnerBootstrapResponse {
+  runnerToken: string;
+  confirmedBarcodes: string[];
+  confirmedProducts: ScanoTaskProduct[];
+  masterIndex: ScanoRunnerMasterIndexItem[];
+}
+
+export interface ScanoRunnerSearchInput {
+  runnerToken: string;
+  barcode: string;
+}
+
+export interface ScanoRunnerHydrateInput {
+  runnerToken: string;
+  productId: string;
+}
+
+export interface ScanoRunnerExternalSearchMatch {
+  kind: "match";
+  item: ScanoExternalProductSearchResult;
+}
+
+export interface ScanoRunnerExternalSearchMultiple {
+  kind: "multiple";
+  items: ScanoExternalProductSearchResult[];
+}
+
+export interface ScanoRunnerExternalSearchMiss {
+  kind: "miss";
+}
+
+export type ScanoRunnerExternalSearchResponse =
+  | ScanoRunnerExternalSearchMatch
+  | ScanoRunnerExternalSearchMultiple
+  | ScanoRunnerExternalSearchMiss;
+
+export interface ScanoRunnerAssignmentResponse extends ScanoProductAssignmentCheck {}
+
+export interface ScanoTaskProductDraft {
+  externalProductId: string | null;
+  barcode: string;
+  barcodes: string[];
+  sku: string | null;
+  price: string | null;
+  itemNameEn: string | null;
+  itemNameAr: string | null;
+  previewImageUrl: string | null;
+  chain: ScanoYesNoFlag;
+  vendor: ScanoYesNoFlag;
+  masterfile: ScanoYesNoFlag;
+  new: ScanoYesNoFlag;
+  sourceType: ScanoTaskProductSource;
+  images: string[];
+  warning: string | null;
+}
+
+export interface ScanoTaskProductImage {
+  id: string;
+  fileName: string;
+  url: string;
+}
+
+export interface ScanoTaskProductSnapshot {
+  externalProductId: string | null;
+  barcode: string;
+  barcodes: string[];
+  sku: string;
+  price: string | null;
+  itemNameEn: string;
+  itemNameAr: string | null;
+  previewImageUrl: string | null;
+  chain: ScanoYesNoFlag;
+  vendor: ScanoYesNoFlag;
+  masterfile: ScanoYesNoFlag;
+  new: ScanoYesNoFlag;
+}
+
+export interface ScanoTaskProductSourceMeta {
+  sourceType: ScanoTaskProductSource;
+  chain: ScanoYesNoFlag;
+  vendor: ScanoYesNoFlag;
+  masterfile: ScanoYesNoFlag;
+  new: ScanoYesNoFlag;
+}
+
+export interface ScanoTaskProductEditLog {
+  id: number;
+  editedAt: string;
+  editedBy: {
+    id: number;
+    name: string;
+    linkedUserId: number;
+  };
+  before: ScanoTaskProductSnapshot;
+  after: ScanoTaskProductSnapshot;
+}
+
+export interface ScanoTaskProduct {
+  id: string;
+  sourceType: ScanoTaskProductSource;
+  externalProductId: string | null;
+  barcode: string;
+  barcodes: string[];
+  sku: string;
+  price: string | null;
+  itemNameEn: string;
+  itemNameAr: string | null;
+  previewImageUrl: string | null;
+  chain: ScanoYesNoFlag;
+  vendor: ScanoYesNoFlag;
+  masterfile: ScanoYesNoFlag;
+  new: ScanoYesNoFlag;
+  edited: boolean;
+  images: ScanoTaskProductImage[];
+  edits: ScanoTaskProductEditLog[];
+  createdBy: {
+    id: number;
+    name: string;
+    linkedUserId: number;
+  };
+  confirmedAt: string;
+  updatedAt: string;
+  canEdit: boolean;
+}
+
+export type ScanoTaskProductListSourceFilter = "all" | ScanoTaskProductSource;
+
+export interface ScanoTaskExport {
+  id: string;
+  fileName: string;
+  createdAt: string;
+  confirmedDownloadAt: string | null;
+  imagesPurgedAt: string | null;
+  canDownload: boolean;
+  requiresConfirmation: boolean;
+}
+
+export interface ResolveScanoTaskScanInput {
+  barcode: string;
+  source: ScanoScanSource;
+  selectedExternalProductId?: string | null;
+}
+
+export interface SaveScanoTaskProductInput {
+  externalProductId: string | null;
+  barcode: string;
+  barcodes: string[];
+  sku: string;
+  price: string | null;
+  itemNameEn: string;
+  itemNameAr: string | null;
+  sourceMeta: ScanoTaskProductSourceMeta;
+  imageUrls?: string[];
+  existingImageIds?: string[];
+}
+
+export interface ScanoTaskScanResolveSelection {
+  kind: "selection";
+  items: ScanoExternalProductSearchResult[];
+}
+
+export interface ScanoTaskScanResolveDraft {
+  kind: "draft";
+  draft: ScanoTaskProductDraft;
+  rawScan: ScanoTaskScanItem;
+  task: ScanoTaskListItem;
+  counters: ScanoTaskCounters;
+}
+
+export interface ScanoTaskScanResolveDuplicate {
+  kind: "duplicate";
+  message: string;
+  existingProduct: ScanoTaskProduct;
+  existingScannerName: string;
+  existingScannedAt: string;
+  rawScan: ScanoTaskScanItem;
+  task: ScanoTaskListItem;
+  counters: ScanoTaskCounters;
+}
+
+export type ScanoTaskScanResolveResponse =
+  | ScanoTaskScanResolveSelection
+  | ScanoTaskScanResolveDraft
+  | ScanoTaskScanResolveDuplicate;
+
+export interface ScanoTaskBranchInput {
+  id: number;
+  globalId: string;
+  name: string;
+  globalEntityId: string;
+  countryCode: string;
+  additionalRemoteId: string;
+}
+
+export interface CreateScanoTaskInput {
+  chainId: number;
+  chainName: string;
+  branch: ScanoTaskBranchInput;
+  assigneeIds: number[];
+  scheduledAt: string;
+}
+
+export interface UpdateScanoTaskInput extends CreateScanoTaskInput {}
+
+export interface UpdateScanoTaskAssigneesInput {
+  assigneeIds: number[];
+}
+
+export interface CreateScanoTaskScanInput {
+  barcode: string;
+  source: ScanoScanSource;
+}
+
+export interface ScanoTaskListItem {
+  id: ScanoTaskId;
+  chainId: number;
+  chainName: string;
+  branchId: number;
+  branchGlobalId: string;
+  branchName: string;
+  globalEntityId: string;
+  countryCode: string;
+  additionalRemoteId: string;
+  scheduledAt: string;
+  status: ScanoTaskStatus;
+  assignees: ScanoTaskAssignee[];
+  progress: ScanoTaskProgress;
+  counters: ScanoTaskCounters;
+  viewerState: ScanoTaskViewerState;
+  permissions: ScanoTaskPermissions;
+  latestExport: ScanoTaskExport | null;
+}
+
+export interface ScanoTaskDetail extends ScanoTaskListItem {
+  participants: ScanoTaskParticipantState[];
+}
+
+export type ScanoTaskSummaryPatch = Pick<
+  ScanoTaskListItem,
+  "status" | "progress" | "counters" | "viewerState" | "permissions" | "latestExport"
+>;
+
+export interface ScanoPaginationMeta {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface ScanoTaskProductsPageResponse extends ScanoPaginationMeta {
+  items: ScanoTaskProduct[];
+}
+
+export interface ScanoTaskScansPageResponse extends ScanoPaginationMeta {
+  items: ScanoTaskScanItem[];
+}
+
+export type ScanoMasterProductField =
+  | "barcode"
+  | "sku"
+  | "price"
+  | "itemNameEn"
+  | "itemNameAr"
+  | "image";
+
+export interface ScanoMasterProductMapping {
+  barcode: string | null;
+  sku: string | null;
+  price: string | null;
+  itemNameEn: string | null;
+  itemNameAr: string | null;
+  image: string | null;
+}
+
+export interface ScanoMasterProductListItem {
+  chainId: number;
+  chainName: string;
+  productCount: number;
+  updatedAt: string;
+}
+
+export interface ScanoMasterProductRowExample {
+  rowNumber: number;
+  sku: string | null;
+  barcode: string | null;
+  price: string | null;
+  itemNameEn: string | null;
+  itemNameAr: string | null;
+  image: string | null;
+}
+
+export interface ScanoMasterProductPreviewResponse {
+  headers: string[];
+  sampleRows: Array<Record<string, string>>;
+  suggestedMapping: ScanoMasterProductMapping;
+}
+
+export interface ScanoMasterProductDetail extends ScanoMasterProductListItem {
+  mapping: ScanoMasterProductMapping;
+  exampleRows: ScanoMasterProductRowExample[];
 }

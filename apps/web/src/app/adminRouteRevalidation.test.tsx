@@ -90,6 +90,8 @@ describe("admin route auth revalidation", () => {
           role: "admin",
           active: true,
           createdAt: "2026-03-14T00:00:00.000Z",
+          upuseAccess: true,
+          isPrimaryAdmin: false,
         },
       })
       .mockResolvedValueOnce({
@@ -100,6 +102,8 @@ describe("admin route auth revalidation", () => {
           role: "user",
           active: true,
           createdAt: "2026-03-14T00:00:00.000Z",
+          upuseAccess: true,
+          isPrimaryAdmin: false,
         },
       });
 
@@ -123,6 +127,8 @@ describe("admin route auth revalidation", () => {
           role: "user",
           active: true,
           createdAt: "2026-03-14T00:00:00.000Z",
+          upuseAccess: true,
+          isPrimaryAdmin: false,
         },
       })
       .mockResolvedValueOnce({
@@ -133,6 +139,8 @@ describe("admin route auth revalidation", () => {
           role: "admin",
           active: true,
           createdAt: "2026-03-14T00:00:00.000Z",
+          upuseAccess: true,
+          isPrimaryAdmin: false,
         },
       });
 
@@ -156,6 +164,8 @@ describe("admin route auth revalidation", () => {
           role: "admin",
           active: true,
           createdAt: "2026-03-14T00:00:00.000Z",
+          upuseAccess: true,
+          isPrimaryAdmin: false,
         },
       })
       .mockResolvedValueOnce({
@@ -166,6 +176,8 @@ describe("admin route auth revalidation", () => {
           role: "admin",
           active: true,
           createdAt: "2026-03-14T00:00:00.000Z",
+          upuseAccess: true,
+          isPrimaryAdmin: false,
         },
       })
       .mockResolvedValueOnce({
@@ -176,6 +188,8 @@ describe("admin route auth revalidation", () => {
           role: "user",
           active: true,
           createdAt: "2026-03-14T00:00:00.000Z",
+          upuseAccess: true,
+          isPrimaryAdmin: false,
         },
       });
     mockApi.listUsers.mockImplementation(async () => {

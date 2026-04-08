@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from "react";
 import { AUTH_FORBIDDEN_EVENT, AUTH_UNAUTHORIZED_EVENT, api, describeApiError } from "../../api/client";
 import type { AppUser } from "../../api/types";
-import { getAppPermissions, type AppPermissions } from "../permissions";
+import { getAppPermissionsForAccess, type AppPermissions } from "../permissions";
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 const UNAUTHORIZED_MESSAGE = "Sign in again to access protected routes.";
@@ -16,6 +16,12 @@ interface AuthContextValue {
   bootstrapError: string | null;
   permissions: AppPermissions;
   isAdmin: boolean;
+  scanoRole: AppUser["scanoRole"] | null;
+  canAccessUpuse: boolean;
+  canAccessScano: boolean;
+  canManageScanoTasks: boolean;
+  canManageScanoSettings: boolean;
+  canSwitchSystems: boolean;
   canManage: boolean;
   canManageUsers: boolean;
   canManageMonitor: boolean;
@@ -114,7 +120,9 @@ export function AuthProvider(props: PropsWithChildren) {
   }, [refreshAuth, status]);
 
   const value = useMemo<AuthContextValue>(() => {
-    const permissions = getAppPermissions(user?.role);
+    const canAccessUpuse = user?.upuseAccess === true;
+    const canAccessScano = !!user && (user.isPrimaryAdmin || user.scanoRole === "team_lead" || user.scanoRole === "scanner");
+    const permissions = getAppPermissionsForAccess(user?.role, canAccessUpuse);
 
     return {
       status,
@@ -122,6 +130,12 @@ export function AuthProvider(props: PropsWithChildren) {
       bootstrapError,
       permissions,
       isAdmin: permissions.isAdmin,
+      scanoRole: user?.scanoRole ?? null,
+      canAccessUpuse,
+      canAccessScano,
+      canManageScanoTasks: !!user && (user.isPrimaryAdmin || user.scanoRole === "team_lead"),
+      canManageScanoSettings: user?.isPrimaryAdmin === true,
+      canSwitchSystems: canAccessUpuse && canAccessScano,
       canManage: permissions.canManage,
       canManageUsers: permissions.canManageUsers,
       canManageMonitor: permissions.canManageMonitor,

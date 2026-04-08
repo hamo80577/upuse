@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { db } from "../config/db.js";
 import { resolveVendorCatalogCsvPath } from "../config/paths.js";
 import type { LocalVendorCatalogItem, OrdersVendorId } from "../types/models.js";
+import { parseCsvDocument } from "./csvDocument.js";
 
 interface VendorCatalogRow {
   availabilityVendorId: string;
@@ -22,67 +23,13 @@ interface JoinedVendorCatalogRow extends VendorCatalogRow {
 
 const REQUIRED_COLUMNS = new Set(["name", "availabilityVendorId", "ordersVendorId"]);
 
-function parseCsvLine(line: string) {
-  const out: string[] = [];
-  let current = "";
-  let inQuotes = false;
-
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-
-    if (char === "\"") {
-      const next = line[index + 1];
-      if (inQuotes && next === "\"") {
-        current += "\"";
-        index += 1;
-        continue;
-      }
-      inQuotes = !inQuotes;
-      continue;
-    }
-
-    if (char === "," && !inQuotes) {
-      out.push(current);
-      current = "";
-      continue;
-    }
-
-    current += char;
-  }
-
-  if (inQuotes) {
-    throw new Error("Malformed CSV row with unclosed quotes.");
-  }
-
-  out.push(current);
-  return out;
-}
-
-function parseCsvContent(raw: string) {
-  const normalized = raw.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  const lines = normalized.split("\n").filter((line) => line.length > 0);
-  if (!lines.length) {
-    throw new Error("Vendor catalog CSV is empty.");
-  }
-
-  const header = parseCsvLine(lines[0]).map((value) => value.trim());
+export function parseVendorCatalogCsv(raw: string) {
+  const parsed = parseCsvDocument(raw);
   for (const column of REQUIRED_COLUMNS) {
-    if (!header.includes(column)) {
+    if (!parsed.header.includes(column)) {
       throw new Error(`Vendor catalog CSV is missing required column "${column}".`);
     }
   }
-
-  return {
-    header,
-    rows: lines.slice(1).map((line, index) => ({
-      lineNumber: index + 2,
-      values: parseCsvLine(line),
-    })),
-  };
-}
-
-export function parseVendorCatalogCsv(raw: string) {
-  const parsed = parseCsvContent(raw);
   const availabilityIds = new Set<string>();
   const ordersIds = new Set<number>();
   const rows: VendorCatalogRow[] = [];

@@ -20,7 +20,7 @@ vi.mock("../services/authStore.js", () => ({
   verifyUserCredentials: mockVerifyUserCredentials,
 }));
 
-import { createUserRoute, deleteUserRoute, loginRoute, logoutRoute, resetLoginRateLimitStateForTests, updateUserRoute } from "./auth.js";
+import { createUserRoute, deleteUserRoute, loginRoute, logoutRoute, meRoute, resetLoginRateLimitStateForTests, updateUserRoute } from "./auth.js";
 
 function createMockResponse() {
   return {
@@ -159,6 +159,21 @@ describe("auth.logoutRoute", () => {
     });
   });
 
+  it("returns a session-shaped 401 from /api/auth/me when no authenticated user is attached", () => {
+    const req = {};
+    const res = createMockResponse();
+
+    meRoute(req as any, res as any);
+
+    expect(res.statusCode).toBe(401);
+    expect(res.payload).toEqual({
+      ok: false,
+      message: "Unauthorized",
+      code: "SESSION_UNAUTHORIZED",
+      errorOrigin: "session",
+    });
+  });
+
   it("accepts the renamed user role when creating users", () => {
     const createdUser = {
       id: 2,
@@ -167,6 +182,8 @@ describe("auth.logoutRoute", () => {
       role: "user",
       active: true,
       createdAt: "2026-03-07T10:30:00.000Z",
+      upuseAccess: true,
+      isPrimaryAdmin: false,
     };
     mockCreateUser.mockReturnValue(createdUser);
 
@@ -175,7 +192,9 @@ describe("auth.logoutRoute", () => {
         email: "user@example.com",
         password: "password-123",
         name: "User",
-        role: "user",
+        upuseAccess: true,
+        upuseRole: "user",
+        scanoAccessRole: "scanner",
       },
     };
     const res = createMockResponse();
@@ -198,6 +217,8 @@ describe("auth.logoutRoute", () => {
       role: "user",
       active: true,
       createdAt: "2026-03-07T10:30:00.000Z",
+      upuseAccess: true,
+      isPrimaryAdmin: false,
     };
     mockUpdateUser.mockReturnValue(updatedUser);
 
@@ -208,7 +229,9 @@ describe("auth.logoutRoute", () => {
         email: "user@example.com",
         password: "",
         name: "Updated User",
-        role: "user",
+        upuseAccess: true,
+        upuseRole: "user",
+        scanoAccessRole: "team_lead",
       },
     };
     const res = createMockResponse();
@@ -219,7 +242,9 @@ describe("auth.logoutRoute", () => {
       id: 2,
       email: "user@example.com",
       name: "Updated User",
-      role: "user",
+      upuseAccess: true,
+      upuseRole: "user",
+      scanoAccessRole: "team_lead",
       password: undefined,
       actorUserId: 1,
     });
@@ -230,7 +255,7 @@ describe("auth.logoutRoute", () => {
     });
   });
 
-  it("deletes an existing user and forwards the acting admin id", () => {
+  it("archives an existing user and forwards the acting admin id", () => {
     const req = {
       params: { id: "2" },
       authUser: { id: 1 },

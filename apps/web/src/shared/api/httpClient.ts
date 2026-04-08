@@ -113,9 +113,43 @@ function notifyForbidden() {
   window.dispatchEvent(new Event(AUTH_FORBIDDEN_EVENT));
 }
 
+let activeSessionRecheck: Promise<boolean> | null = null;
+
+function isSessionProbeRequest(requestUrl?: string) {
+  return requestUrl === "/api/auth/me";
+}
+
+async function recheckActiveSession() {
+  if (activeSessionRecheck) {
+    return activeSessionRecheck;
+  }
+
+  activeSessionRecheck = (async () => {
+    try {
+      const response = await fetchWithTimeout("/api/auth/me", withApiInit(undefined), DEFAULT_TIMEOUT_MS);
+      if (response.status === 401) {
+        notifyUnauthorized();
+        return false;
+      }
+
+      return response.ok;
+    } catch {
+      return true;
+    } finally {
+      activeSessionRecheck = null;
+    }
+  })();
+
+  return activeSessionRecheck;
+}
+
 async function createResponseError(response: Response, requestUrl?: string) {
   if (response.status === 401 && requestUrl !== "/api/auth/login") {
-    notifyUnauthorized();
+    if (isSessionProbeRequest(requestUrl)) {
+      notifyUnauthorized();
+    } else {
+      await recheckActiveSession();
+    }
   }
   if (response.status === 403 && shouldRefreshAuthOnForbidden(requestUrl)) {
     notifyForbidden();

@@ -71,19 +71,23 @@ function hasUiCapability(role: AppUserRole | null | undefined, capability: UiCap
 }
 
 export function getAppPermissions(role?: AppUserRole | null): AppPermissions {
+  return getAppPermissionsForAccess(role, true);
+}
+
+export function getAppPermissionsForAccess(role?: AppUserRole | null, upuseAccess = true): AppPermissions {
   return {
     ...anonymousPermissions,
-    isAdmin: role === "admin",
-    canManage: role === "admin",
-    canManageUsers: hasUiCapability(role, "manage_users"),
-    canManageMonitor: hasUiCapability(role, "manage_monitor"),
-    canRefreshOrdersNow: hasUiCapability(role, "refresh_monitor_orders"),
-    canManageBranches: hasUiCapability(role, "manage_branch_mappings"),
-    canDeleteBranches: hasUiCapability(role, "delete_branch_mappings"),
-    canManageThresholds: hasUiCapability(role, "manage_thresholds"),
-    canManageSettings: hasUiCapability(role, "manage_settings"),
-    canManageTokens: hasUiCapability(role, "manage_settings_tokens"),
-    canTestTokens: hasUiCapability(role, "test_settings_tokens"),
-    canClearLogs: hasUiCapability(role, "clear_logs"),
+    isAdmin: upuseAccess && role === "admin",
+    canManage: upuseAccess && role === "admin",
+    canManageUsers: upuseAccess && hasUiCapability(role, "manage_users"),
+    canManageMonitor: upuseAccess && hasUiCapability(role, "manage_monitor"),
+    canRefreshOrdersNow: upuseAccess && hasUiCapability(role, "refresh_monitor_orders"),
+    canManageBranches: upuseAccess && hasUiCapability(role, "manage_branch_mappings"),
+    canDeleteBranches: upuseAccess && hasUiCapability(role, "delete_branch_mappings"),
+    canManageThresholds: upuseAccess && hasUiCapability(role, "manage_thresholds"),
+    canManageSettings: upuseAccess && hasUiCapability(role, "manage_settings"),
+    canManageTokens: upuseAccess && hasUiCapability(role, "manage_settings_tokens"),
+    canTestTokens: upuseAccess && hasUiCapability(role, "test_settings_tokens"),
+    canClearLogs: upuseAccess && hasUiCapability(role, "clear_logs"),
   };
 }

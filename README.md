@@ -52,6 +52,120 @@ If you want one Windows command that loads `.env`, builds, and starts production
 - In production, new sessions are issued under a host-only `__Host-` cookie name for stronger cookie scoping. The server still accepts the legacy cookie name during the transition.
 - For the cookie session model, serve the web app and `/api` from the same site or behind one reverse proxy so the browser can keep the session same-origin.
 - Mutating API routes enforce trusted request origins. Browser writes should come from the same site or from origins explicitly listed in `UPUSE_CORS_ORIGINS`.
+- Browser logout now depends only on the UPuse session itself. A failing business API or external integration token no longer signs the user out on its own.
+- Non-session upstream auth failures are normalized into integration errors so the UI can show a toast/error without collapsing the current workspace session.
+
+## Workspaces and access model
+- The product now has two workspaces:
+  - `UPuse`
+  - `Scano`
+- Access is controlled independently:
+  - `upuseAccess` controls whether the user can open UPuse routes
+  - `scanoRole` controls whether the user can open Scano (`team_lead` or `scanner`)
+- `role` remains the UPuse role only: `admin` or `user`
+- One `primary admin` is maintained in the database. That user always keeps:
+  - `UPuse admin`
+  - implicit `Scano admin` capabilities
+- Non-primary users gain Scano through a linked Scano team membership, not by their UPuse role
+
+## Workspace switching and redirects
+- The system switcher appears only for users who can access both workspaces
+- UPuse-only users do not see Scano navigation or the switcher
+- Scano-only users do not see UPuse navigation or the switcher
+- Authorized direct `/scano/*` links win over a stale remembered `UPuse` system, so bookmarks and login returns stay in Scano
+- If a user opens a route from a workspace they do not have access to:
+  - `Scano-only team_lead` users are redirected to `/scano/assign-task`
+  - `Scano-only scanner` users are redirected to `/scano/my-tasks`
+  - `UPuse-only` users are redirected to `/`
+- The last active system is remembered only for users who can access both workspaces
+
+## User management wizard
+- `User Management` now creates and edits users through a 2-step wizard:
+  1. account details: name, email, password
+  2. workspace access: `UPuse access` and `Scano access`
+- A user can be:
+  - `UPuse only`
+  - `Scano only`
+  - `Both`
+- `UPuse access` reveals the UPuse role selector: `admin` / `user`
+- `Scano access` reveals the Scano role selector: `team_lead` / `scanner`
+- Saving a user without access to either workspace is blocked
+- Deleting a user from the UI now archives them instead of hard-deleting their row:
+  - `users.active` is set to `0`
+  - `upuseAccess` is cleared
+  - linked `scano_team_members.active` is set to `0`
+  - existing sessions are removed
+- Archived users stay visible in the list with an `Archived` status and cannot be edited or archived again from the current UI
+- Removing Scano access or archiving a user is blocked while that linked user is still assigned to a Scano task in `pending`, `in_progress`, or `awaiting_review`
+
+## Scano workspace
+- `team_lead` users land on `Assign Task` at `/scano/assign-task`
+- `scanner` users land on `My Tasks` at `/scano/my-tasks`
+- Scano access is granted from `User Management`, not from a dedicated Scano team page
+- `Scano Settings` and `Master Product` stay under the Scano dropdown navigation
+- `Scano Settings` is a minimal token screen used only to test and update the Scano catalog token
+- The catalog base URL is fixed on the server side and is not edited from the UI
+- `Master Product` is available to `primary admin` and `team_lead` only, and stores one normalized catalog import per chain for lookup fallback
+
+## Scano task flow
+- `Add New Task` opens a multi-step wizard:
+  1. search chain
+  2. select branch
+  3. assign scanners and choose schedule
+  4. review and save
+- Scano task lifecycle is now:
+  - `pending`
+  - `in_progress`
+  - `awaiting_review`
+  - `completed`
+- Team leads and the primary admin share the same task-management capability for:
+  - chain search
+  - branch search
+  - scanner loading for assignment
+  - creating and editing pending tasks
+- Team leads can still update assignees while a task is `in_progress`, but started scanners cannot be removed
+- Team leads and the primary admin can permanently delete a Scano task from the manager board or task profile
+- Scanners work from `My Tasks`, where each task can be:
+  - started
+  - continued
+  - resumed after a per-scanner end
+- Opening a task leads to:
+  - `/scano/tasks/:id` for the shared task profile
+  - `/scano/tasks/:id/run` for the mobile-first runner
+- The runner supports:
+  - manual barcode entry
+  - hardware scanner input through the same barcode field
+  - optional camera scanning with runtime camera permission
+- Barcode resolution now follows this order:
+  1. server-side duplicate check for the current task barcode
+  2. external product search by barcode
+  3. server-side vendor/chain assignment lookup for the chosen external product
+  4. local master-product fallback for the task chain when the external search misses
+  5. manual product completion when no external or master match exists
+- The browser no longer performs a separate runner `hydrate` request. The runner resolves scans through `/api/scano/tasks/:id/scans/resolve`, then auto-saves exact external/master hits when the returned draft is complete
+- Confirmed task products now store:
+  - external id when available
+  - SKU, price, English and Arabic names
+  - one or more barcodes
+  - scanner-uploaded product images only
+  - optional `previewImageUrl` metadata for external/master thumbnails when no local upload exists
+  - source flags: `vendor`, `chain`, `master`, `manual`
+  - edit history for assigned-scanner product updates while the task is `in_progress`
+- Retaining an uploaded local image during product edit keeps its local file metadata intact so image downloads and review exports still work
+- Duplicate barcodes are blocked per task. Re-scanning an existing barcode records a `duplicate_blocked` raw scan, reopens the confirmed product in the normal product dialog, and shows who confirmed it first and when. Assigned scanners can continue editing from that dialog; viewers without edit permission stay read-only
+- Task counters now track confirmed products by exclusive source:
+  - `Vendor`
+  - `Chain`
+  - `Master`
+  - `Manual`
+- Each scanner ends their own participation. Once every assigned scanner has ended, the task moves to `awaiting_review`
+- During `awaiting_review`, `team_lead` and the primary admin can export a review package for the task
+- Review export produces a `.zip` package that contains:
+  - an `.xlsx` review sheet
+  - the original captured images in a folder
+  - the same images embedded inside the spreadsheet when the format is supported
+- Task completion is now gated behind review export confirmation. After the lead confirms the export download, temporary server-side product images are purged and the task can move from `awaiting_review` to `completed`
+- If the server detects an old incompatible Scano task schema during migration, it now performs an explicit hard reset of legacy task-domain tables only. `scano_team_members`, `scano_settings`, and master-product data are preserved.
 
 ## Server env vars
 - `PORT`: API port. Default `8080`.
@@ -99,6 +213,7 @@ If you want one Windows command that loads `.env`, builds, and starts production
 - `npm --workspace apps/server run build`
 - `npm --workspace apps/server test`
 - `npm --workspace apps/web run build`
+- `npm --workspace apps/web test`
 
 ## Secret rotation
 1) Set a new `UPUSE_SECRET`.

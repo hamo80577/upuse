@@ -1,0 +1,157 @@
+header(
+Request URL
+https: //qc-internal-supergraph-me.deliveryhero.io/graphql
+Request Method
+POST
+Status Code
+200 OK
+Remote Address
+104.19.167.109: 443
+Referrer Policy
+strict-origin-when-cross-origin
+access-control-allow-credentials
+true
+access-control-allow-origin
+https: //portal.talabat.com
+alt-svc
+h3=":443"; ma=86400
+cf-cache-status
+DYNAMIC
+cf-ray
+9e7fef82381401cd-MRS
+content-length
+1890
+content-type
+application/graphql-response+json; charset=utf-8
+date
+Mon,
+06 Apr 2026 09: 58: 42 GMT
+priority
+u=1,i
+server
+cloudflare
+server-timing
+cfExtPri
+set-cookie
+__cf_bm=MQWHjEF45fPr5PXxb5E9kyVB2OMMHvyHWzX0oHPtNck-1775469522-1.0.1.1-10SEm04d4aJ3qLkkjz9oE5HZ7F5g4qOL7jwjTdQoBosqJKlEH0iI3zv_w5yZfKi0yfs9NA1imNYC105Y6JJ.hqn3Ak8CulvPkCyC85Z2SLI; path=/; expires=Mon,
+06-Apr-26 10: 28: 42 GMT; domain=.deliveryhero.io; HttpOnly; Secure; SameSite=None
+vary
+Origin
+x-envoy-upstream-service-time
+81
+x-request-id
+ed1e0413-9845-47c9-997d-2e376a1e7685
+:authority
+qc-internal-supergraph-me.deliveryhero.io
+:method
+POST
+:path
+/graphql
+:scheme
+https
+accept
+application/graphql-response+json,application/json;q=0.9
+accept-encoding
+gzip, deflate, br, zstd
+accept-language
+en-US,en;q=0.9
+authorization
+Bearer eyJhbGciOiJQUzI1NiIsImtpZCI6ImlhbS16bGgwLXBzMjU2IiwidHlwIjoiSldUIn0.eyJhdWQiOiJvcHMtcG9ydGFsLWJhY2tvZmZpY2UiLCJleHAiOjE3NzU0NzI5ODEsImp0aSI6IjRlMzI5NzFkLTU3ODQtNGIxOC04MGQ4LThlOGM5ZWFkNDM4NSIsImlhdCI6MTc3NTQ2NTc4MSwiaXNzIjoiaHR0cDovL3Jtcy5kZWxpdmVyeWhlcm8ubmV0LyIsInN1YiI6Im1vaGFtZWQubWFobW91ZC40MTI4NjBfaWJzLmV4dEB0YWxhYmF0LmNvbSIsInV1aWQiOiIxNWI4NDMzMS0zMzJmLTQwOTctYTI0YS0zYzAyNjJlMTBjMmEiLCJuYW1lIjoibW9oYW1lZCBtYWhtb3VkLjQxMjg2MF9pYnMiLCJuYW1lc3BhY2VzIjpbIkdMT0JBTCIsImVnIl0sImFwcGxpY2F0aW9ucyI6eyJvcHMtcG9ydGFsLWNhdGFsb2ciOiJDYXRhbG9nIn0sInBlcm1pc3Npb25zIjp7Im9wcy1wb3J0YWwtY2F0YWxvZyI6eyJHTE9CQUwiOlsiaW1wb3J0Ojp2ZW5kb3JfcHJvZHVjdDo6Y3JlYXRlIiwiaW1wb3J0Ojp2ZW5kb3JfcHJvZHVjdDo6cmVhZCIsImltcG9ydDo6dmVuZG9yX3Byb2R1Y3Q6OnVwZGF0ZSIsInBsYXRmb3JtOjoyOjpyZWFkIiwidXNlciJdLCJlZyI6WyJjYXRlZ29yeTo6YWxsOjpyZWFkIiwiY2F0ZWdvcnlUcmVlOjphbGw6OnJlYWQiLCJjaGFpbjo6YWxsOjpjcmVhdGUiLCJjaGFpbjo6YWxsOjpkZWxldGUiLCJjaGFpbjo6YWxsOjpyZWFkIiwiY2hhaW46OmFsbDo6dXBkYXRlIiwiY2hhaW5Qcm9kdWN0czo6YWxsOjpjcmVhdGUiLCJjaGFpblByb2R1Y3RzOjphbGw6OnJlYWQiLCJjaGFpblByb2R1Y3RzOjphbGw6OnVwZGF0ZSIsImNvbWJvOjphbGw6OmFsbCIsImNvbWJvOjphbGw6OmNyZWF0ZSIsImNvbWJvOjphbGw6OmRlbGV0ZSIsImNvbWJvOjphbGw6OnJlYWQiLCJjb21ibzo6YWxsOjp1cGRhdGUiLCJpbXBvcnQ6OnZlbmRvcl9wcm9kdWN0X2NhdGVnb3J5X3JlcGxpY2F0aW9uOjpjcmVhdGUiLCJpbXBvcnQ6OnZlbmRvcl9wcm9kdWN0X2NhdGVnb3J5X3JlcGxpY2F0aW9uOjpyZWFkIiwiaW1wb3J0Ojp2ZW5kb3JfcHJvZHVjdF9jYXRlZ29yeV9yZXBsaWNhdGlvbjo6dXBkYXRlIiwiaW1wb3J0Ojp2ZW5kb3JfcHJvZHVjdF9jYXRlZ29yeV9yZXBsaWNhdGlvbjo6d3JpdGUiLCJwbGF0Zm9ybVZlbmRvcjo6YWxsOjpjcmVhdGUiLCJwbGF0Zm9ybVZlbmRvcjo6YWxsOjpkZWxldGUiLCJwbGF0Zm9ybVZlbmRvcjo6YWxsOjpyZWFkIiwicGxhdGZvcm1WZW5kb3I6OmFsbDo6dXBkYXRlIiwicHJvZHVjdDo6YWxsOjpjcmVhdGUiLCJwcm9kdWN0OjphbGw6OnJlYWQiLCJwcm9kdWN0OjphbGw6OnVwZGF0ZSIsInNjaGVkdWxlOjphbGw6OmFsbCIsInNjaGVkdWxlOjphbGw6OmNyZWF0ZSIsInNjaGVkdWxlOjphbGw6OmRlbGV0ZSIsInNjaGVkdWxlOjphbGw6OnJlYWQiLCJzY2hlZHVsZTo6YWxsOjp1cGRhdGUiLCJ2ZW5kb3I6OmFsbDo6Y3JlYXRlIiwidmVuZG9yOjphbGw6OmRlbGV0ZSIsInZlbmRvcjo6YWxsOjpyZWFkIiwidmVuZG9yOjphbGw6OnVwZGF0ZSIsInZlbmRvckNhdGVnb3J5VHJlZVNvdXJjZTo6YWxsOjpjcmVhdGUiLCJ2ZW5kb3JDYXRlZ29yeVRyZWVTb3VyY2U6OmFsbDo6cmVhZCIsInZlbmRvckNhdGVnb3J5VHJlZVNvdXJjZTo6YWxsOjp1cGRhdGUiXX19fQ.XR4idMDV9H68-8ptXRTfjxAXksk4JwbeXtzbyE46liuUuKGSNV5QJg8MeJ3zDaPnso6-f0z_5mkzKDYsv3zHYxinGweQxZ_nH2uFTTDtaD6PWu2OzVPiNJOpGzKIZIUs5wZp_V9zfp-3Z6OEPTPxbXrWtaCZ5PY5APeWmOOL_72uhxhEeDbOVEW5FdrG8txD7hKlxULe6T2jAh5_LtUWyaUlNhPPB7aL7pTmv87xLtkchLAoJA7WizLWpg8BjgY_VSoeBQ4uOqqbT-zmic_397ZswO90f1wQviguhA52gT9hp8eHm9EWpiC87dc5o6yS1arHiedSmfs730OYhL84mQ
+content-length
+713
+content-type
+application/json
+origin
+https: //portal.talabat.com
+priority
+u=1, i
+referer
+https: //portal.talabat.com/
+sec-ch-ua
+"Chromium";v="146",
+"Not-A.Brand";v="24",
+"Google Chrome";v="146"
+sec-ch-ua-mobile
+?0
+sec-ch-ua-platform
+"Windows"
+sec-fetch-dest
+empty
+sec-fetch-mode
+cors
+sec-fetch-site
+cross-site
+user-agent
+Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36
+x-global-entity-id
+HF_EG
+)
+payload(
+{
+    "operationName": "MasterProducts",
+    "variables": {
+        "filter": {
+            "search": {
+                "locale": "en_EG",
+                "term": "00729193000269"
+            }
+        },
+        "pagination": {
+            "mode": "OFFSET_BASED",
+            "offsetPagination": {
+                "offset": 0,
+                "limit": 10
+            }
+        }
+    },
+    "extensions": {
+        "clientLibrary": {
+            "name": "@apollo/client",
+            "version": "4.1.4"
+        }
+    },
+    "query": "query MasterProducts($filter: MasterProductFilterInput!, $pagination: PageInput!) {\n  masterProducts(filter: $filter, pagination: $pagination) {\n    masterProducts {\n      id\n      names {\n        locale\n        value\n        __typename\n      }\n      descriptions {\n        value\n        locale\n        __typename\n      }\n      isWeightable\n      brandName\n      __typename\n    }\n    totalCount\n    __typename\n  }\n}"
+}
+)
+response(
+{
+    "data": {
+        "masterProducts": {
+            "masterProducts": [
+                {
+                    "id": "QAR4F19C",
+                    "names": [
+                        {
+                            "locale": "ar_EG",
+                            "value": "٠٢٦ مشروع تصنيع نفايات الملابس ٠٢٦",
+                            "__typename": "Locale"
+                        },
+                        {
+                            "locale": "en_EG",
+                            "value": "PRDICURE FOOT CLEAN 026",
+                            "__typename": "Locale"
+                        }
+                    ],
+                    "descriptions": [
+                        {
+                            "value": "• مصمم للعناية الشاملة بالقدم: تم تصميم PRDICURE FOOT CLEAN 026 بدقة من أجل نظافة القدم بشكل كامل، ومعالجة جميع مشاكل القدم الشائعة.\n• التنظيف العميق: تعمل ميزات التنظيف العميق على تنظيف قدميك تمامًا، مما يجعلها منتعشة ومتجددة.\n• تصميم مريح: تصميمه مريح، مما يسمح لك باستخدام المنتج بشكل مريح، مما يوفر تجربة العناية بالقدم دون عناء.\n• مواد عالية الجودة: مصنوع من مواد متينة وعالية الجودة، ويضمن هذا المنتج الاستخدام طويل الأمد، ويقدم قيمة كبيرة مقابل المال.",
+                            "locale": "ar_EG",
+                            "__typename": "Locale"
+                        },
+                        {
+                            "value": "• Designed for comprehensive foot care: The PRDICURE FOOT CLEAN 026 is meticulously created for thorough foot hygiene, tackling all common foot issues.\n• Deep cleansing: Its deep-cleaning features thoroughly cleanse your feet, leaving them fresh and rejuvenated.\n• Ergonomic design: Its design is ergonomic, which allows you to use the product comfortably, providing an effortless foot care experience.\n• High-quality material: Constructed from durable and high-quality materials, this product ensures long-term usage, offering great value for money.",
+                            "locale": "en_EG",
+                            "__typename": "Locale"
+                        }
+                    ],
+                    "isWeightable": false,
+                    "brandName": "Unbranded",
+                    "__typename": "MasterProduct"
+                }
+            ],
+            "totalCount": 1,
+            "__typename": "MasterProductResult"
+        }
+    }
+}
+)

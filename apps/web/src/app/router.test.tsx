@@ -1,9 +1,43 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { AppRouter } from "./router";
+import type { AppUser } from "../api/types";
 
 const mockUseAuth = vi.hoisted(() => vi.fn());
+
+type RouterAuthMock = {
+  status: "loading" | "authenticated" | "unauthenticated";
+  isAdmin: boolean;
+  scanoRole?: "team_lead" | "scanner" | null;
+  canAccessUpuse: boolean;
+  canAccessScano: boolean;
+  canManageScanoTasks: boolean;
+  canManageScanoSettings: boolean;
+  canSwitchSystems: boolean;
+  bootstrapError?: string | null;
+  retryBootstrap?: ReturnType<typeof vi.fn>;
+  refreshAuth: ReturnType<typeof vi.fn>;
+  user?: AppUser | null;
+};
+
+function createAuthState(overrides: Partial<RouterAuthMock> = {}): RouterAuthMock {
+  return {
+    status: "authenticated",
+    isAdmin: false,
+    scanoRole: null,
+    canAccessUpuse: true,
+    canAccessScano: false,
+    canManageScanoTasks: false,
+    canManageScanoSettings: false,
+    canSwitchSystems: false,
+    bootstrapError: null,
+    retryBootstrap: vi.fn(),
+    refreshAuth: vi.fn().mockResolvedValue(undefined),
+    user: null,
+    ...overrides,
+  };
+}
 
 vi.mock("./providers/AuthProvider", () => ({
   useAuth: mockUseAuth,
@@ -23,6 +57,30 @@ vi.mock("../pages/settings/ui/SettingsPage", () => ({
 
 vi.mock("../pages/performance/ui/PerformancePage", () => ({
   PerformancePage: () => <div>performance-route</div>,
+}));
+
+vi.mock("../pages/scano/ui/ScanoPage", () => ({
+  ScanoPage: () => <div>scano-assign-route</div>,
+}));
+
+vi.mock("../pages/scano/ui/ScanoMyTasksPage", () => ({
+  ScanoMyTasksPage: () => <div>scano-my-tasks-route</div>,
+}));
+
+vi.mock("../pages/scano/ui/ScanoTaskProfilePage", () => ({
+  ScanoTaskProfilePage: () => <div>scano-task-profile-route</div>,
+}));
+
+vi.mock("../pages/scano/ui/ScanoTaskRunnerPage", () => ({
+  ScanoTaskRunnerPage: () => <div>scano-task-runner-route</div>,
+}));
+
+vi.mock("../pages/scano/ui/ScanoSettingsPage", () => ({
+  ScanoSettingsPage: () => <div>scano-settings-route</div>,
+}));
+
+vi.mock("../pages/scano/ui/ScanoMasterProductPage", () => ({
+  ScanoMasterProductPage: () => <div>scano-master-product-route</div>,
 }));
 
 vi.mock("../pages/branches/ui/BranchesPage", () => ({
@@ -50,12 +108,20 @@ function LocationProbe() {
 }
 
 describe("AppRouter", () => {
-  it("routes performance, branches, and threshold paths to their named pages", async () => {
-    mockUseAuth.mockReturnValue({
-      status: "authenticated",
+  beforeEach(() => {
+    window.sessionStorage.clear();
+  });
+
+  it("routes performance, scano assign-task, master product, branches, and threshold paths to their named pages", async () => {
+    mockUseAuth.mockReturnValue(createAuthState({
       isAdmin: true,
-      refreshAuth: vi.fn().mockResolvedValue(undefined),
-    });
+      canAccessUpuse: true,
+      canAccessScano: true,
+      canManageScanoTasks: true,
+      scanoRole: "team_lead",
+      canManageScanoSettings: true,
+      canSwitchSystems: true,
+    }));
 
     const renderAt = (path: string) => render(
       <MemoryRouter initialEntries={[path]}>
@@ -70,6 +136,31 @@ describe("AppRouter", () => {
     });
 
     performanceView.unmount();
+
+    window.sessionStorage.setItem("upuse.active-system", "scano");
+
+    const scanoView = renderAt("/scano/assign-task");
+
+    await waitFor(() => {
+      expect(screen.getByText("scano-assign-route")).toBeInTheDocument();
+    });
+
+    scanoView.unmount();
+    const scanoSettingsView = renderAt("/scano/settings");
+
+    await waitFor(() => {
+      expect(screen.getByText("scano-settings-route")).toBeInTheDocument();
+    });
+
+    scanoSettingsView.unmount();
+    const scanoMasterProductView = renderAt("/scano/master-product");
+
+    await waitFor(() => {
+      expect(screen.getByText("scano-master-product-route")).toBeInTheDocument();
+    });
+
+    scanoMasterProductView.unmount();
+    window.sessionStorage.setItem("upuse.active-system", "upuse");
 
     const branchesView = renderAt("/branches");
 
@@ -95,11 +186,15 @@ describe("AppRouter", () => {
   });
 
   it("redirects the legacy mapping route to branches", async () => {
-    mockUseAuth.mockReturnValue({
-      status: "authenticated",
+    mockUseAuth.mockReturnValue(createAuthState({
       isAdmin: true,
-      refreshAuth: vi.fn().mockResolvedValue(undefined),
-    });
+      canAccessUpuse: true,
+      canAccessScano: true,
+      canManageScanoTasks: true,
+      scanoRole: "team_lead",
+      canManageScanoSettings: true,
+      canSwitchSystems: true,
+    }));
 
     render(
       <MemoryRouter initialEntries={["/mapping"]}>
@@ -114,11 +209,11 @@ describe("AppRouter", () => {
   });
 
   it("redirects restricted users away from the admin-only users route", async () => {
-    mockUseAuth.mockReturnValue({
-      status: "authenticated",
+    mockUseAuth.mockReturnValue(createAuthState({
       isAdmin: false,
-      refreshAuth: vi.fn().mockResolvedValue(undefined),
-    });
+      canAccessUpuse: true,
+      canAccessScano: false,
+    }));
 
     render(
       <MemoryRouter initialEntries={["/users"]}>
@@ -133,11 +228,10 @@ describe("AppRouter", () => {
   });
 
   it("preserves the requested users route when redirecting unauthenticated visitors to login", async () => {
-    mockUseAuth.mockReturnValue({
+    mockUseAuth.mockReturnValue(createAuthState({
       status: "unauthenticated",
-      isAdmin: false,
-      refreshAuth: vi.fn().mockResolvedValue(undefined),
-    });
+      canAccessUpuse: false,
+    }));
 
     render(
       <MemoryRouter initialEntries={["/users"]}>
@@ -154,16 +248,86 @@ describe("AppRouter", () => {
     expect(screen.getByTestId("from-path")).toHaveTextContent("/users");
   });
 
+  it("preserves the requested scano route when redirecting unauthenticated visitors to login", async () => {
+    mockUseAuth.mockReturnValue(createAuthState({
+      status: "unauthenticated",
+      canAccessUpuse: false,
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/scano/assign-task"]}>
+        <LocationProbe />
+        <AppRouter />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("login-route")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("pathname")).toHaveTextContent("/login");
+    expect(screen.getByTestId("from-path")).toHaveTextContent("/scano/assign-task");
+  });
+
+  it("allows direct Scano entry even when the stored active system is still UPuse", async () => {
+    window.sessionStorage.setItem("upuse.active-system", "upuse");
+
+    mockUseAuth.mockReturnValue(createAuthState({
+      canAccessUpuse: true,
+      canAccessScano: true,
+      canManageScanoTasks: true,
+      scanoRole: "team_lead",
+      canManageScanoSettings: true,
+      canSwitchSystems: true,
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/scano/assign-task"]}>
+        <AppRouter />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("scano-assign-route")).toBeInTheDocument();
+    });
+
+    expect(window.sessionStorage.getItem("upuse.active-system")).toBe("scano");
+  });
+
+  it("redirects authenticated users back to the active Scano workspace when they open an UPuse route directly", async () => {
+    window.sessionStorage.setItem("upuse.active-system", "scano");
+
+    mockUseAuth.mockReturnValue(createAuthState({
+      isAdmin: false,
+      canAccessUpuse: true,
+      canAccessScano: true,
+      canManageScanoTasks: true,
+      scanoRole: "team_lead",
+      canSwitchSystems: true,
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/performance"]}>
+        <AppRouter />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("scano-assign-route")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("performance-route")).not.toBeInTheDocument();
+  });
+
   it("shows a bootstrap retry UI instead of an infinite loading spinner after a non-401 auth bootstrap failure", async () => {
     const retryBootstrap = vi.fn();
 
-    mockUseAuth.mockReturnValue({
-      status: "loading",
-      isAdmin: false,
-      bootstrapError: "Backend unavailable",
+    mockUseAuth.mockReturnValue(createAuthState({
+        status: "loading",
+        canAccessUpuse: false,
+        canManageScanoTasks: false,
+        bootstrapError: "Backend unavailable",
       retryBootstrap,
-      refreshAuth: vi.fn().mockResolvedValue(undefined),
-    });
+    }));
 
     render(
       <MemoryRouter initialEntries={["/"]}>
@@ -176,5 +340,112 @@ describe("AppRouter", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
     expect(retryBootstrap).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the active Scano workspace during auth bootstrap until access is resolved", async () => {
+    window.sessionStorage.setItem("upuse.active-system", "scano");
+
+    const refreshAuth = vi.fn().mockResolvedValue(undefined);
+    let authState: RouterAuthMock = {
+      ...createAuthState({
+        status: "loading",
+        canAccessUpuse: false,
+        canManageScanoTasks: false,
+      }),
+      refreshAuth,
+    };
+
+    mockUseAuth.mockImplementation(() => authState);
+
+    const view = render(
+      <MemoryRouter initialEntries={["/scano/assign-task"]}>
+        <AppRouter />
+      </MemoryRouter>,
+    );
+
+    expect(window.sessionStorage.getItem("upuse.active-system")).toBe("scano");
+    expect(screen.queryByText("scano-route")).not.toBeInTheDocument();
+
+    authState = {
+      ...authState,
+      status: "authenticated",
+      canAccessUpuse: false,
+      canAccessScano: true,
+      canManageScanoTasks: true,
+      scanoRole: "team_lead",
+    };
+
+    view.rerender(
+      <MemoryRouter initialEntries={["/scano/assign-task"]}>
+        <AppRouter />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("scano-assign-route")).toBeInTheDocument();
+    });
+    expect(window.sessionStorage.getItem("upuse.active-system")).toBe("scano");
+  });
+
+  it("lands scanners on My Tasks inside Scano", async () => {
+    mockUseAuth.mockReturnValue(createAuthState({
+      canAccessUpuse: false,
+      canAccessScano: true,
+      canManageScanoTasks: false,
+      scanoRole: "scanner",
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/scano"]}>
+        <AppRouter />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("scano-my-tasks-route")).toBeInTheDocument();
+    });
+  });
+
+  it("allows scanner-role users to open the task runner even if they also manage Scano tasks", async () => {
+    window.sessionStorage.setItem("upuse.active-system", "scano");
+
+    mockUseAuth.mockReturnValue(createAuthState({
+      canAccessUpuse: false,
+      canAccessScano: true,
+      canManageScanoTasks: true,
+      scanoRole: "scanner",
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/scano/tasks/42/run"]}>
+        <AppRouter />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("scano-task-runner-route")).toBeInTheDocument();
+    });
+  });
+
+  it("redirects scanners away from the master product page", async () => {
+    window.sessionStorage.setItem("upuse.active-system", "scano");
+
+    mockUseAuth.mockReturnValue(createAuthState({
+      canAccessUpuse: false,
+      canAccessScano: true,
+      canManageScanoTasks: false,
+      scanoRole: "scanner",
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/scano/master-product"]}>
+        <AppRouter />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("scano-my-tasks-route")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("scano-master-product-route")).not.toBeInTheDocument();
   });
 });

@@ -208,9 +208,16 @@ describe("security helpers", () => {
 
   it("allows Cloudflare Insights scripts with a per-request nonce", () => {
     const directives = createContentSecurityPolicyDirectives();
+    const imgSrc = directives["img-src"];
     const scriptSrc = directives["script-src"];
     const connectSrc = directives["connect-src"];
 
+    expect(imgSrc).toEqual([
+      "'self'",
+      "data:",
+      "blob:",
+      "https:",
+    ]);
     expect(scriptSrc[0]).toBe("'self'");
     expect(scriptSrc[1]).toBe(CLOUDFLARE_INSIGHTS_SCRIPT_ORIGIN);
     expect(scriptSrc[2]({} as any, { locals: { cspNonce: "test-nonce" } } as any)).toBe("'nonce-test-nonce'");

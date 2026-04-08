@@ -56,14 +56,15 @@ function maybeSeedBootstrapAdmin() {
   if (existingUser) return;
 
   db.prepare(`
-    INSERT INTO users (email, name, role, passwordHash, active, createdAt)
-    VALUES (?, ?, ?, ?, 1, ?)
+    INSERT INTO users (email, name, role, passwordHash, active, createdAt, upuseAccess, isPrimaryAdmin)
+    VALUES (?, ?, ?, ?, 1, ?, 1, ?)
   `).run(
     bootstrapAdmin.email,
     bootstrapAdmin.name,
     bootstrapAdmin.role,
     hashPassword(bootstrapAdmin.password),
     new Date().toISOString(),
+    usersCountRow.count === 0 ? 1 : 0,
   );
 
   console.warn(`Created bootstrap admin user for ${bootstrapAdmin.email}. Rotate bootstrap credentials after first use.`);
@@ -159,10 +160,12 @@ function migrateLegacyUserRoles() {
         role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
         passwordHash TEXT NOT NULL,
         active INTEGER NOT NULL DEFAULT 1,
-        createdAt TEXT NOT NULL
+        createdAt TEXT NOT NULL,
+        upuseAccess INTEGER NOT NULL DEFAULT 1,
+        isPrimaryAdmin INTEGER NOT NULL DEFAULT 0
       );
 
-      INSERT INTO users_next (id, email, name, role, passwordHash, active, createdAt)
+      INSERT INTO users_next (id, email, name, role, passwordHash, active, createdAt, upuseAccess, isPrimaryAdmin)
       SELECT
         id,
         email,
@@ -173,7 +176,9 @@ function migrateLegacyUserRoles() {
         END,
         passwordHash,
         active,
-        createdAt
+        createdAt,
+        1,
+        0
       FROM users;
 
       DROP TABLE users;
@@ -187,6 +192,37 @@ function migrateLegacyUserRoles() {
   } finally {
     db.pragma("foreign_keys = ON");
   }
+}
+
+function ensurePrimaryAdminUser() {
+  const primaryRows = db.prepare(`
+    SELECT id
+    FROM users
+    WHERE isPrimaryAdmin = 1
+    ORDER BY datetime(createdAt) ASC, id ASC
+  `).all() as Array<{ id: number }>;
+
+  const keepPrimaryId = primaryRows[0]?.id ?? (
+    db.prepare(`
+      SELECT id
+      FROM users
+      WHERE LOWER(TRIM(role)) = 'admin' AND active = 1 AND upuseAccess = 1
+      ORDER BY datetime(createdAt) ASC, id ASC
+      LIMIT 1
+    `).get() as { id: number } | undefined
+  )?.id;
+
+  if (typeof keepPrimaryId !== "number") {
+    return;
+  }
+
+  db.prepare(`
+    UPDATE users
+    SET
+      isPrimaryAdmin = CASE WHEN id = ? THEN 1 ELSE 0 END,
+      upuseAccess = CASE WHEN id = ? THEN 1 ELSE upuseAccess END,
+      role = CASE WHEN id = ? THEN 'admin' ELSE role END
+  `).run(keepPrimaryId, keepPrimaryId, keepPrimaryId);
 }
 
 function migrateBranchesTableToLocalCatalogShape() {
@@ -287,6 +323,234 @@ function migrateBranchesTableToLocalCatalogShape() {
   db.pragma("foreign_keys = OFF");
   try {
     runMigration();
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+}
+
+function buildCurrentScanoTaskDomainSchemaSql() {
+  return `
+    CREATE TABLE scano_tasks (
+      id TEXT PRIMARY KEY,
+      chainId INTEGER NOT NULL,
+      chainName TEXT NOT NULL,
+      branchId INTEGER NOT NULL,
+      branchGlobalId TEXT NOT NULL,
+      branchName TEXT NOT NULL,
+      globalEntityId TEXT NOT NULL,
+      countryCode TEXT NOT NULL,
+      additionalRemoteId TEXT NOT NULL,
+      scheduledAt TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'in_progress', 'awaiting_review', 'completed')),
+      createdByUserId INTEGER NOT NULL,
+      startedAt TEXT,
+      startedByUserId INTEGER,
+      startedByTeamMemberId INTEGER,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (createdByUserId) REFERENCES users(id) ON DELETE RESTRICT,
+      FOREIGN KEY (startedByUserId) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY (startedByTeamMemberId) REFERENCES scano_team_members(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_tasks_scheduled_at
+      ON scano_tasks(scheduledAt, createdAt DESC, id DESC);
+
+    CREATE TABLE scano_task_assignees (
+      taskId TEXT NOT NULL,
+      teamMemberId INTEGER NOT NULL,
+      assignedAt TEXT NOT NULL,
+      PRIMARY KEY (taskId, teamMemberId),
+      FOREIGN KEY (taskId) REFERENCES scano_tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (teamMemberId) REFERENCES scano_team_members(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_assignees_member
+      ON scano_task_assignees(teamMemberId, taskId);
+
+    CREATE TABLE scano_task_participants (
+      taskId TEXT NOT NULL,
+      teamMemberId INTEGER NOT NULL,
+      startedAt TEXT,
+      lastEnteredAt TEXT,
+      endedAt TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      PRIMARY KEY (taskId, teamMemberId),
+      FOREIGN KEY (taskId) REFERENCES scano_tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (teamMemberId) REFERENCES scano_team_members(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_participants_task
+      ON scano_task_participants(taskId, startedAt, endedAt);
+
+    CREATE TABLE scano_task_scans (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      taskId TEXT NOT NULL,
+      teamMemberId INTEGER NOT NULL,
+      barcode TEXT NOT NULL,
+      source TEXT NOT NULL CHECK (source IN ('manual', 'scanner', 'camera')),
+      lookupStatus TEXT NOT NULL CHECK (lookupStatus IN ('pending_integration')),
+      outcome TEXT NOT NULL DEFAULT 'manual_only' CHECK (outcome IN ('matched_external', 'matched_master', 'manual_only', 'duplicate_blocked')),
+      taskProductId TEXT,
+      resolvedProductJson TEXT,
+      scannedAt TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (taskId) REFERENCES scano_tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (teamMemberId) REFERENCES scano_team_members(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_scans_task_scanned
+      ON scano_task_scans(taskId, scannedAt DESC, id DESC);
+
+    CREATE TABLE scano_task_products (
+      id TEXT PRIMARY KEY,
+      taskId TEXT NOT NULL,
+      createdByTeamMemberId INTEGER NOT NULL,
+      sourceType TEXT NOT NULL CHECK (sourceType IN ('vendor', 'chain', 'master', 'manual')),
+      externalProductId TEXT,
+      barcode TEXT NOT NULL,
+      sku TEXT NOT NULL,
+      price TEXT,
+      itemNameEn TEXT NOT NULL,
+      itemNameAr TEXT,
+      previewImageUrl TEXT,
+      chainFlag TEXT NOT NULL CHECK (chainFlag IN ('yes', 'no')),
+      vendorFlag TEXT NOT NULL CHECK (vendorFlag IN ('yes', 'no')),
+      masterfileFlag TEXT NOT NULL CHECK (masterfileFlag IN ('yes', 'no')),
+      newFlag TEXT NOT NULL CHECK (newFlag IN ('yes', 'no')),
+      edited INTEGER NOT NULL DEFAULT 0,
+      confirmedAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (taskId) REFERENCES scano_tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (createdByTeamMemberId) REFERENCES scano_team_members(id) ON DELETE RESTRICT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_products_task_confirmed
+      ON scano_task_products(taskId, confirmedAt DESC, id DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_products_task_barcode
+      ON scano_task_products(taskId, barcode COLLATE NOCASE);
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_products_task_sku
+      ON scano_task_products(taskId, sku COLLATE NOCASE);
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_products_task_external_product
+      ON scano_task_products(taskId, externalProductId COLLATE NOCASE);
+
+    CREATE TABLE scano_task_product_barcodes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      productId TEXT NOT NULL,
+      barcode TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (productId) REFERENCES scano_task_products(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_product_barcodes_product
+      ON scano_task_product_barcodes(productId, id);
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_product_barcodes_barcode
+      ON scano_task_product_barcodes(barcode COLLATE NOCASE);
+
+    CREATE TABLE scano_task_product_images (
+      id TEXT PRIMARY KEY,
+      productId TEXT NOT NULL,
+      fileName TEXT NOT NULL,
+      storageKind TEXT NOT NULL CHECK (storageKind IN ('local', 'external')),
+      filePath TEXT,
+      externalUrl TEXT,
+      mimeType TEXT,
+      sortOrder INTEGER NOT NULL DEFAULT 0,
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (productId) REFERENCES scano_task_products(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_product_images_product
+      ON scano_task_product_images(productId, sortOrder, id);
+
+    CREATE TABLE scano_task_product_edits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      productId TEXT NOT NULL,
+      editedByTeamMemberId INTEGER NOT NULL,
+      beforeJson TEXT NOT NULL,
+      afterJson TEXT NOT NULL,
+      editedAt TEXT NOT NULL,
+      FOREIGN KEY (productId) REFERENCES scano_task_products(id) ON DELETE CASCADE,
+      FOREIGN KEY (editedByTeamMemberId) REFERENCES scano_team_members(id) ON DELETE RESTRICT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_product_edits_product
+      ON scano_task_product_edits(productId, editedAt DESC, id DESC);
+
+    CREATE TABLE scano_task_exports (
+      id TEXT PRIMARY KEY,
+      taskId TEXT NOT NULL,
+      fileName TEXT NOT NULL,
+      filePath TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      confirmedDownloadAt TEXT,
+      imagesPurgedAt TEXT,
+      FOREIGN KEY (taskId) REFERENCES scano_tasks(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_exports_task_created
+      ON scano_task_exports(taskId, createdAt DESC, id DESC);
+  `;
+}
+
+function resetLegacyScanoTaskData() {
+  const scanoTasksTable = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'scano_tasks' LIMIT 1")
+    .get() as { sql?: string } | undefined;
+
+  if (!scanoTasksTable?.sql) {
+    return;
+  }
+
+  const taskAssigneesTable = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'scano_task_assignees' LIMIT 1")
+    .get() as { sql?: string } | undefined;
+  const taskParticipantsTable = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'scano_task_participants' LIMIT 1")
+    .get() as { sql?: string } | undefined;
+  const taskScansTable = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'scano_task_scans' LIMIT 1")
+    .get() as { sql?: string } | undefined;
+
+  const requiresReset =
+    !scanoTasksTable.sql.includes("id TEXT PRIMARY KEY") ||
+    !scanoTasksTable.sql.includes("'awaiting_review'") ||
+    !scanoTasksTable.sql.includes("'completed'") ||
+    !taskAssigneesTable?.sql?.includes("taskId TEXT NOT NULL") ||
+    !taskParticipantsTable?.sql?.includes("taskId TEXT NOT NULL") ||
+    !taskScansTable?.sql?.includes("taskId TEXT NOT NULL");
+
+  if (!requiresReset) {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_scano_tasks_scheduled_at ON scano_tasks(scheduledAt, createdAt DESC, id DESC)");
+    return;
+  }
+
+  console.warn("Resetting legacy Scano task data because an incompatible schema was detected. Existing Scano tasks and task history will be deleted.");
+
+  const runReset = db.transaction(() => {
+    db.exec(`
+      DROP TABLE IF EXISTS scano_task_exports;
+      DROP TABLE IF EXISTS scano_task_product_edits;
+      DROP TABLE IF EXISTS scano_task_product_images;
+      DROP TABLE IF EXISTS scano_task_product_barcodes;
+      DROP TABLE IF EXISTS scano_task_products;
+      DROP TABLE IF EXISTS scano_task_scans;
+      DROP TABLE IF EXISTS scano_task_participants;
+      DROP TABLE IF EXISTS scano_task_assignees;
+      DROP TABLE IF EXISTS scano_tasks;
+    `);
+    db.exec(buildCurrentScanoTaskDomainSchemaSql());
+  });
+
+  db.pragma("foreign_keys = OFF");
+  try {
+    runReset();
   } finally {
     db.pragma("foreign_keys = ON");
   }
@@ -530,7 +794,9 @@ export function migrate() {
       role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
       passwordHash TEXT NOT NULL,
       active INTEGER NOT NULL DEFAULT 1,
-      createdAt TEXT NOT NULL
+      createdAt TEXT NOT NULL,
+      upuseAccess INTEGER NOT NULL DEFAULT 1,
+      isPrimaryAdmin INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS sessions (
@@ -581,10 +847,229 @@ export function migrate() {
 
     CREATE INDEX IF NOT EXISTS idx_performance_user_views_user_updated
       ON performance_user_views(userId, updatedAt DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS scano_team_members (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      linkedUserId INTEGER NOT NULL UNIQUE,
+      role TEXT NOT NULL DEFAULT 'scanner' CHECK (role IN ('team_lead', 'scanner')),
+      active INTEGER NOT NULL DEFAULT 1,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (linkedUserId) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_team_members_active_name
+      ON scano_team_members(active, name COLLATE NOCASE);
+
+    CREATE TABLE IF NOT EXISTS scano_tasks (
+      id TEXT PRIMARY KEY,
+      chainId INTEGER NOT NULL,
+      chainName TEXT NOT NULL,
+      branchId INTEGER NOT NULL,
+      branchGlobalId TEXT NOT NULL,
+      branchName TEXT NOT NULL,
+      globalEntityId TEXT NOT NULL,
+      countryCode TEXT NOT NULL,
+      additionalRemoteId TEXT NOT NULL,
+      scheduledAt TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'in_progress', 'awaiting_review', 'completed')),
+      createdByUserId INTEGER NOT NULL,
+      startedAt TEXT,
+      startedByUserId INTEGER,
+      startedByTeamMemberId INTEGER,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (createdByUserId) REFERENCES users(id) ON DELETE RESTRICT,
+      FOREIGN KEY (startedByUserId) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY (startedByTeamMemberId) REFERENCES scano_team_members(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_tasks_scheduled_at
+      ON scano_tasks(scheduledAt, createdAt DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS scano_task_assignees (
+      taskId TEXT NOT NULL,
+      teamMemberId INTEGER NOT NULL,
+      assignedAt TEXT NOT NULL,
+      PRIMARY KEY (taskId, teamMemberId),
+      FOREIGN KEY (taskId) REFERENCES scano_tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (teamMemberId) REFERENCES scano_team_members(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_assignees_member
+      ON scano_task_assignees(teamMemberId, taskId);
+
+    CREATE TABLE IF NOT EXISTS scano_task_participants (
+      taskId TEXT NOT NULL,
+      teamMemberId INTEGER NOT NULL,
+      startedAt TEXT,
+      lastEnteredAt TEXT,
+      endedAt TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      PRIMARY KEY (taskId, teamMemberId),
+      FOREIGN KEY (taskId) REFERENCES scano_tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (teamMemberId) REFERENCES scano_team_members(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_participants_task
+      ON scano_task_participants(taskId, startedAt, endedAt);
+
+    CREATE TABLE IF NOT EXISTS scano_task_scans (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      taskId TEXT NOT NULL,
+      teamMemberId INTEGER NOT NULL,
+      barcode TEXT NOT NULL,
+      source TEXT NOT NULL CHECK (source IN ('manual', 'scanner', 'camera')),
+      lookupStatus TEXT NOT NULL CHECK (lookupStatus IN ('pending_integration')),
+      outcome TEXT NOT NULL DEFAULT 'manual_only' CHECK (outcome IN ('matched_external', 'matched_master', 'manual_only', 'duplicate_blocked')),
+      taskProductId TEXT,
+      resolvedProductJson TEXT,
+      scannedAt TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (taskId) REFERENCES scano_tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (teamMemberId) REFERENCES scano_team_members(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_scans_task_scanned
+      ON scano_task_scans(taskId, scannedAt DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS scano_task_products (
+      id TEXT PRIMARY KEY,
+      taskId TEXT NOT NULL,
+      createdByTeamMemberId INTEGER NOT NULL,
+      sourceType TEXT NOT NULL CHECK (sourceType IN ('vendor', 'chain', 'master', 'manual')),
+      externalProductId TEXT,
+      barcode TEXT NOT NULL,
+      sku TEXT NOT NULL,
+      price TEXT,
+      itemNameEn TEXT NOT NULL,
+      itemNameAr TEXT,
+      previewImageUrl TEXT,
+      chainFlag TEXT NOT NULL CHECK (chainFlag IN ('yes', 'no')),
+      vendorFlag TEXT NOT NULL CHECK (vendorFlag IN ('yes', 'no')),
+      masterfileFlag TEXT NOT NULL CHECK (masterfileFlag IN ('yes', 'no')),
+      newFlag TEXT NOT NULL CHECK (newFlag IN ('yes', 'no')),
+      edited INTEGER NOT NULL DEFAULT 0,
+      confirmedAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (taskId) REFERENCES scano_tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (createdByTeamMemberId) REFERENCES scano_team_members(id) ON DELETE RESTRICT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_products_task_confirmed
+      ON scano_task_products(taskId, confirmedAt DESC, id DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_products_task_barcode
+      ON scano_task_products(taskId, barcode COLLATE NOCASE);
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_products_task_sku
+      ON scano_task_products(taskId, sku COLLATE NOCASE);
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_products_task_external_product
+      ON scano_task_products(taskId, externalProductId COLLATE NOCASE);
+
+    CREATE TABLE IF NOT EXISTS scano_task_product_barcodes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      productId TEXT NOT NULL,
+      barcode TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (productId) REFERENCES scano_task_products(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_product_barcodes_product
+      ON scano_task_product_barcodes(productId, id);
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_product_barcodes_barcode
+      ON scano_task_product_barcodes(barcode COLLATE NOCASE);
+
+    CREATE TABLE IF NOT EXISTS scano_task_product_images (
+      id TEXT PRIMARY KEY,
+      productId TEXT NOT NULL,
+      fileName TEXT NOT NULL,
+      storageKind TEXT NOT NULL CHECK (storageKind IN ('local', 'external')),
+      filePath TEXT,
+      externalUrl TEXT,
+      mimeType TEXT,
+      sortOrder INTEGER NOT NULL DEFAULT 0,
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (productId) REFERENCES scano_task_products(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_product_images_product
+      ON scano_task_product_images(productId, sortOrder, id);
+
+    CREATE TABLE IF NOT EXISTS scano_task_product_edits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      productId TEXT NOT NULL,
+      editedByTeamMemberId INTEGER NOT NULL,
+      beforeJson TEXT NOT NULL,
+      afterJson TEXT NOT NULL,
+      editedAt TEXT NOT NULL,
+      FOREIGN KEY (productId) REFERENCES scano_task_products(id) ON DELETE CASCADE,
+      FOREIGN KEY (editedByTeamMemberId) REFERENCES scano_team_members(id) ON DELETE RESTRICT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_product_edits_product
+      ON scano_task_product_edits(productId, editedAt DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS scano_task_exports (
+      id TEXT PRIMARY KEY,
+      taskId TEXT NOT NULL,
+      fileName TEXT NOT NULL,
+      filePath TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      confirmedDownloadAt TEXT,
+      imagesPurgedAt TEXT,
+      FOREIGN KEY (taskId) REFERENCES scano_tasks(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_task_exports_task_created
+      ON scano_task_exports(taskId, createdAt DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS scano_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      catalogBaseUrl TEXT NOT NULL DEFAULT '',
+      catalogTokenEnc TEXT NOT NULL DEFAULT '',
+      updatedAt TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS scano_master_products (
+      chainId INTEGER PRIMARY KEY,
+      chainName TEXT NOT NULL,
+      mappingJson TEXT NOT NULL,
+      productCount INTEGER NOT NULL DEFAULT 0,
+      updatedAt TEXT NOT NULL,
+      updatedByUserId INTEGER NOT NULL,
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (updatedByUserId) REFERENCES users(id) ON DELETE RESTRICT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_master_products_updated
+      ON scano_master_products(updatedAt DESC, chainName COLLATE NOCASE);
+
+    CREATE TABLE IF NOT EXISTS scano_master_product_rows (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chainId INTEGER NOT NULL,
+      rowNumber INTEGER NOT NULL,
+      sku TEXT,
+      barcode TEXT,
+      price TEXT,
+      itemNameEn TEXT,
+      itemNameAr TEXT,
+      image TEXT,
+      FOREIGN KEY (chainId) REFERENCES scano_master_products(chainId) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_master_product_rows_chain_row
+      ON scano_master_product_rows(chainId, rowNumber, id);
   `);
 
   migrateLegacyUserRoles();
   migrateBranchesTableToLocalCatalogShape();
+  resetLegacyScanoTaskData();
 
   db.exec(`
     DROP TABLE IF EXISTS branch_catalog;
@@ -592,6 +1077,16 @@ export function migrate() {
   `);
 
   const settingsColumns = db.prepare("PRAGMA table_info(settings)").all() as Array<{ name: string }>;
+  const userColumns = db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>;
+  if (!userColumns.some((column) => column.name === "upuseAccess")) {
+    db.exec("ALTER TABLE users ADD COLUMN upuseAccess INTEGER NOT NULL DEFAULT 1");
+  }
+  if (!userColumns.some((column) => column.name === "isPrimaryAdmin")) {
+    db.exec("ALTER TABLE users ADD COLUMN isPrimaryAdmin INTEGER NOT NULL DEFAULT 0");
+  }
+  db.exec("UPDATE users SET upuseAccess = 1 WHERE upuseAccess IS NULL");
+  db.exec("UPDATE users SET isPrimaryAdmin = 0 WHERE isPrimaryAdmin IS NULL");
+  ensurePrimaryAdminUser();
   if (!settingsColumns.some((column) => column.name === "chainNamesJson")) {
     db.exec("ALTER TABLE settings ADD COLUMN chainNamesJson TEXT NOT NULL DEFAULT '[]'");
   }
@@ -609,6 +1104,23 @@ export function migrate() {
   }
   if (!settingsColumns.some((column) => column.name === "readyReopenThreshold")) {
     db.exec("ALTER TABLE settings ADD COLUMN readyReopenThreshold INTEGER NOT NULL DEFAULT 0");
+  }
+  const scanoTeamColumns = db.prepare("PRAGMA table_info(scano_team_members)").all() as Array<{ name: string }>;
+  if (!scanoTeamColumns.some((column) => column.name === "role")) {
+    db.exec("ALTER TABLE scano_team_members ADD COLUMN role TEXT NOT NULL DEFAULT 'scanner'");
+    db.exec("UPDATE scano_team_members SET role = 'scanner' WHERE TRIM(role) = '' OR role IS NULL");
+  }
+  const scanoTaskScanColumns = db.prepare("PRAGMA table_info(scano_task_scans)").all() as Array<{ name: string }>;
+  if (!scanoTaskScanColumns.some((column) => column.name === "outcome")) {
+    db.exec("ALTER TABLE scano_task_scans ADD COLUMN outcome TEXT NOT NULL DEFAULT 'manual_only'");
+    db.exec("UPDATE scano_task_scans SET outcome = 'manual_only' WHERE outcome IS NULL OR TRIM(outcome) = ''");
+  }
+  if (!scanoTaskScanColumns.some((column) => column.name === "taskProductId")) {
+    db.exec("ALTER TABLE scano_task_scans ADD COLUMN taskProductId TEXT");
+  }
+  const scanoTaskProductColumns = db.prepare("PRAGMA table_info(scano_task_products)").all() as Array<{ name: string }>;
+  if (!scanoTaskProductColumns.some((column) => column.name === "previewImageUrl")) {
+    db.exec("ALTER TABLE scano_task_products ADD COLUMN previewImageUrl TEXT");
   }
   const branchRuntimeColumns = db.prepare("PRAGMA table_info(branch_runtime)").all() as Array<{ name: string }>;
   if (!branchRuntimeColumns.some((column) => column.name === "lastExternalCloseUntil")) {
@@ -780,6 +1292,21 @@ export function migrate() {
     `).run(defaultSettings);
   }
 
+  const scanoSettingsRow = db.prepare("SELECT id FROM scano_settings WHERE id = 1").get();
+  if (!scanoSettingsRow) {
+    db.prepare(`
+      INSERT INTO scano_settings (
+        id,
+        catalogBaseUrl,
+        catalogTokenEnc,
+        updatedAt
+      ) VALUES (1, '', ?, ?)
+    `).run(
+      cryptoBox.encrypt(""),
+      new Date().toISOString(),
+    );
+  }
+
   rotateStoredSettingsSecretsToPrimary();
 
   const settingsRow = db.prepare("SELECT chainNamesJson, chainThresholdsJson FROM settings WHERE id=1").get() as any;
@@ -829,6 +1356,7 @@ export function migrate() {
   }
 
   maybeSeedBootstrapAdmin();
+  ensurePrimaryAdminUser();
 }
 
 export function pruneLogs(branchId: number | null, keep: number) {

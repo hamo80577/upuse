@@ -4,7 +4,10 @@ import { resolveSecurityConfig } from "../config/security.js";
 import { createAuthSession, createUser, deleteAuthSession, deleteUserById, listUsers, updateUser, verifyUserCredentials } from "../services/authStore.js";
 import { clearAuthSessionCookie, setAuthSessionCookie } from "../http/sessionCookie.js";
 import { normalizeEmail } from "../services/auth/passwords.js";
-import type { AppUserRole, AuthMeResponse, AuthUsersResponse, LoginResponse } from "../types/models.js";
+import type { AppUserRole, AuthMeResponse, AuthUsersResponse, LoginResponse, ScanoRole } from "../types/models.js";
+
+const AppUserRoleSchema = z.enum(["admin", "user"] satisfies [AppUserRole, AppUserRole]);
+const ScanoRoleSchema = z.enum(["team_lead", "scanner"] satisfies [ScanoRole, ScanoRole]);
 
 const LoginBody = z.object({
   email: z.string().email(),
@@ -15,14 +18,66 @@ const CreateUserBody = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(120),
   name: z.string().trim().min(1).max(120),
-  role: z.enum(["admin", "user"] satisfies [AppUserRole, AppUserRole]),
+  upuseAccess: z.boolean(),
+  upuseRole: AppUserRoleSchema.optional(),
+  scanoAccessRole: ScanoRoleSchema.optional(),
+}).superRefine((value, ctx) => {
+  if (!value.upuseAccess && !value.scanoAccessRole) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "At least one workspace access must be enabled.",
+      path: ["upuseAccess"],
+    });
+  }
+
+  if (value.upuseAccess && !value.upuseRole) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Select a UPuse role when UPuse access is enabled.",
+      path: ["upuseRole"],
+    });
+  }
+
+  if (!value.upuseAccess && value.upuseRole) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "UPuse role cannot be set when UPuse access is disabled.",
+      path: ["upuseRole"],
+    });
+  }
 });
 
 const UpdateUserBody = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(120).optional().or(z.literal("")),
   name: z.string().trim().min(1).max(120),
-  role: z.enum(["admin", "user"] satisfies [AppUserRole, AppUserRole]),
+  upuseAccess: z.boolean(),
+  upuseRole: AppUserRoleSchema.optional(),
+  scanoAccessRole: ScanoRoleSchema.optional(),
+}).superRefine((value, ctx) => {
+  if (!value.upuseAccess && !value.scanoAccessRole) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "At least one workspace access must be enabled.",
+      path: ["upuseAccess"],
+    });
+  }
+
+  if (value.upuseAccess && !value.upuseRole) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Select a UPuse role when UPuse access is enabled.",
+      path: ["upuseRole"],
+    });
+  }
+
+  if (!value.upuseAccess && value.upuseRole) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "UPuse role cannot be set when UPuse access is disabled.",
+      path: ["upuseRole"],
+    });
+  }
 });
 
 const UserIdParam = z.object({
@@ -168,6 +223,8 @@ export function meRoute(req: Request, res: Response) {
     return res.status(401).json({
       ok: false,
       message: "Unauthorized",
+      code: "SESSION_UNAUTHORIZED",
+      errorOrigin: "session",
     });
   }
 
@@ -229,7 +286,9 @@ export function updateUserRoute(req: Request, res: Response) {
       id,
       email: input.email,
       name: input.name,
-      role: input.role,
+      upuseAccess: input.upuseAccess,
+      upuseRole: input.upuseRole,
+      scanoAccessRole: input.scanoAccessRole,
       password: typeof input.password === "string" && input.password.trim() ? input.password : undefined,
       actorUserId: req.authUser?.id,
     });

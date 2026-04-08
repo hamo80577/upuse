@@ -1,0 +1,424 @@
+headers(
+Request URL
+https: //catalog-backlog-eg.deliveryhero.io/api/v3/vendors?page=1&pageSize=10&chainIds=1037&text=
+Request Method
+GET
+Status Code
+200 OK
+Remote Address
+104.19.168.109: 443
+Referrer Policy
+strict-origin-when-cross-origin
+access-control-allow-origin
+*
+alt-svc
+h3=":443"; ma=86400
+cache-control
+no-cache, no-store, max-age=0, must-revalidate
+cf-cache-status
+DYNAMIC
+cf-ray
+9e70267418f11988-MRS
+content-encoding
+br
+content-type
+application/json
+date
+Sat,
+04 Apr 2026 12: 00: 00 GMT
+expires
+0
+pragma
+no-cache
+priority
+u=1,i
+server
+cloudflare
+server-timing
+cfExtPri
+set-cookie
+__cf_bm=Jo_YdkOO4masJwdNpb.SNbCIQtcdb8Gx2YtyU46x7EU-1775304000-1.0.1.1-ADwUwaKn7ZHazU0PnaJ.8znBohR8zvBPRzE84Pxp6Pud7QPLv6xT13VrY5aMlHPWF1ZcnU22ldqP5xT3.Ll6lIwE4I9sffAi8_X06AZT6Bo; path=/; expires=Sat,
+04-Apr-26 12: 30: 00 GMT; domain=.deliveryhero.io; HttpOnly; Secure; SameSite=None
+strict-transport-security
+max-age=31536000 ; includeSubDomains
+vary
+Origin,Access-Control-Request-Method,Access-Control-Request-Headers
+x-content-type-options
+nosniff
+x-envoy-upstream-service-time
+42
+x-frame-options
+DENY
+x-xss-protection
+0
+:authority
+catalog-backlog-eg.deliveryhero.io
+:method
+GET
+:path
+/api/v3/vendors?page=1&pageSize=10&chainIds=1037&text=
+:scheme
+https
+accept
+application/json, text/plain, */*
+accept-encoding
+gzip, deflate, br, zstd
+accept-language
+en-US,en;q=0.9
+authorization
+Bearer eyJhbGciOiJQUzI1NiIsImtpZCI6ImlhbS16bGgwLXBzMjU2IiwidHlwIjoiSldUIn0.eyJhdWQiOiJvcHMtcG9ydGFsLWJhY2tvZmZpY2UiLCJleHAiOjE3NzUzMDc0MDAsImp0aSI6IjEwOWQyMzIwLTA1OGQtNDcxNy05NDYzLTM0NmE3NDg5OTc0MCIsImlhdCI6MTc3NTMwMDIwMCwiaXNzIjoiaHR0cDovL3Jtcy5kZWxpdmVyeWhlcm8ubmV0LyIsInN1YiI6Im1vaGFtZWQubWFobW91ZC40MTI4NjBfaWJzLmV4dEB0YWxhYmF0LmNvbSIsInV1aWQiOiIxNWI4NDMzMS0zMzJmLTQwOTctYTI0YS0zYzAyNjJlMTBjMmEiLCJuYW1lIjoibW9oYW1lZCBtYWhtb3VkLjQxMjg2MF9pYnMiLCJuYW1lc3BhY2VzIjpbIkdMT0JBTCIsImVnIl0sImFwcGxpY2F0aW9ucyI6eyJvcHMtcG9ydGFsLWNhdGFsb2ciOiJDYXRhbG9nIn0sInBlcm1pc3Npb25zIjp7Im9wcy1wb3J0YWwtY2F0YWxvZyI6eyJHTE9CQUwiOlsiaW1wb3J0Ojp2ZW5kb3JfcHJvZHVjdDo6Y3JlYXRlIiwiaW1wb3J0Ojp2ZW5kb3JfcHJvZHVjdDo6cmVhZCIsImltcG9ydDo6dmVuZG9yX3Byb2R1Y3Q6OnVwZGF0ZSIsInBsYXRmb3JtOjoyOjpyZWFkIiwidXNlciJdLCJlZyI6WyJjYXRlZ29yeTo6YWxsOjpyZWFkIiwiY2F0ZWdvcnlUcmVlOjphbGw6OnJlYWQiLCJjaGFpbjo6YWxsOjpjcmVhdGUiLCJjaGFpbjo6YWxsOjpkZWxldGUiLCJjaGFpbjo6YWxsOjpyZWFkIiwiY2hhaW46OmFsbDo6dXBkYXRlIiwiY2hhaW5Qcm9kdWN0czo6YWxsOjpjcmVhdGUiLCJjaGFpblByb2R1Y3RzOjphbGw6OnJlYWQiLCJjaGFpblByb2R1Y3RzOjphbGw6OnVwZGF0ZSIsImNvbWJvOjphbGw6OmFsbCIsImNvbWJvOjphbGw6OmNyZWF0ZSIsImNvbWJvOjphbGw6OmRlbGV0ZSIsImNvbWJvOjphbGw6OnJlYWQiLCJjb21ibzo6YWxsOjp1cGRhdGUiLCJpbXBvcnQ6OnZlbmRvcl9wcm9kdWN0X2NhdGVnb3J5X3JlcGxpY2F0aW9uOjpjcmVhdGUiLCJpbXBvcnQ6OnZlbmRvcl9wcm9kdWN0X2NhdGVnb3J5X3JlcGxpY2F0aW9uOjpyZWFkIiwiaW1wb3J0Ojp2ZW5kb3JfcHJvZHVjdF9jYXRlZ29yeV9yZXBsaWNhdGlvbjo6dXBkYXRlIiwiaW1wb3J0Ojp2ZW5kb3JfcHJvZHVjdF9jYXRlZ29yeV9yZXBsaWNhdGlvbjo6d3JpdGUiLCJwbGF0Zm9ybVZlbmRvcjo6YWxsOjpjcmVhdGUiLCJwbGF0Zm9ybVZlbmRvcjo6YWxsOjpkZWxldGUiLCJwbGF0Zm9ybVZlbmRvcjo6YWxsOjpyZWFkIiwicGxhdGZvcm1WZW5kb3I6OmFsbDo6dXBkYXRlIiwicHJvZHVjdDo6YWxsOjpjcmVhdGUiLCJwcm9kdWN0OjphbGw6OnJlYWQiLCJwcm9kdWN0OjphbGw6OnVwZGF0ZSIsInNjaGVkdWxlOjphbGw6OmFsbCIsInNjaGVkdWxlOjphbGw6OmNyZWF0ZSIsInNjaGVkdWxlOjphbGw6OmRlbGV0ZSIsInNjaGVkdWxlOjphbGw6OnJlYWQiLCJzY2hlZHVsZTo6YWxsOjp1cGRhdGUiLCJ2ZW5kb3I6OmFsbDo6Y3JlYXRlIiwidmVuZG9yOjphbGw6OmRlbGV0ZSIsInZlbmRvcjo6YWxsOjpyZWFkIiwidmVuZG9yOjphbGw6OnVwZGF0ZSIsInZlbmRvckNhdGVnb3J5VHJlZVNvdXJjZTo6YWxsOjpjcmVhdGUiLCJ2ZW5kb3JDYXRlZ29yeVRyZWVTb3VyY2U6OmFsbDo6cmVhZCIsInZlbmRvckNhdGVnb3J5VHJlZVNvdXJjZTo6YWxsOjp1cGRhdGUiXX19fQ.SDIvyisCQRXQThFjmy_iTLCDR76bdqPVZu0Zvtp1eubaW3fWHNf5XWs_wl_kyTiKcb6S0LSffBPWhTH-HwRynMpbLG-EZk-BvggW4lzCMAvisqOh9Zjxxl0W0RhazsD_4N42PYrHh148vxb4c7-xfE28q9db-QmHnQNrcgAbm-IDsMbgY0Winsnii0lidEQNgrNAsSjpFGRflU-otXyRTyJ0Kh7R6Gdr8H4netSZ5GwRXTyVambSzs50LsOnD4mA8XMKcs4Yc5Nuolq3NZn5xkP-bRaL_ea8mnDDNT9gzYNj1-C1hywCjwfDBv0EUB8N-mJBccFEDF2G-ZCbKEGz-A
+origin
+https://portal.talabat.com
+priority
+u=1, i
+referer
+https://portal.talabat.com/
+sec-ch-ua
+"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"
+sec-ch-ua-mobile
+?0
+sec-ch-ua-platform
+"Windows"
+sec-fetch-dest
+empty
+sec-fetch-mode
+cors
+sec-fetch-site
+cross-site
+user-agent
+Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36
+)
+payload(
+page=1&pageSize=10&chainIds=1037&text=
+)
+response(
+{
+    "data": [
+        {
+            "id": 4191,
+            "globalId": "dd7ade2c-4e4b-42fb-934d-946bf5b110c3",
+            "name": "Carrefour, Alex City Light",
+            "chainId": 1037,
+            "chainName": "Carrefour",
+            "platforms": [
+                {
+                    "id": 2,
+                    "name": "Talabat Egypt Shops",
+                    "active": true,
+                    "remoteId": "dd7ade2c-4e4b-42fb-934d-946bf5b110c3",
+                    "globalEntityId": "HF_EG",
+                    "countryCode": "eg",
+                    "additionalRemoteId": "750954",
+                    "requireAdditionalRemoteId": true,
+                    "attributes": {},
+                    "type": "SHOP",
+                    "skuStatusEnabled": false
+                }
+            ],
+            "chainVendorCode": "209",
+            "categoryTreeSource": "STANDARD_CATEGORY",
+            "integrationType": "POS_INDIRECT_INTEGRATED",
+            "vatOverride": null,
+            "chainGlobalId": "afc3f7ba-0a0b-41b6-8460-fe3251d9ab5a",
+            "categoryTreeDetails": {
+                "id": 2,
+                "name": null
+            }
+        },
+        {
+            "id": 4192,
+            "globalId": "8a65b2f3-936e-4695-bf81-a2d8997cc45c",
+            "name": "Carrefour, Alex Royal Plaza",
+            "chainId": 1037,
+            "chainName": "Carrefour",
+            "platforms": [
+                {
+                    "id": 2,
+                    "name": "Talabat Egypt Shops",
+                    "active": true,
+                    "remoteId": "8a65b2f3-936e-4695-bf81-a2d8997cc45c",
+                    "globalEntityId": "HF_EG",
+                    "countryCode": "eg",
+                    "additionalRemoteId": "750955",
+                    "requireAdditionalRemoteId": true,
+                    "attributes": {},
+                    "type": "SHOP",
+                    "skuStatusEnabled": false
+                }
+            ],
+            "chainVendorCode": "707",
+            "categoryTreeSource": "STANDARD_CATEGORY",
+            "integrationType": "POS_INDIRECT_INTEGRATED",
+            "vatOverride": null,
+            "chainGlobalId": "afc3f7ba-0a0b-41b6-8460-fe3251d9ab5a",
+            "categoryTreeDetails": {
+                "id": 2,
+                "name": null
+            }
+        },
+        {
+            "id": 3947,
+            "globalId": "59b00e67-b84d-4c36-9eb5-199f79cca04f",
+            "name": "Carrefour, Avenue - Rehab",
+            "chainId": 1037,
+            "chainName": "Carrefour",
+            "platforms": [
+                {
+                    "id": 2,
+                    "name": "Talabat Egypt Shops",
+                    "active": true,
+                    "remoteId": "59b00e67-b84d-4c36-9eb5-199f79cca04f",
+                    "globalEntityId": "HF_EG",
+                    "countryCode": "eg",
+                    "additionalRemoteId": "745261",
+                    "requireAdditionalRemoteId": true,
+                    "attributes": {},
+                    "type": "SHOP",
+                    "skuStatusEnabled": false
+                }
+            ],
+            "chainVendorCode": "730",
+            "categoryTreeSource": "STANDARD_CATEGORY",
+            "integrationType": "POS_INDIRECT_INTEGRATED",
+            "vatOverride": null,
+            "chainGlobalId": "afc3f7ba-0a0b-41b6-8460-fe3251d9ab5a",
+            "categoryTreeDetails": {
+                "id": 2,
+                "name": null
+            }
+        },
+        {
+            "id": 4069,
+            "globalId": "298e47d5-a25e-47c2-b4cf-d45db601da63",
+            "name": "Carrefour, Beverly Hills",
+            "chainId": 1037,
+            "chainName": "Carrefour",
+            "platforms": [
+                {
+                    "id": 2,
+                    "name": "Talabat Egypt Shops",
+                    "active": true,
+                    "remoteId": "298e47d5-a25e-47c2-b4cf-d45db601da63",
+                    "globalEntityId": "HF_EG",
+                    "countryCode": "eg",
+                    "additionalRemoteId": "747592",
+                    "requireAdditionalRemoteId": true,
+                    "attributes": {},
+                    "type": "SHOP",
+                    "skuStatusEnabled": false
+                }
+            ],
+            "chainVendorCode": "731",
+            "categoryTreeSource": "STANDARD_CATEGORY",
+            "integrationType": "POS_INDIRECT_INTEGRATED",
+            "vatOverride": null,
+            "chainGlobalId": "afc3f7ba-0a0b-41b6-8460-fe3251d9ab5a",
+            "categoryTreeDetails": {
+                "id": 2,
+                "name": null
+            }
+        },
+        {
+            "id": 5667,
+            "globalId": "67dea92f-b7af-4c83-96c1-47157c5c5a10",
+            "name": "Carrefour, City Center Almaza 267",
+            "chainId": 1037,
+            "chainName": "Carrefour",
+            "platforms": [
+                {
+                    "id": 2,
+                    "name": "Talabat Egypt Shops",
+                    "active": true,
+                    "remoteId": "67dea92f-b7af-4c83-96c1-47157c5c5a10",
+                    "globalEntityId": "HF_EG",
+                    "countryCode": "eg",
+                    "additionalRemoteId": "785467",
+                    "requireAdditionalRemoteId": true,
+                    "attributes": {},
+                    "type": "SHOP",
+                    "skuStatusEnabled": false
+                }
+            ],
+            "chainVendorCode": "215",
+            "categoryTreeSource": "STANDARD_CATEGORY",
+            "integrationType": "POS_INDIRECT_INTEGRATED",
+            "vatOverride": null,
+            "chainGlobalId": "afc3f7ba-0a0b-41b6-8460-fe3251d9ab5a",
+            "categoryTreeDetails": {
+                "id": 2,
+                "name": null
+            }
+        },
+        {
+            "id": 3859,
+            "globalId": "d4cfa7f2-b6f7-4f58-8b03-c63122cf70cf",
+            "name": "Carrefour, Down Town - New Cairo",
+            "chainId": 1037,
+            "chainName": "Carrefour",
+            "platforms": [
+                {
+                    "id": 2,
+                    "name": "Talabat Egypt Shops",
+                    "active": true,
+                    "remoteId": "d4cfa7f2-b6f7-4f58-8b03-c63122cf70cf",
+                    "globalEntityId": "HF_EG",
+                    "countryCode": "eg",
+                    "additionalRemoteId": "743105",
+                    "requireAdditionalRemoteId": true,
+                    "attributes": {},
+                    "type": "SHOP",
+                    "skuStatusEnabled": false
+                }
+            ],
+            "chainVendorCode": "704",
+            "categoryTreeSource": "STANDARD_CATEGORY",
+            "integrationType": "POS_INDIRECT_INTEGRATED",
+            "vatOverride": null,
+            "chainGlobalId": "afc3f7ba-0a0b-41b6-8460-fe3251d9ab5a",
+            "categoryTreeDetails": {
+                "id": 2,
+                "name": null
+            }
+        },
+        {
+            "id": 4124,
+            "globalId": "d545fb6e-8431-460d-a24f-df328272849f",
+            "name": "Carrefour, El Banafseg New Cairo",
+            "chainId": 1037,
+            "chainName": "Carrefour",
+            "platforms": [
+                {
+                    "id": 2,
+                    "name": "Talabat Egypt Shops",
+                    "active": true,
+                    "remoteId": "d545fb6e-8431-460d-a24f-df328272849f",
+                    "globalEntityId": "HF_EG",
+                    "countryCode": "eg",
+                    "additionalRemoteId": "749224",
+                    "requireAdditionalRemoteId": true,
+                    "attributes": {},
+                    "type": "SHOP",
+                    "skuStatusEnabled": false
+                }
+            ],
+            "chainVendorCode": "222",
+            "categoryTreeSource": "STANDARD_CATEGORY",
+            "integrationType": "NON_POS_INTEGRATED",
+            "vatOverride": null,
+            "chainGlobalId": "afc3f7ba-0a0b-41b6-8460-fe3251d9ab5a",
+            "categoryTreeDetails": {
+                "id": 2,
+                "name": null
+            }
+        },
+        {
+            "id": 3860,
+            "globalId": "607a4ecd-38fb-48e0-9b47-1ab581c7cccd",
+            "name": "Carrefour, El Golf Salah Salem",
+            "chainId": 1037,
+            "chainName": "Carrefour",
+            "platforms": [
+                {
+                    "id": 2,
+                    "name": "Talabat Egypt Shops",
+                    "active": true,
+                    "remoteId": "607a4ecd-38fb-48e0-9b47-1ab581c7cccd",
+                    "globalEntityId": "HF_EG",
+                    "countryCode": "eg",
+                    "additionalRemoteId": "743104",
+                    "requireAdditionalRemoteId": true,
+                    "attributes": {},
+                    "type": "SHOP",
+                    "skuStatusEnabled": false
+                }
+            ],
+            "chainVendorCode": "741",
+            "categoryTreeSource": "STANDARD_CATEGORY",
+            "integrationType": "POS_INDIRECT_INTEGRATED",
+            "vatOverride": null,
+            "chainGlobalId": "afc3f7ba-0a0b-41b6-8460-fe3251d9ab5a",
+            "categoryTreeDetails": {
+                "id": 2,
+                "name": null
+            }
+        },
+        {
+            "id": 4765,
+            "globalId": "01fa700c-98ed-47f8-9811-1961227f8ad5",
+            "name": "Carrefour, HCC/ Hurghada",
+            "chainId": 1037,
+            "chainName": "Carrefour",
+            "platforms": [
+                {
+                    "id": 2,
+                    "name": "Talabat Egypt Shops",
+                    "active": true,
+                    "remoteId": "01fa700c-98ed-47f8-9811-1961227f8ad5",
+                    "globalEntityId": "HF_EG",
+                    "countryCode": "eg",
+                    "additionalRemoteId": "769114",
+                    "requireAdditionalRemoteId": true,
+                    "attributes": {},
+                    "type": "SHOP",
+                    "skuStatusEnabled": false
+                }
+            ],
+            "chainVendorCode": "212",
+            "categoryTreeSource": "STANDARD_CATEGORY",
+            "integrationType": "POS_INDIRECT_INTEGRATED",
+            "vatOverride": null,
+            "chainGlobalId": "afc3f7ba-0a0b-41b6-8460-fe3251d9ab5a",
+            "categoryTreeDetails": {
+                "id": 2,
+                "name": null
+            }
+        },
+        {
+            "id": 4594,
+            "globalId": "182f49ec-db17-4eb3-95b9-1e7d5407ac20",
+            "name": "Carrefour, Ismalia",
+            "chainId": 1037,
+            "chainName": "Carrefour",
+            "platforms": [
+                {
+                    "id": 2,
+                    "name": "Talabat Egypt Shops",
+                    "active": true,
+                    "remoteId": "182f49ec-db17-4eb3-95b9-1e7d5407ac20",
+                    "globalEntityId": "HF_EG",
+                    "countryCode": "eg",
+                    "additionalRemoteId": "764776",
+                    "requireAdditionalRemoteId": true,
+                    "attributes": {},
+                    "type": "SHOP",
+                    "skuStatusEnabled": false
+                }
+            ],
+            "chainVendorCode": "214",
+            "categoryTreeSource": "STANDARD_CATEGORY",
+            "integrationType": "POS_INDIRECT_INTEGRATED",
+            "vatOverride": null,
+            "chainGlobalId": "afc3f7ba-0a0b-41b6-8460-fe3251d9ab5a",
+            "categoryTreeDetails": {
+                "id": 2,
+                "name": null
+            }
+        }
+    ],
+    "totalPages": 3,
+    "pageIndex": 1,
+    "totalRecords": 29
+}
+    )
+    الي محتاجه من الداتا دي وهنخزنها هي 
+    "id": 4594,
+            "globalId": "182f49ec-db17-4eb3-95b9-1e7d5407ac20",
+            "name": "Carrefour, Ismalia",
+            "chainId": 1037,
+            "chainName": "Carrefour"
+                    "globalEntityId": "HF_EG",
+                    "countryCode": "eg",
+                    "additionalRemoteId": "764776",
+
+                    ومش هنعرض غير اسم الفرع واسم الاتشين بس 
+                    

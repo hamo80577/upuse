@@ -680,85 +680,92 @@ describe("performanceStore", () => {
   });
 
   it("derives trend vendor scope from server-side search and branch filters instead of requiring vendor ids", async () => {
-    mockListResolvedBranches.mockReturnValue([
-      createBranch({
-        id: 1,
-        name: "Nasr City",
-        ordersVendorId: 101,
-      }),
-      createBranch({
-        id: 2,
-        name: "Heliopolis",
-        ordersVendorId: 102,
-        availabilityVendorId: "202",
-      }),
-    ]);
-    mockPrepare.mockImplementation(() => ({
-      all: vi.fn(() => [
-        createMirrorRow({
-          dayKey: "2026-03-21",
-          vendorId: 101,
-          vendorName: "Nasr City",
-          orderId: "scope-1",
-          externalId: "8201",
-          placedAt: "2026-03-21T06:05:00.000Z",
-          status: "STARTED",
-          transportType: "LOGISTICS_DELIVERY",
-          isCancelled: 0,
-          isCompleted: 0,
-          isActiveNow: 1,
-        }),
-        createMirrorRow({
-          dayKey: "2026-03-21",
-          vendorId: 101,
-          vendorName: "Nasr City",
-          orderId: "scope-2",
-          externalId: "8202",
-          placedAt: "2026-03-21T06:20:00.000Z",
-          status: "CANCELLED",
-          transportType: "LOGISTICS_DELIVERY",
-          isCancelled: 1,
-          isCompleted: 1,
-          isActiveNow: 0,
-          cancellationOwner: "VENDOR",
-          cancellationOwnerLookupAt: "2026-03-21T06:25:00.000Z",
-        }),
-        createMirrorRow({
-          dayKey: "2026-03-21",
-          vendorId: 102,
-          vendorName: "Heliopolis",
-          orderId: "scope-3",
-          externalId: "8203",
-          placedAt: "2026-03-21T06:35:00.000Z",
-          status: "STARTED",
-          transportType: "VENDOR_DELIVERY",
-          isCancelled: 0,
-          isCompleted: 0,
-          isActiveNow: 1,
-        }),
-      ]),
-    }));
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-21T12:00:00.000Z"));
 
-    const trend = await getPerformanceTrend({
-      resolutionMinutes: 60,
-      startMinute: 480,
-      endMinute: 540,
-      searchQuery: "nasr",
-      selectedDeliveryTypes: ["logistics"],
-      selectedBranchFilters: ["vendor"],
-    });
+    try {
+      mockListResolvedBranches.mockReturnValue([
+        createBranch({
+          id: 1,
+          name: "Nasr City",
+          ordersVendorId: 101,
+        }),
+        createBranch({
+          id: 2,
+          name: "Heliopolis",
+          ordersVendorId: 102,
+          availabilityVendorId: "202",
+        }),
+      ]);
+      mockPrepare.mockImplementation(() => ({
+        all: vi.fn(() => [
+          createMirrorRow({
+            dayKey: "2026-03-21",
+            vendorId: 101,
+            vendorName: "Nasr City",
+            orderId: "scope-1",
+            externalId: "8201",
+            placedAt: "2026-03-21T06:05:00.000Z",
+            status: "STARTED",
+            transportType: "LOGISTICS_DELIVERY",
+            isCancelled: 0,
+            isCompleted: 0,
+            isActiveNow: 1,
+          }),
+          createMirrorRow({
+            dayKey: "2026-03-21",
+            vendorId: 101,
+            vendorName: "Nasr City",
+            orderId: "scope-2",
+            externalId: "8202",
+            placedAt: "2026-03-21T06:20:00.000Z",
+            status: "CANCELLED",
+            transportType: "LOGISTICS_DELIVERY",
+            isCancelled: 1,
+            isCompleted: 1,
+            isActiveNow: 0,
+            cancellationOwner: "VENDOR",
+            cancellationOwnerLookupAt: "2026-03-21T06:25:00.000Z",
+          }),
+          createMirrorRow({
+            dayKey: "2026-03-21",
+            vendorId: 102,
+            vendorName: "Heliopolis",
+            orderId: "scope-3",
+            externalId: "8203",
+            placedAt: "2026-03-21T06:35:00.000Z",
+            status: "STARTED",
+            transportType: "VENDOR_DELIVERY",
+            isCancelled: 0,
+            isCompleted: 0,
+            isActiveNow: 1,
+          }),
+        ]),
+      }));
 
-    expect(trend.buckets).toEqual([
-      expect.objectContaining({
-        label: "08:00",
-        ordersCount: 2,
-        vendorCancelledCount: 1,
-        transportCancelledCount: 0,
-        vfr: 50,
-        lfr: 0,
-        vlfr: 50,
-      }),
-    ]);
+      const trend = await getPerformanceTrend({
+        resolutionMinutes: 60,
+        startMinute: 480,
+        endMinute: 540,
+        searchQuery: "nasr",
+        selectedDeliveryTypes: ["logistics"],
+        selectedBranchFilters: ["vendor"],
+      });
+
+      expect(trend.buckets).toEqual([
+        expect.objectContaining({
+          label: "08:00",
+          ordersCount: 2,
+          vendorCancelledCount: 1,
+          transportCancelledCount: 0,
+          vfr: 50,
+          lfr: 0,
+          vlfr: 50,
+        }),
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns performance summary for all resolved branches and exposes unmapped vendors", async () => {

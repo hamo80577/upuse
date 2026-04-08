@@ -137,6 +137,12 @@ function resolveCspNonce(_req: any, res: any) {
 
 export function createContentSecurityPolicyDirectives() {
   return {
+    "img-src": [
+      "'self'",
+      "data:",
+      "blob:",
+      "https:",
+    ],
     "script-src": [
       "'self'",
       CLOUDFLARE_INSIGHTS_SCRIPT_ORIGIN,

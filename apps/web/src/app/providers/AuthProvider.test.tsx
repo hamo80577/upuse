@@ -20,13 +20,23 @@ vi.mock("../../api/client", () => ({
 }));
 
 function Probe() {
-  const { isAdmin, status, bootstrapError, refreshAuth, retryBootstrap } = useAuth();
+  const {
+    isAdmin,
+    status,
+    bootstrapError,
+    canManageScanoTasks,
+    canManageScanoSettings,
+    refreshAuth,
+    retryBootstrap,
+  } = useAuth();
 
   return (
     <>
       <div data-testid="status">{status}</div>
       <div data-testid="is-admin">{String(isAdmin)}</div>
       <div data-testid="bootstrap-error">{bootstrapError ?? ""}</div>
+      <div data-testid="can-manage-scano-tasks">{String(canManageScanoTasks)}</div>
+      <div data-testid="can-manage-scano-settings">{String(canManageScanoSettings)}</div>
       <button type="button" onClick={() => void refreshAuth()}>
         Refresh auth
       </button>
@@ -105,6 +115,8 @@ describe("AuthProvider", () => {
           role: "admin",
           active: true,
           createdAt: "2026-03-14T00:00:00.000Z",
+          upuseAccess: true,
+          isPrimaryAdmin: false,
         },
       })
       .mockResolvedValueOnce({
@@ -115,6 +127,8 @@ describe("AuthProvider", () => {
           role: "user",
           active: true,
           createdAt: "2026-03-14T00:00:00.000Z",
+          upuseAccess: true,
+          isPrimaryAdmin: false,
         },
       });
 
@@ -137,6 +151,36 @@ describe("AuthProvider", () => {
     expect(mockApi.me).toHaveBeenCalledTimes(2);
   });
 
+  it("grants task-management access to team leads without exposing settings access", async () => {
+    mockApi.me.mockResolvedValueOnce({
+      user: {
+        id: 4,
+        email: "lead@example.com",
+        name: "Lead",
+        role: "user",
+        active: true,
+        createdAt: "2026-04-04T00:00:00.000Z",
+        upuseAccess: false,
+        isPrimaryAdmin: false,
+        scanoRole: "team_lead",
+      },
+    });
+
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("status")).toHaveTextContent("authenticated");
+    });
+
+    expect(screen.getByTestId("can-manage-scano-tasks")).toHaveTextContent("true");
+    expect(screen.getByTestId("can-manage-scano-settings")).toHaveTextContent("false");
+    expect(screen.getByTestId("is-admin")).toHaveTextContent("false");
+  });
+
   it("keeps the newest refreshAuth result when concurrent requests resolve out of order", async () => {
     type AuthMeResult = { user: {
       id: number;
@@ -145,6 +189,8 @@ describe("AuthProvider", () => {
       role: "admin" | "user";
       active: boolean;
       createdAt: string;
+      upuseAccess: boolean;
+      isPrimaryAdmin: boolean;
     } };
 
     let resolveFirstRefresh!: (value: AuthMeResult) => void;
@@ -166,6 +212,8 @@ describe("AuthProvider", () => {
           role: "admin",
           active: true,
           createdAt: "2026-03-14T00:00:00.000Z",
+          upuseAccess: true,
+          isPrimaryAdmin: false,
         },
       })
       .mockImplementationOnce(() => firstRefresh)
@@ -192,6 +240,8 @@ describe("AuthProvider", () => {
         role: "user",
         active: true,
         createdAt: "2026-03-14T00:00:00.000Z",
+        upuseAccess: true,
+        isPrimaryAdmin: false,
       },
     });
 
@@ -207,6 +257,8 @@ describe("AuthProvider", () => {
         role: "admin",
         active: true,
         createdAt: "2026-03-14T00:00:00.000Z",
+        upuseAccess: true,
+        isPrimaryAdmin: false,
       },
     });
 
