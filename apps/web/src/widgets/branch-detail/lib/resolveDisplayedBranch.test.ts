@@ -48,6 +48,7 @@ function createDetail(branch: BranchSnapshot): BranchDetailResult {
     cacheState: "fresh",
     unassignedOrders: [],
     preparingOrders: [],
+    readyToPickupOrders: [],
     pickers: {
       todayCount: 0,
       activePreparingCount: 0,

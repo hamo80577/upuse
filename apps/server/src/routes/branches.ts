@@ -13,6 +13,7 @@ import {
 import { listVendorCatalog } from "../services/vendorCatalogStore.js";
 import { getSettings } from "../services/settingsStore.js";
 import { getMirrorBranchDetail, getMirrorBranchPickers } from "../services/ordersMirrorStore.js";
+import { derivePreparingNow } from "../services/orders/classification.js";
 import { resolveBranchThresholdProfile } from "../services/thresholds.js";
 import { log } from "../services/logger.js";
 import { buildDeleteBranchResponse, parseBranchIdParam } from "./branchRouteHelpers.js";
@@ -88,6 +89,7 @@ function emptyOrdersMetrics(): OrdersMetrics {
     cancelledToday: 0,
     doneToday: 0,
     activeNow: 0,
+    preparingNow: 0,
     lateNow: 0,
     unassignedNow: 0,
     readyNow: 0,
@@ -174,6 +176,7 @@ function buildSnapshotUnavailableDetail(
     fetchedAt?: string | null;
     unassignedOrders?: BranchDetailSnapshotUnavailable["unassignedOrders"];
     preparingOrders?: BranchDetailSnapshotUnavailable["preparingOrders"];
+    readyToPickupOrders?: BranchDetailSnapshotUnavailable["readyToPickupOrders"];
     pickers?: BranchDetailSnapshotUnavailable["pickers"];
     cacheState?: BranchDetailCacheState;
     message?: string;
@@ -188,6 +191,7 @@ function buildSnapshotUnavailableDetail(
     cacheState: options?.cacheState ?? "fresh",
     unassignedOrders: options?.unassignedOrders ?? [],
     preparingOrders: options?.preparingOrders ?? [],
+    readyToPickupOrders: options?.readyToPickupOrders ?? [],
     pickers: options?.pickers ?? emptyBranchPickers(),
     message: options?.message ?? "This branch exists, but its live snapshot is currently unavailable.",
   };
@@ -209,6 +213,7 @@ function buildDetailFetchFailedDetail(
     cacheState,
     unassignedOrders: [],
     preparingOrders: [],
+    readyToPickupOrders: [],
     pickers: emptyBranchPickers(),
     message,
   };
@@ -223,6 +228,7 @@ function buildOkBranchDetail(
     cacheState: BranchDetailCacheState;
     unassignedOrders: BranchDetailOk["unassignedOrders"];
     preparingOrders: BranchDetailOk["preparingOrders"];
+    readyToPickupOrders: BranchDetailOk["readyToPickupOrders"];
     pickers: BranchDetailOk["pickers"];
   },
 ): BranchDetailOk {
@@ -235,6 +241,7 @@ function buildOkBranchDetail(
     cacheState: detail.cacheState,
     unassignedOrders: detail.unassignedOrders,
     preparingOrders: detail.preparingOrders,
+    readyToPickupOrders: detail.readyToPickupOrders,
     pickers: detail.pickers,
   };
 }
@@ -427,6 +434,7 @@ export function branchDetailRoute(engine: MonitorEngine) {
         cacheState: localDetail.cacheState,
         unassignedOrders: localDetail.unassignedOrders,
         preparingOrders: localDetail.preparingOrders,
+        readyToPickupOrders: localDetail.readyToPickupOrders,
         pickers: localDetail.pickers,
       }));
     }
@@ -449,7 +457,7 @@ export function branchDetailRoute(engine: MonitorEngine) {
         branchSnapshot: {
           ...unavailableSnapshot,
           metrics: localDetail.metrics,
-          preparingNow: localDetail.preparingOrders.length,
+          preparingNow: localDetail.metrics.preparingNow ?? derivePreparingNow(localDetail.metrics),
           preparingPickersNow: localDetail.pickers.activePreparingCount,
         },
         totals: localDetail.metrics,
@@ -457,6 +465,7 @@ export function branchDetailRoute(engine: MonitorEngine) {
         cacheState: localDetail.cacheState,
         unassignedOrders: localDetail.unassignedOrders,
         preparingOrders: localDetail.preparingOrders,
+        readyToPickupOrders: localDetail.readyToPickupOrders,
         pickers: localDetail.pickers,
         message: branch.enabled
           ? "Live availability snapshot is currently unavailable. Showing branch detail from the local orders cache."

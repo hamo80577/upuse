@@ -305,6 +305,44 @@ describe("performanceStore", () => {
     ]);
   });
 
+  it("counts ready-to-pickup orders as active even when isCompleted is true", () => {
+    const dataset = buildPerformanceDataset({
+      dayKey: "2026-03-20",
+      globalEntityId: "TB_EG",
+      branches: [],
+      rows: [
+        createMirrorRow({
+          vendorId: 701,
+          vendorName: "Ready Complete Branch",
+          orderId: "ready-complete-1",
+          externalId: "7011",
+          status: "READY_FOR_PICKUP",
+          transportType: "LOGISTICS_DELIVERY",
+          isCompleted: 1,
+          isActiveNow: 0,
+          pickupAt: "2026-03-20T08:15:00.000Z",
+          lastSeenAt: "2026-03-20T08:20:00.000Z",
+        }),
+      ],
+    });
+
+    expect(dataset.summary.cards.activeOrders).toBe(1);
+    expect(dataset.summary.cards.lateNow).toBe(0);
+    expect(dataset.summary.cards.readyToPickupOrders).toBe(1);
+    expect(dataset.summary.branches[0]).toMatchObject({
+      vendorId: 701,
+      activeOrders: 1,
+      lateNow: 0,
+      readyToPickupOrders: 1,
+    });
+    expect(dataset.vendorDetailsById.get(701)?.readyToPickupOrders).toEqual([
+      expect.objectContaining({
+        id: "ready-complete-1",
+        isLate: false,
+      }),
+    ]);
+  });
+
   it("aggregates mapped branches and unmapped vendors separately", () => {
     const branchA = createBranch();
     const branchB = createBranch({
@@ -395,6 +433,7 @@ describe("performanceStore", () => {
     expect(dataset.summary.cards.lateNow).toBe(1);
     expect(dataset.summary.cards.onHoldOrders).toBe(0);
     expect(dataset.summary.cards.unassignedOrders).toBe(0);
+    expect(dataset.summary.cards.preparingNow).toBe(1);
     expect(dataset.summary.cards.inPrepOrders).toBe(1);
     expect(dataset.summary.cards.readyToPickupOrders).toBe(0);
     expect(dataset.summary.cards.vendorOwnerCancelledCount).toBe(2);
@@ -413,6 +452,7 @@ describe("performanceStore", () => {
     expect(dataset.summary.branches[0]).toMatchObject({
       activeOrders: 1,
       lateNow: 1,
+      preparingNow: 1,
       inPrepOrders: 1,
       onHoldOrders: 0,
       unassignedOrders: 0,
@@ -445,6 +485,8 @@ describe("performanceStore", () => {
         totalCancelledOrders: 2,
         activeOrders: 1,
         lateNow: 1,
+        preparingNow: 1,
+        inPrepOrders: 1,
         vendorOwnerCancelledCount: 1,
         transportOwnerCancelledCount: 1,
         customerOwnerCancelledCount: 0,
@@ -762,6 +804,7 @@ describe("performanceStore", () => {
     expect(summary.cards.lateNow).toBe(0);
     expect(summary.cards.onHoldOrders).toBe(0);
     expect(summary.cards.unassignedOrders).toBe(0);
+    expect(summary.cards.preparingNow).toBe(0);
     expect(summary.cards.inPrepOrders).toBe(0);
     expect(summary.cards.readyToPickupOrders).toBe(0);
     expect(summary.branches).toEqual([
@@ -863,6 +906,7 @@ describe("performanceStore", () => {
         totalOrders: 1,
         totalCancelledOrders: 1,
         lateNow: 0,
+        preparingNow: 0,
         vendorOwnerCancelledCount: 1,
         customerOwnerCancelledCount: 0,
       },
@@ -894,6 +938,7 @@ describe("performanceStore", () => {
         vendorOwnerCancelledCount: 0,
         totalCancelledOrders: 1,
         lateNow: 0,
+        preparingNow: 0,
         unknownOwnerCancelledCount: 1,
       },
       pickers: {
@@ -904,5 +949,80 @@ describe("performanceStore", () => {
       inPrepOrders: [],
       readyToPickupOrders: [],
     });
+  });
+
+  it("keeps preparingNow aligned with dashboard while assigned prep queue stays non-overlapping", () => {
+    const dataset = buildPerformanceDataset({
+      dayKey: "2026-03-20",
+      globalEntityId: "TB_EG",
+      branches: [],
+      rows: [
+        createMirrorRow({
+          vendorId: 333,
+          vendorName: "Parity Branch",
+          orderId: "prep-unassigned",
+          externalId: "3301",
+          status: "UNASSIGNED",
+          isCompleted: 0,
+          isUnassigned: 1,
+          isActiveNow: 1,
+          shopperId: null,
+        }),
+        createMirrorRow({
+          vendorId: 333,
+          vendorName: "Parity Branch",
+          orderId: "prep-hold",
+          externalId: "3302",
+          status: "ON_HOLD",
+          isCompleted: 0,
+          isActiveNow: 1,
+        }),
+        createMirrorRow({
+          vendorId: 333,
+          vendorName: "Parity Branch",
+          orderId: "prep-ready",
+          externalId: "3303",
+          status: "READY_FOR_PICKUP",
+          isCompleted: 0,
+          isActiveNow: 1,
+          shopperId: 411,
+          shopperFirstName: "Alaa",
+        }),
+        createMirrorRow({
+          vendorId: 333,
+          vendorName: "Parity Branch",
+          orderId: "prep-assigned",
+          externalId: "3304",
+          status: "STARTED",
+          isCompleted: 0,
+          isActiveNow: 1,
+          shopperId: 412,
+          shopperFirstName: "Mona",
+        }),
+      ],
+    });
+
+    expect(dataset.summary.cards.preparingNow).toBe(4);
+    expect(dataset.summary.cards.inPrepOrders).toBe(4);
+    expect(dataset.summary.branches[0]).toMatchObject({
+      vendorId: 333,
+      preparingNow: 4,
+      inPrepOrders: 4,
+      onHoldOrders: 1,
+      unassignedOrders: 1,
+      readyToPickupOrders: 1,
+    });
+    expect(dataset.vendorDetailsById.get(333)?.summary).toMatchObject({
+      preparingNow: 4,
+      inPrepOrders: 4,
+      onHoldOrders: 1,
+      unassignedOrders: 1,
+      readyToPickupOrders: 1,
+    });
+    expect(dataset.vendorDetailsById.get(333)?.inPrepOrders).toEqual([
+      expect.objectContaining({
+        id: "prep-assigned",
+      }),
+    ]);
   });
 });

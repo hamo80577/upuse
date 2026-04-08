@@ -348,7 +348,7 @@ function branchPassesAllFilters(branch: PerformanceEntityBranchCard, selectedFil
       case "unassigned":
         return branch.unassignedOrders > 0;
       case "in_prep":
-        return branch.inPrepOrders > 0;
+        return branch.preparingNow > 0;
       case "ready":
         return branch.readyToPickupOrders > 0;
       default:
@@ -376,7 +376,7 @@ function numericSortScore(branch: PerformanceEntityBranchCard, key: NumericSortK
     case "unassigned":
       return branch.unassignedOrders;
     case "in_prep":
-      return branch.inPrepOrders;
+      return branch.preparingNow;
     case "ready":
       return branch.readyToPickupOrders;
     default:
@@ -452,6 +452,7 @@ function buildPlaceholderBranchCard(
     lateNow: 0,
     onHoldOrders: 0,
     unassignedOrders: 0,
+    preparingNow: 0,
     inPrepOrders: 0,
     readyToPickupOrders: 0,
     deliveryMode: "unknown",
@@ -662,7 +663,7 @@ function buildVisibleSummary(branches: DisplayPerformanceBranchCard[]) {
       current.lateNow += branch.lateNow;
       current.onHoldOrders += branch.onHoldOrders;
       current.unassignedOrders += branch.unassignedOrders;
-      current.inPrepOrders += branch.inPrepOrders;
+      current.preparingNow += branch.preparingNow;
       current.readyToPickupOrders += branch.readyToPickupOrders;
       current.vendorOwnerCancelledCount += branch.vendorOwnerCancelledCount;
       current.transportOwnerCancelledCount += branch.transportOwnerCancelledCount;
@@ -678,7 +679,7 @@ function buildVisibleSummary(branches: DisplayPerformanceBranchCard[]) {
       lateNow: 0,
       onHoldOrders: 0,
       unassignedOrders: 0,
-      inPrepOrders: 0,
+      preparingNow: 0,
       readyToPickupOrders: 0,
       vendorOwnerCancelledCount: 0,
       transportOwnerCancelledCount: 0,
@@ -769,7 +770,7 @@ function resolvePeakFlowMetric(branch: PerformanceEntityBranchCard) {
   const candidates = [
     { label: "On Hold", value: branch.onHoldOrders, tone: "warning" as const },
     { label: "Unassigned", value: branch.unassignedOrders, tone: "warning" as const },
-    { label: "In Prep", value: branch.inPrepOrders, tone: "info" as const },
+    { label: "In Prep", value: branch.preparingNow, tone: "info" as const },
     { label: "Ready", value: branch.readyToPickupOrders, tone: "info" as const },
   ];
 
@@ -1096,7 +1097,7 @@ function BranchCard(props: {
           />
           <MetricTile label="On Hold" value={metric(props.branch.onHoldOrders)} tone="warning" />
           <MetricTile label="Unassigned" value={metric(props.branch.unassignedOrders)} tone="warning" />
-          <MetricTile label="In Prep" value={metric(props.branch.inPrepOrders)} tone="info" />
+          <MetricTile label="In Prep" value={metric(props.branch.preparingNow)} tone="info" />
           <MetricTile label="Ready to Pickup" value={metric(props.branch.readyToPickupOrders)} tone="info" />
         </Box>
       </Collapse>
@@ -1318,7 +1319,7 @@ export function PerformancePage() {
               { label: "Late", value: metric(visibleSummary.lateNow), tone: "warning" as const },
               { label: "On Hold", value: metric(visibleSummary.onHoldOrders), tone: "warning" as const },
               { label: "Unassigned", value: metric(visibleSummary.unassignedOrders), tone: "warning" as const },
-              { label: "In Prep", value: metric(visibleSummary.inPrepOrders), tone: "info" as const },
+              { label: "In Prep", value: metric(visibleSummary.preparingNow), tone: "info" as const },
               { label: "Ready to Pickup", value: metric(visibleSummary.readyToPickupOrders), tone: "info" as const },
             ],
           },

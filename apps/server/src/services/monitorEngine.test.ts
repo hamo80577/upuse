@@ -153,6 +153,7 @@ describe("monitorEngine.getSnapshot", () => {
       fetchedAt: null,
       unassignedOrders: [],
       preparingOrders: [],
+      readyToPickupOrders: [],
       pickers: {
         todayCount: 0,
         activePreparingCount: 0,

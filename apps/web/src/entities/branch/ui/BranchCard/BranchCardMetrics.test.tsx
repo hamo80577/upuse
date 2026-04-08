@@ -13,6 +13,7 @@ describe("BranchCardMetrics", () => {
           activeNow: 9,
           lateNow: 2,
           unassignedNow: 1,
+          readyNow: 3,
         }}
         preparingNow={6}
         preparingPickersNow={3}
@@ -21,6 +22,7 @@ describe("BranchCardMetrics", () => {
     );
 
     expect(screen.getByText("In Prep")).toBeInTheDocument();
+    expect(screen.getByText("Ready To Pickup")).toBeInTheDocument();
     expect(screen.getByText("3 pickers")).toBeInTheDocument();
     expect(screen.queryByText("Cancelled")).not.toBeInTheDocument();
   });
@@ -35,6 +37,7 @@ describe("BranchCardMetrics", () => {
           activeNow: 9,
           lateNow: 2,
           unassignedNow: 1,
+          readyNow: 0,
         }}
         preparingNow={0}
         preparingPickersNow={0}
@@ -43,7 +46,7 @@ describe("BranchCardMetrics", () => {
     );
 
     expect(screen.getByText("In Prep")).toBeInTheDocument();
-    expect(screen.getByText("0")).toBeInTheDocument();
+    expect(screen.getAllByText("0").length).toBeGreaterThan(0);
     expect(screen.getByText("Syncing")).toBeInTheDocument();
     expect(screen.queryByText("0 pickers")).not.toBeInTheDocument();
   });
@@ -58,6 +61,7 @@ describe("BranchCardMetrics", () => {
           activeNow: 9,
           lateNow: 2,
           unassignedNow: 1,
+          readyNow: 1,
         }}
         preparingNow={6}
         preparingPickersNow={3}

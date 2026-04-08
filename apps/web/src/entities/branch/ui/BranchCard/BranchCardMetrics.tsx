@@ -6,7 +6,7 @@ import type { BranchSnapshot } from "../../../../api/types";
 function MetricTile(props: {
   label: string;
   value: number;
-  tone?: "neutral" | "late" | "unassigned";
+  tone?: "neutral" | "late" | "ready" | "unassigned";
   mobileSpan?: number;
   badgeText?: ReactNode;
   badgeTone?: "default" | "syncing" | "stale";
@@ -20,12 +20,18 @@ function MetricTile(props: {
           valueColor: "#15803d",
           labelColor: "#15803d",
         }
-      : tone === "late"
+        : tone === "late"
         ? {
             accent: "#9a3412",
             valueColor: "#9a3412",
             labelColor: "#9a3412",
           }
+        : tone === "ready"
+          ? {
+              accent: "#0369a1",
+              valueColor: "#075985",
+              labelColor: "#075985",
+            }
         : tone === "unassigned"
           ? {
               accent: "#b91c1c",
@@ -61,6 +67,8 @@ function MetricTile(props: {
               ? zeroIsHealthy
                 ? "rgba(240,253,244,0.95)"
                 : "rgba(255,247,237,0.95)"
+              : tone === "ready"
+                ? "rgba(240,249,255,0.98)"
               : tone === "unassigned"
                 ? zeroIsHealthy
                   ? "rgba(240,253,244,0.95)"
@@ -179,7 +187,7 @@ function BranchCardMetricsBase(props: {
         alignItems: "stretch",
         gridTemplateColumns: {
           xs: "repeat(6, minmax(0, 1fr))",
-          md: "repeat(5, minmax(0, 1fr))",
+          md: "repeat(6, minmax(0, 1fr))",
         },
       }}
     >
@@ -192,8 +200,9 @@ function BranchCardMetricsBase(props: {
         mobileSpan={2}
       />
       <MetricTile label="Active" value={m.activeNow} mobileSpan={2} />
-      <MetricTile label="Late" value={m.lateNow} tone="late" mobileSpan={3} />
-      <MetricTile label="Unassigned" value={m.unassignedNow} tone="unassigned" mobileSpan={3} />
+      <MetricTile label="Ready To Pickup" value={m.readyNow ?? 0} tone="ready" mobileSpan={2} />
+      <MetricTile label="Late" value={m.lateNow} tone="late" mobileSpan={2} />
+      <MetricTile label="Unassigned" value={m.unassignedNow} tone="unassigned" mobileSpan={2} />
     </Box>
   );
 }

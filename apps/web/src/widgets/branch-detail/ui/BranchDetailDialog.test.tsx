@@ -129,6 +129,7 @@ describe("BranchDetailDialog", () => {
       cacheState: "fresh",
       unassignedOrders: [],
       preparingOrders: [],
+      readyToPickupOrders: [],
       pickers: emptyPickers(),
       message: "Live availability snapshot is currently unavailable. Showing orders detail from the latest Orders API response.",
     }));
@@ -152,6 +153,7 @@ describe("BranchDetailDialog", () => {
       cacheState: "warming",
       unassignedOrders: [],
       preparingOrders: [],
+      readyToPickupOrders: [],
       pickers: emptyPickers(),
       message: "Live orders detail is temporarily unavailable. Orders API request failed",
     }));
@@ -175,6 +177,7 @@ describe("BranchDetailDialog", () => {
       cacheState: "warming",
       unassignedOrders: [],
       preparingOrders: [],
+      readyToPickupOrders: [],
       pickers: {
         todayCount: 4,
         activePreparingCount: 2,
@@ -229,6 +232,7 @@ describe("BranchDetailDialog", () => {
       cacheState: "fresh",
       unassignedOrders: [],
       preparingOrders: [],
+      readyToPickupOrders: [],
       pickers: emptyPickers(),
     }));
 
@@ -271,6 +275,7 @@ describe("BranchDetailDialog", () => {
           isLate: false,
         },
       ],
+      readyToPickupOrders: [],
       pickers: {
         todayCount: 4,
         activePreparingCount: 2,
@@ -303,6 +308,54 @@ describe("BranchDetailDialog", () => {
     expect(screen.getByText("Live Operations")).toBeInTheDocument();
   });
 
+  it("renders ready-to-pickup orders in a separate queue section", () => {
+    mockUseBranchDetailState.mockReturnValue(buildHookState({
+      kind: "ok",
+      branch: createBranchSnapshot({ monitorEnabled: true, status: "OPEN", statusColor: "green" }),
+      totals: createBranchSnapshot({ monitorEnabled: true, status: "OPEN", statusColor: "green" }).metrics,
+      fetchedAt: "2026-03-08T14:10:00.000Z",
+      cacheState: "fresh",
+      unassignedOrders: [],
+      preparingOrders: [
+        {
+          id: "prep-1",
+          externalId: "PREP-1",
+          status: "PREPARING",
+          pickupAt: "2026-03-08T13:35:00.000Z",
+          shopperId: 90202,
+          shopperFirstName: "Mohamed",
+          isUnassigned: false,
+          isLate: false,
+        },
+      ],
+      readyToPickupOrders: [
+        {
+          id: "ready-1",
+          externalId: "READY-7",
+          status: "READY_FOR_PICKUP",
+          pickupAt: "2026-03-08T13:45:00.000Z",
+          shopperId: 90205,
+          shopperFirstName: "Amina",
+          isUnassigned: false,
+          isLate: false,
+        },
+      ],
+      pickers: {
+        todayCount: 4,
+        activePreparingCount: 1,
+        recentActiveCount: 2,
+        items: [],
+      },
+    }));
+
+    render(<BranchDetailDialog open branchId={7} branchSnapshot={createBranchSnapshot()} onClose={() => {}} />);
+
+    expect(screen.getByText("In Preparation")).toBeInTheDocument();
+    expect(screen.getByText("Ready To Pickup")).toBeInTheDocument();
+    expect(screen.getByText("#READY-7")).toBeInTheDocument();
+    expect(screen.getAllByText("#READY-7")).toHaveLength(1);
+  });
+
   it("keeps the branch snapshot shell visible while queue detail is still loading", () => {
     mockUseBranchDetailState.mockReturnValue({
       ...buildHookState(null),
@@ -326,6 +379,7 @@ describe("BranchDetailDialog", () => {
       cacheState: "fresh",
       unassignedOrders: [],
       preparingOrders: [],
+      readyToPickupOrders: [],
       pickers: emptyPickers(),
     }));
 
@@ -354,6 +408,7 @@ describe("BranchDetailDialog", () => {
       cacheState: "fresh",
       unassignedOrders: [],
       preparingOrders: [],
+      readyToPickupOrders: [],
       pickers: emptyPickers(),
     }));
 

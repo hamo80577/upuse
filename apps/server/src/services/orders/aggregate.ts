@@ -1,7 +1,7 @@
 import type { OrdersVendorId } from "../../types/models.js";
-import { isPastPickup } from "../../utils/time.js";
 import { getWithRetry } from "./httpClient.js";
 import { createPageLimitError, isVendorIdValidationError } from "./paginationGuards.js";
+import { classifyOrderState, isPreparingQueueOrder } from "./classification.js";
 import {
   resolveOrdersChunkConcurrency,
   resolveOrdersMode,
@@ -37,10 +37,6 @@ async function runWithConcurrency<T>(items: T[], concurrency: number, worker: (i
   };
 
   await Promise.all(Array.from({ length: safeConcurrency }, () => consume()));
-}
-
-function isReadyToPickupStatus(status: unknown) {
-  return typeof status === "string" && status === "READY_FOR_PICKUP";
 }
 
 function stableOrderKey(order: any) {
@@ -117,29 +113,44 @@ export async function fetchOrdersAggregates(params: {
           const vendorId: OrdersVendorId = order?.vendor?.id;
           if (!byVendor.has(vendorId)) continue;
           const metrics = byVendor.get(vendorId)!;
+          const shopperId =
+            typeof order?.shopper?.id === "number" && Number.isFinite(order.shopper.id)
+              ? order.shopper.id
+              : null;
+          const classification = classifyOrderState({
+            status: order?.status,
+            isCompleted: order?.isCompleted,
+            pickupAt: order?.pickupAt,
+            shopper: order?.shopper,
+            shopperId,
+          }, nowIso);
 
           metrics.totalToday += 1;
           if (order?.status === "CANCELLED") metrics.cancelledToday += 1;
 
           if (order?.isCompleted) {
             metrics.doneToday += 1;
-          } else {
+          }
+          if (classification.isActive) {
             metrics.activeNow += 1;
-            if (order?.pickupAt && isPastPickup(nowIso, order.pickupAt)) metrics.lateNow += 1;
-            if (isReadyToPickupStatus(order?.status)) metrics.readyNow = (metrics.readyNow ?? 0) + 1;
-            if (order?.status === "UNASSIGNED" || order?.shopper == null) {
-              metrics.unassignedNow += 1;
-            } else {
-              const preparation = preparingByVendor.get(vendorId);
-              if (preparation) {
-                preparation.preparingNow += 1;
-                const shopperId = typeof order?.shopper?.id === "number" ? order.shopper.id : null;
-                if (shopperId != null) {
-                  const pickerIds = pickerIdsByVendor.get(vendorId);
-                  pickerIds?.add(shopperId);
-                  preparation.preparingPickersNow = pickerIds?.size ?? preparation.preparingPickersNow;
-                }
-              }
+          }
+          if (classification.isLate) {
+            metrics.lateNow += 1;
+          }
+          if (classification.isReadyToPickup) {
+            metrics.readyNow = (metrics.readyNow ?? 0) + 1;
+          }
+          if (classification.isUnassigned) {
+            metrics.unassignedNow += 1;
+          }
+
+          const preparation = preparingByVendor.get(vendorId);
+          if (preparation && classification.isInPreparation) {
+            preparation.preparingNow += 1;
+            if (shopperId != null && isPreparingQueueOrder(classification)) {
+              const pickerIds = pickerIdsByVendor.get(vendorId);
+              pickerIds?.add(shopperId);
+              preparation.preparingPickersNow = pickerIds?.size ?? preparation.preparingPickersNow;
             }
           }
         }

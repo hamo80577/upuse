@@ -74,9 +74,10 @@ function QueueLoadingLayout() {
       sx={{
         display: "grid",
         gap: 1.2,
-        gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" },
+        gridTemplateColumns: { xs: "1fr", lg: "repeat(3, minmax(0, 1fr))" },
       }}
     >
+      <Skeleton variant="rounded" animation="wave" height={260} />
       <Skeleton variant="rounded" animation="wave" height={260} />
       <Skeleton variant="rounded" animation="wave" height={260} />
     </Box>
@@ -149,30 +150,20 @@ export function BranchDetailDialog(props: {
   const hasLiveQueueDetail = detailWithBranch
     ? detailWithBranch.kind === "ok" || (detailWithBranch.kind === "snapshot_unavailable" && Boolean(detailWithBranch.fetchedAt))
     : false;
-  const queueTotals = hasLiveQueueDetail && detailWithBranch
-    ? {
-        activeNow: detailWithBranch.unassignedOrders.length + detailWithBranch.preparingOrders.length,
-        lateNow: [...detailWithBranch.unassignedOrders, ...detailWithBranch.preparingOrders].reduce(
-          (sum, item) => sum + (item.isLate ? 1 : 0),
-          0,
-        ),
-        unassignedNow: detailWithBranch.unassignedOrders.length,
-      }
-    : null;
   const liveTotals = {
     totalToday: branch?.metrics.totalToday ?? detailWithBranch?.totals.totalToday ?? 0,
     cancelledToday: branch?.metrics.cancelledToday ?? detailWithBranch?.totals.cancelledToday ?? 0,
     doneToday: branch?.metrics.doneToday ?? detailWithBranch?.totals.doneToday ?? 0,
-    activeNow: queueTotals?.activeNow ?? branch?.metrics.activeNow ?? detailWithBranch?.totals.activeNow ?? 0,
-    lateNow: queueTotals?.lateNow ?? branch?.metrics.lateNow ?? detailWithBranch?.totals.lateNow ?? 0,
-    unassignedNow: queueTotals?.unassignedNow ?? branch?.metrics.unassignedNow ?? detailWithBranch?.totals.unassignedNow ?? 0,
+    activeNow: detailWithBranch?.totals.activeNow ?? branch?.metrics.activeNow ?? 0,
+    lateNow: detailWithBranch?.totals.lateNow ?? branch?.metrics.lateNow ?? 0,
+    unassignedNow: detailWithBranch?.totals.unassignedNow ?? branch?.metrics.unassignedNow ?? 0,
   };
   const pickerSummary = pickers ?? detailWithBranch?.pickers ?? emptyPickers();
   const activePreparingPickerCount = hasLiveQueueDetail && detailWithBranch
     ? detailWithBranch.pickers.activePreparingCount
     : branch?.preparingPickersNow ?? 0;
   const preparingNow = hasLiveQueueDetail && detailWithBranch
-    ? detailWithBranch.preparingOrders.length
+    ? detailWithBranch.branch.preparingNow ?? detailWithBranch.totals.preparingNow ?? 0
     : branch?.preparingNow ?? 0;
   const detailNotice = nonFatalDetailNotice(detail);
   const queuePanelLoading = loading && !detailWithBranch && !error;
@@ -353,7 +344,7 @@ export function BranchDetailDialog(props: {
                       sx={{
                         display: "grid",
                         gap: 1.2,
-                        gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" },
+                        gridTemplateColumns: { xs: "1fr", lg: "repeat(3, minmax(0, 1fr))" },
                         alignItems: "start",
                       }}
                     >
@@ -371,6 +362,13 @@ export function BranchDetailDialog(props: {
                         emptyText={detailWithBranch?.preparingOrders.length ? "No active preparation orders right now." : unavailableOrdersText}
                         nowMs={nowMs}
                         headerBadge={renderPickerBadge(activePreparingPickerCount)}
+                      />
+                      <BranchOrdersSection
+                        title="Ready To Pickup"
+                        subtitle="Orders waiting for pickup"
+                        items={detailWithBranch?.readyToPickupOrders ?? []}
+                        emptyText={detailWithBranch?.readyToPickupOrders.length ? "No ready-to-pickup orders right now." : unavailableOrdersText}
+                        nowMs={nowMs}
                       />
                     </Box>
                   )

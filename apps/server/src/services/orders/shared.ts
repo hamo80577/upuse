@@ -1,6 +1,7 @@
 import { DateTime } from "luxon";
 import type { BranchLiveOrder } from "../../types/models.js";
-import { cairoDayWindowUtc, isPastPickup, nowUtcIso } from "../../utils/time.js";
+import { cairoDayWindowUtc, nowUtcIso } from "../../utils/time.js";
+import { classifyOrderState } from "./classification.js";
 import type { OrdersMode } from "./types.js";
 
 export function resolveOrdersMode(): OrdersMode {
@@ -100,8 +101,13 @@ export function getDetailCacheKey(globalEntityId: string, vendorId: number) {
 }
 
 export function toLiveOrder(order: any, nowIso: string): BranchLiveOrder {
-  const isUnassigned = order?.status === "UNASSIGNED" || order?.shopper == null;
-  const isLate = order?.pickupAt ? isPastPickup(nowIso, order.pickupAt) : false;
+  const classification = classifyOrderState({
+    status: order?.status,
+    isCompleted: order?.isCompleted,
+    pickupAt: order?.pickupAt,
+    shopper: order?.shopper,
+    shopperId: typeof order?.shopper?.id === "number" && Number.isFinite(order.shopper.id) ? order.shopper.id : null,
+  }, nowIso);
   const shopperId = typeof order?.shopper?.id === "number" && Number.isFinite(order.shopper.id)
     ? order.shopper.id
     : undefined;
@@ -119,8 +125,8 @@ export function toLiveOrder(order: any, nowIso: string): BranchLiveOrder {
     customerFirstName: order?.customerFirstName,
     shopperId,
     shopperFirstName,
-    isUnassigned,
-    isLate,
+    isUnassigned: classification.isUnassigned,
+    isLate: classification.isLate,
   };
 }
 

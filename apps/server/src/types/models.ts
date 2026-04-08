@@ -108,10 +108,11 @@ export interface OrdersMetrics {
   totalToday: number;
   cancelledToday: number;
   doneToday: number; // isCompleted = true
-  activeNow: number; // isCompleted = false
-  lateNow: number; // activeNow and now > pickupAt
-  unassignedNow: number; // activeNow and (status UNASSIGNED or shopper null)
-  readyNow?: number; // activeNow and status READY_FOR_PICKUP
+  activeNow: number; // isCompleted = false OR status READY_FOR_PICKUP
+  preparingNow?: number; // isCompleted = false
+  lateNow: number; // isCompleted = false and non-ready and now > pickupAt
+  unassignedNow: number; // isCompleted = false and non-ready and (status UNASSIGNED or shopper null)
+  readyNow?: number; // status READY_FOR_PICKUP
 }
 
 export interface BranchLiveOrder {
@@ -287,6 +288,7 @@ export interface PerformanceEntityBranchCard {
   lateNow: number;
   onHoldOrders: number;
   unassignedOrders: number;
+  preparingNow: number;
   inPrepOrders: number;
   readyToPickupOrders: number;
   deliveryMode: "logistics" | "self" | "mixed" | "unknown";
@@ -344,6 +346,7 @@ export interface PerformanceDetailSummary {
   lateNow: number;
   onHoldOrders: number;
   unassignedOrders: number;
+  preparingNow: number;
   inPrepOrders: number;
   readyToPickupOrders: number;
   vendorOwnerCancelledCount: number;
@@ -372,6 +375,7 @@ export interface PerformanceSummaryResponse {
     lateNow: number;
     onHoldOrders: number;
     unassignedOrders: number;
+    preparingNow: number;
     inPrepOrders: number;
     readyToPickupOrders: number;
     vfr: number;
@@ -494,6 +498,7 @@ interface BranchDetailBase {
   cacheState: BranchDetailCacheState;
   unassignedOrders: BranchLiveOrder[];
   preparingOrders: BranchLiveOrder[];
+  readyToPickupOrders: BranchLiveOrder[];
   pickers: BranchPickersSummary;
 }
 

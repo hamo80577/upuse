@@ -55,6 +55,7 @@ function createDetailResult(overrides: Partial<Extract<BranchDetailResult, { kin
     cacheState: "fresh",
     unassignedOrders: [],
     preparingOrders: [],
+    readyToPickupOrders: [],
     pickers: {
       todayCount: 0,
       activePreparingCount: 0,
@@ -326,6 +327,7 @@ describe("useBranchDetailState", () => {
       cacheState: "warming",
       unassignedOrders: [],
       preparingOrders: [],
+      readyToPickupOrders: [],
       pickers: {
         todayCount: 0,
         activePreparingCount: 0,

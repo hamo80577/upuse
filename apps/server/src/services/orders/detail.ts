@@ -1,8 +1,9 @@
 import { DateTime } from "luxon";
 import type { BranchPickersSummary, OrdersVendorId } from "../../types/models.js";
-import { cairoDayWindowUtc, isPastPickup } from "../../utils/time.js";
+import { cairoDayWindowUtc } from "../../utils/time.js";
 import { getWithRetry } from "./httpClient.js";
 import { createPageLimitError } from "./paginationGuards.js";
+import { classifyOrderState, isPreparingQueueOrder } from "./classification.js";
 import {
   getDetailCacheKey,
   nowUtcIso,
@@ -17,10 +18,6 @@ import { BASE, BRANCH_DETAIL_MAX_PAGES, initMetrics, type DetailCacheEntry, type
 
 const detailCache = new Map<string, DetailCacheEntry>();
 const PICKER_RECENT_ACTIVE_WINDOW_MS = 60 * 60 * 1000;
-
-function isReadyToPickupStatus(status: unknown) {
-  return typeof status === "string" && status === "READY_FOR_PICKUP";
-}
 
 interface PickerAccumulator {
   shopperId: number;
@@ -186,6 +183,7 @@ export async function fetchVendorOrdersDetail(params: {
   const metrics = initMetrics();
   const unassignedOrders: ReturnType<typeof toLiveOrder>[] = [];
   const preparingOrders: ReturnType<typeof toLiveOrder>[] = [];
+  const readyToPickupOrders: ReturnType<typeof toLiveOrder>[] = [];
   const pickersById = new Map<number, PickerAccumulator>();
   const todayPickerIds = new Set<number>();
   const activePreparingPickerIds = new Set<number>();
@@ -217,10 +215,18 @@ export async function fetchVendorOrdersDetail(params: {
         }
 
         const liveOrder = includeOrders || includePickers ? toLiveOrder(order, nowIso) : null;
+        const shopperId = resolveShopperId(order);
+        const classification = classifyOrderState({
+          status: order?.status,
+          isCompleted: order?.isCompleted,
+          pickupAt: order?.pickupAt,
+          shopper: order?.shopper,
+          shopperId,
+        }, nowIso);
         const isCompleted = Boolean(order?.isCompleted);
         const isUnassigned = liveOrder
           ? liveOrder.isUnassigned
-          : order?.status === "UNASSIGNED" || order?.shopper == null;
+          : classification.isUnassigned;
 
         if (includeMetrics) {
           metrics.totalToday += 1;
@@ -228,18 +234,30 @@ export async function fetchVendorOrdersDetail(params: {
 
           if (isCompleted) {
             metrics.doneToday += 1;
-          } else {
+          }
+          if (classification.isActive) {
             metrics.activeNow += 1;
-            if (order?.pickupAt && isPastPickup(nowIso, order.pickupAt)) metrics.lateNow += 1;
-            if (isReadyToPickupStatus(order?.status)) metrics.readyNow = (metrics.readyNow ?? 0) + 1;
-            if (isUnassigned) metrics.unassignedNow += 1;
+          }
+          if (classification.isInPreparation) {
+            metrics.preparingNow = (metrics.preparingNow ?? 0) + 1;
+          }
+          if (classification.isLate) {
+            metrics.lateNow += 1;
+          }
+          if (classification.isReadyToPickup) {
+            metrics.readyNow = (metrics.readyNow ?? 0) + 1;
+          }
+          if (classification.isUnassigned) {
+            metrics.unassignedNow += 1;
           }
         }
 
-        if (includeOrders && liveOrder && !isCompleted) {
-          if (liveOrder.isUnassigned) {
+        if (includeOrders && liveOrder) {
+          if (classification.isReadyToPickup) {
+            readyToPickupOrders.push(liveOrder);
+          } else if (liveOrder.isUnassigned) {
             unassignedOrders.push(liveOrder);
-          } else {
+          } else if (isPreparingQueueOrder(classification)) {
             preparingOrders.push(liveOrder);
           }
         }
@@ -248,7 +266,6 @@ export async function fetchVendorOrdersDetail(params: {
           continue;
         }
 
-        const shopperId = resolveShopperId(order);
         if (shopperId == null) {
           continue;
         }
@@ -268,7 +285,7 @@ export async function fetchVendorOrdersDetail(params: {
           pickersById.set(shopperId, currentPicker);
         }
 
-        if (!isCompleted && !isUnassigned) {
+        if (isPreparingQueueOrder(classification)) {
           activePreparingPickerIds.add(shopperId);
         }
 
@@ -327,12 +344,18 @@ export async function fetchVendorOrdersDetail(params: {
     const t2 = b.pickupAt ? new Date(b.pickupAt).getTime() : Number.MAX_SAFE_INTEGER;
     return t1 - t2;
   });
+  readyToPickupOrders.sort((a, b) => {
+    const t1 = a.pickupAt ? new Date(a.pickupAt).getTime() : Number.MAX_SAFE_INTEGER;
+    const t2 = b.pickupAt ? new Date(b.pickupAt).getTime() : Number.MAX_SAFE_INTEGER;
+    return t1 - t2;
+  });
 
   const result = {
     metrics,
     fetchedAt: nowIso,
     unassignedOrders,
     preparingOrders,
+    readyToPickupOrders,
     pickers: includePickers && (todayPickerIds.size || activePreparingPickerIds.size || recentActivePickerIds.size || pickersById.size)
       ? buildPickersSummary({
           pickersById,

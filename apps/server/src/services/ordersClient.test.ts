@@ -97,6 +97,7 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
     expect(result.metrics.cancelledToday).toBe(0);
     expect(result.unassignedOrders.length).toBe(2);
     expect(result.preparingOrders.length).toBe(21);
+    expect(result.readyToPickupOrders).toHaveLength(0);
     expect(result.unassignedOrders[0]?.externalId).toBe("ORD-1");
     expect(result.preparingOrders[0]?.shopperId).toBe(90009);
     expect(result.pickers.todayCount).toBe(21);
@@ -170,6 +171,7 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
     expect(result.metrics.unassignedNow).toBe(1);
     expect(result.unassignedOrders).toHaveLength(1);
     expect(result.preparingOrders).toHaveLength(2);
+    expect(result.readyToPickupOrders).toHaveLength(0);
     expect(result.pickers).toEqual({
       todayCount: 4,
       activePreparingCount: 2,
@@ -209,6 +211,65 @@ describe("ordersClient.fetchVendorOrdersDetail", () => {
         },
       ],
     });
+  });
+
+  it("keeps ready-to-pickup orders active even when isCompleted is true, while excluding them from late counts", async () => {
+    mockAxiosGet.mockResolvedValue({
+      data: {
+        items: [
+          order(0, {
+            status: "READY_FOR_PICKUP",
+            isCompleted: true,
+            pickupAt: "2026-03-05T09:00:00.000Z",
+            shopper: { id: 101, firstName: "Mohamed" },
+          }),
+          order(1, {
+            status: "PREPARING",
+            isCompleted: false,
+            pickupAt: "2026-03-05T08:30:00.000Z",
+            shopper: { id: 202, firstName: "Sara" },
+          }),
+          order(2, {
+            status: "PREPARING",
+            isCompleted: true,
+            pickupAt: "2026-03-05T08:00:00.000Z",
+            shopper: { id: 303, firstName: "Ali" },
+          }),
+          order(3, {
+            status: "UNASSIGNED",
+            isCompleted: false,
+            shopper: null,
+            pickupAt: "2026-03-05T11:00:00.000Z",
+          }),
+        ],
+      },
+    });
+
+    const result = await fetchVendorOrdersDetail({
+      token: "token",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      vendorId: 56742,
+      pageSize: 20,
+    });
+
+    expect(result.metrics).toMatchObject({
+      totalToday: 4,
+      doneToday: 2,
+      activeNow: 3,
+      lateNow: 1,
+      unassignedNow: 1,
+      readyNow: 1,
+    });
+    expect(result.unassignedOrders).toHaveLength(1);
+    expect(result.preparingOrders).toHaveLength(1);
+    expect(result.readyToPickupOrders).toEqual([
+      expect.objectContaining({
+        externalId: "ORD-1",
+        status: "READY_FOR_PICKUP",
+        isLate: false,
+      }),
+    ]);
+    expect(result.pickers.activePreparingCount).toBe(1);
   });
 
   it("throws a structured error when branch detail pagination exceeds the safe page limit", async () => {
@@ -317,7 +378,7 @@ describe("ordersClient.fetchOrdersAggregates", () => {
     expect(result.byVendor.size).toBe(4);
   });
 
-  it("tracks in-preparation orders and unique active pickers per vendor", async () => {
+  it("tracks shared preparing pressure separately from the assigned prep queue", async () => {
     mockAxiosGet.mockResolvedValue({
       data: {
         items: [
@@ -356,11 +417,62 @@ describe("ordersClient.fetchOrdersAggregates", () => {
     });
 
     expect(result.preparingByVendor.get(56742)).toEqual({
-      preparingNow: 2,
+      preparingNow: 3,
       preparingPickersNow: 1,
     });
     expect(result.preparingByVendor.get(56743)).toEqual({
       preparingNow: 1,
+      preparingPickersNow: 1,
+    });
+  });
+
+  it("counts ready-to-pickup orders as active while keeping late limited to incomplete non-ready orders", async () => {
+    mockAxiosGet.mockResolvedValue({
+      data: {
+        items: [
+          order(0, {
+            vendor: { id: 56742 },
+            status: "READY_FOR_PICKUP",
+            isCompleted: true,
+            pickupAt: "2026-03-05T08:30:00.000Z",
+            shopper: { id: 101, firstName: "Mohamed" },
+          }),
+          order(1, {
+            vendor: { id: 56742 },
+            status: "PREPARING",
+            isCompleted: false,
+            pickupAt: "2026-03-05T08:00:00.000Z",
+            shopper: { id: 101, firstName: "Mohamed" },
+          }),
+          order(2, {
+            vendor: { id: 56742 },
+            status: "UNASSIGNED",
+            isCompleted: false,
+            shopper: null,
+            pickupAt: "2026-03-05T11:00:00.000Z",
+          }),
+        ],
+      },
+    });
+
+    const result = await fetchOrdersAggregates({
+      token: "token",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      vendorIds: [56742],
+      pageSize: 500,
+      maxVendorsPerRequest: 10,
+    });
+
+    expect(result.byVendor.get(56742)).toMatchObject({
+      totalToday: 3,
+      doneToday: 1,
+      activeNow: 3,
+      lateNow: 1,
+      unassignedNow: 1,
+      readyNow: 1,
+    });
+    expect(result.preparingByVendor.get(56742)).toEqual({
+      preparingNow: 2,
       preparingPickersNow: 1,
     });
   });

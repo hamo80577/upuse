@@ -174,7 +174,8 @@ const baseSummary = {
     lateNow: 2,
     onHoldOrders: 4,
     unassignedOrders: 3,
-    inPrepOrders: 8,
+    preparingNow: 11,
+    inPrepOrders: 11,
     readyToPickupOrders: 5,
     vfr: 9.09,
     lfr: 4.55,
@@ -208,6 +209,7 @@ const baseSummary = {
       lateNow: 2,
       onHoldOrders: 3,
       unassignedOrders: 1,
+      preparingNow: 5,
       inPrepOrders: 4,
       readyToPickupOrders: 2,
       deliveryMode: "logistics" as const,
@@ -243,6 +245,7 @@ const baseSummary = {
       lateNow: 0,
       onHoldOrders: 1,
       unassignedOrders: 2,
+      preparingNow: 6,
       inPrepOrders: 4,
       readyToPickupOrders: 3,
       deliveryMode: "self" as const,
@@ -448,6 +451,7 @@ const baseVendorDetail = {
     lateNow: 1,
     onHoldOrders: 1,
     unassignedOrders: 2,
+    preparingNow: 4,
     inPrepOrders: 4,
     readyToPickupOrders: 3,
     vendorOwnerCancelledCount: 0,
@@ -772,6 +776,7 @@ describe("PerformancePage", () => {
     expectSummaryTileValues("LFR", ["1", "4.55%"]);
     expectSummaryTileValues("V+L FR", ["3", "13.6%"]);
     expectSummaryTileValues("Late", ["2"]);
+    expectSummaryTileValues("In Prep", ["11"]);
     expect(screen.getByLabelText("Search branches")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Toggle branch Nasr City" })).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByRole("button", { name: "Toggle branch Heliopolis" })).toHaveAttribute("aria-expanded", "false");
@@ -881,6 +886,62 @@ describe("PerformancePage", () => {
         .getAllByRole("heading", { level: 2 })
         .map((node) => node.textContent);
       expect(after[0]).toBe("Nasr City");
+    });
+  }, TEST_TIMEOUT_MS);
+
+  it("uses preparingNow for in-prep filters and visible flow totals", async () => {
+    mockPerformanceSummary.mockResolvedValue({
+      ...baseSummary,
+      cards: {
+        ...baseSummary.cards,
+        preparingNow: 3,
+        inPrepOrders: 3,
+      },
+      branches: [
+        {
+          ...baseSummary.branches[0],
+          vendorId: 511,
+          name: "On Hold Pressure",
+          totalOrders: 7,
+          activeOrders: 3,
+          onHoldOrders: 3,
+          unassignedOrders: 0,
+          preparingNow: 3,
+          inPrepOrders: 0,
+          readyToPickupOrders: 0,
+        },
+        {
+          ...baseSummary.branches[1],
+          vendorId: 512,
+          name: "Quiet Branch",
+          totalOrders: 5,
+          activeOrders: 0,
+          lateNow: 0,
+          onHoldOrders: 0,
+          unassignedOrders: 0,
+          preparingNow: 0,
+          inPrepOrders: 0,
+          readyToPickupOrders: 0,
+        },
+      ],
+    });
+
+    render(<PerformancePage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "On Hold Pressure" })).toBeInTheDocument();
+    });
+
+    expectSummaryTileValues("In Prep", ["3"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Filter branches" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Has In Prep" }));
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "On Hold Pressure" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Quiet Branch" })).not.toBeInTheDocument();
+      expectSummaryTileValues("In Prep", ["3"]);
     });
   }, TEST_TIMEOUT_MS);
 
@@ -1063,6 +1124,7 @@ describe("PerformancePage", () => {
       lateNow: index % 3 === 0 ? 1 : 0,
       onHoldOrders: 0,
       unassignedOrders: 0,
+      preparingNow: index + 1,
       inPrepOrders: index + 1,
       readyToPickupOrders: 0,
       deliveryMode: "logistics" as const,
@@ -1740,6 +1802,7 @@ describe("PerformancePage", () => {
           lateNow: 0,
           onHoldOrders: 0,
           unassignedOrders: 0,
+          preparingNow: 2,
           inPrepOrders: 2,
           readyToPickupOrders: 0,
           deliveryMode: "logistics" as const,

@@ -21,6 +21,7 @@ export interface VendorOrdersDetailResult {
   fetchedAt: string;
   unassignedOrders: BranchLiveOrder[];
   preparingOrders: BranchLiveOrder[];
+  readyToPickupOrders: BranchLiveOrder[];
   pickers: BranchPickersSummary;
 }
 
@@ -37,6 +38,7 @@ export function initMetrics(): OrdersMetrics {
     cancelledToday: 0,
     doneToday: 0,
     activeNow: 0,
+    preparingNow: 0,
     lateNow: 0,
     unassignedNow: 0,
     readyNow: 0,

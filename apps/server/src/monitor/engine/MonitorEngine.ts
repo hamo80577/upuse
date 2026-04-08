@@ -16,6 +16,7 @@ import { fetchAvailabilities, setAvailability } from "../../services/availabilit
 import { log } from "../../services/logger.js";
 import { markCloseEventReopened, recordMonitorCloseAction } from "../../services/actionReportStore.js";
 import { getCurrentHourPlacedCountByVendor, getMirrorBranchDetail, syncOrdersMirror } from "../../services/ordersMirrorStore.js";
+import { derivePreparingNow } from "../../services/orders/classification.js";
 import { decide } from "../../services/policyEngine.js";
 import { resolveBranchThresholdProfile } from "../../services/thresholds.js";
 import { Mutex } from "../../utils/mutex.js";
@@ -834,6 +835,7 @@ export class MonitorEngine {
         activeNow: 0,
         lateNow: 0,
         unassignedNow: 0,
+        readyNow: 0,
       };
       const currentHourPlacedCount = this.currentHourPlacedByVendor.get(branch.ordersVendorId) ?? 0;
       const preparation = this.currentPreparation(
@@ -938,10 +940,11 @@ export class MonitorEngine {
         activeNow: 0,
         lateNow: 0,
         unassignedNow: 0,
+        readyNow: 0,
       };
       const preparation = this.currentPreparation(
         this.preparationByVendor.get(b.ordersVendorId) ?? {
-          preparingNow: Math.max(0, rawMetrics.activeNow - rawMetrics.unassignedNow),
+          preparingNow: rawMetrics.preparingNow ?? derivePreparingNow(rawMetrics),
           preparingPickersNow: 0,
           recentActivePickers: 0,
           recentActiveAvailable: ordersDataState === "fresh",
@@ -1177,7 +1180,7 @@ export class MonitorEngine {
 
           mergedOrdersByVendor.set(branch.ordersVendorId, detail.metrics);
           mergedPreparationByVendor.set(branch.ordersVendorId, {
-            preparingNow: detail.preparingOrders.length,
+            preparingNow: detail.metrics.preparingNow ?? derivePreparingNow(detail.metrics),
             preparingPickersNow: detail.pickers.activePreparingCount,
             recentActivePickers: detail.pickers.recentActiveCount,
             recentActiveAvailable: detail.cacheState === "fresh",
@@ -1301,6 +1304,7 @@ export class MonitorEngine {
         activeNow: 0,
         lateNow: 0,
         unassignedNow: 0,
+        readyNow: 0,
       };
       const currentHourPlacedCount = this.currentHourPlacedByVendor.get(branch.ordersVendorId) ?? 0;
       const preparation = this.currentPreparation(this.preparationByVendor.get(branch.ordersVendorId), true);

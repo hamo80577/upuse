@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PerformanceBranchDialog } from "./PerformanceBranchDialog";
 
 const TEST_TIMEOUT_MS = 15_000;
@@ -13,6 +13,7 @@ const subject = {
   lateNow: 1,
   onHoldOrders: 1,
   unassignedOrders: 2,
+  preparingNow: 4,
   inPrepOrders: 4,
   readyToPickupOrders: 3,
   deliveryMode: "self" as const,
@@ -56,6 +57,7 @@ const detail = {
     lateNow: 1,
     onHoldOrders: 1,
     unassignedOrders: 2,
+    preparingNow: 4,
     inPrepOrders: 4,
     readyToPickupOrders: 3,
     vendorOwnerCancelledCount: 0,
@@ -194,6 +196,14 @@ const detail = {
 };
 
 describe("PerformanceBranchDialog", () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("renders overview flow sections beside each other and grouped cancellations", () => {
     render(
       <PerformanceBranchDialog
@@ -235,15 +245,15 @@ describe("PerformanceBranchDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Toggle Ready to Pickup orders" }));
     expect(screen.getByText("#2006")).toBeInTheDocument();
-    expect(screen.queryByText("Pickup delta")).not.toBeInTheDocument();
+    expect(screen.getByText("Pickup delta")).toBeInTheDocument();
     expect(screen.queryByText("Duration")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Toggle In Prep orders" }));
+    fireEvent.click(screen.getByRole("button", { name: "Toggle Assigned Prep Queue orders" }));
 
     expect(screen.getByText("#2005")).toBeInTheDocument();
     expect(screen.getByText("#2006")).toBeInTheDocument();
-    expect(screen.getByText("Duration")).toBeInTheDocument();
-    expect(screen.queryByText("Pickup delta")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Pickup delta").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Duration")).not.toBeInTheDocument();
     expect(screen.getAllByText("Late")).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("tab", { name: "Cancellations" }));
@@ -269,4 +279,32 @@ describe("PerformanceBranchDialog", () => {
     expect(screen.getByText("Mohamed")).toBeInTheDocument();
     expect(screen.getByText("2 orders")).toBeInTheDocument();
   }, TEST_TIMEOUT_MS);
+
+  it("updates pickup delta live while the dialog stays open", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-20T11:00:02.000Z"));
+
+    render(
+      <PerformanceBranchDialog
+        open
+        subject={subject}
+        detail={detail}
+        loading={false}
+        refreshing={false}
+        error={null}
+        onClose={() => {}}
+        onRefresh={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle Ready to Pickup orders" }));
+
+    expect(screen.getByText("-00:02")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(screen.getByText("-00:04")).toBeInTheDocument();
+  });
 });

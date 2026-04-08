@@ -24,20 +24,13 @@ import type {
 import { listResolvedBranches, getResolvedBranchById } from "./branchStore.js";
 import { getGlobalEntityId, getSettings } from "./settingsStore.js";
 import { extractCancellationDetail, extractCancellationOwner, extractTransportType, getMirrorBranchPickers, getOrdersMirrorEntitySyncStatus } from "./ordersMirrorStore.js";
-import { TZ, isPastPickup, nowUtcIso } from "../utils/time.js";
+import { classifyOrderState, isPreparingQueueOrder } from "./orders/classification.js";
+import { TZ, nowUtcIso } from "../utils/time.js";
 
 type StatusColor = BranchSnapshot["statusColor"];
 type DeliveryMode = PerformanceEntityBranchCard["deliveryMode"];
 
 const LOGISTICS_DELIVERY = "LOGISTICS_DELIVERY";
-const IN_PREP_STATUSES = new Set([
-  "STARTED",
-  "READY_FOR_CHECKOUT",
-  "CHECKOUT_CONFIRMED",
-  "PROCESSING_CUSTOMER_SELECTION",
-  "WAITING_FOR_CUSTOMER",
-]);
-
 interface PerformanceMirrorRow {
   dayKey: string;
   globalEntityId: string;
@@ -84,6 +77,7 @@ interface PerformanceAggregateMetrics {
   lateNow: number;
   onHoldOrders: number;
   unassignedOrders: number;
+  preparingNow: number;
   inPrepOrders: number;
   readyToPickupOrders: number;
   sawLogisticsDelivery: boolean;
@@ -101,6 +95,7 @@ interface PerformanceBranchAggregate {
   lateNow: number;
   onHoldOrders: number;
   unassignedOrders: number;
+  preparingNow: number;
   inPrepOrders: number;
   readyToPickupOrders: number;
   sawLogisticsDelivery: boolean;
@@ -120,6 +115,7 @@ interface PerformanceVendorAggregate {
   lateNow: number;
   onHoldOrders: number;
   unassignedOrders: number;
+  preparingNow: number;
   inPrepOrders: number;
   readyToPickupOrders: number;
   sawLogisticsDelivery: boolean;
@@ -138,6 +134,7 @@ interface PerformanceEntityBranchAggregate {
   lateNow: number;
   onHoldOrders: number;
   unassignedOrders: number;
+  preparingNow: number;
   inPrepOrders: number;
   readyToPickupOrders: number;
   sawLogisticsDelivery: boolean;
@@ -229,8 +226,17 @@ function comparePlacedRows(left: PerformanceMirrorRow, right: PerformanceMirrorR
   );
 }
 
-function toLiveOrder(row: PerformanceMirrorRow, nowIso: string): BranchLiveOrder {
-  const lateEligible = row.status !== "READY_FOR_PICKUP";
+function toLiveOrder(
+  row: PerformanceMirrorRow,
+  nowIso: string,
+  classification = classifyOrderState({
+    status: row.status,
+    isCompleted: row.isCompleted,
+    pickupAt: row.pickupAt,
+    isUnassigned: row.isUnassigned,
+    shopperId: row.shopperId,
+  }, nowIso),
+): BranchLiveOrder {
   return {
     id: row.orderId,
     externalId: row.externalId,
@@ -240,29 +246,45 @@ function toLiveOrder(row: PerformanceMirrorRow, nowIso: string): BranchLiveOrder
     customerFirstName: row.customerFirstName ?? undefined,
     shopperId: row.shopperId ?? undefined,
     shopperFirstName: row.shopperFirstName ?? undefined,
-    isUnassigned: row.isUnassigned === 1,
-    isLate: lateEligible && row.pickupAt ? isPastPickup(nowIso, row.pickupAt) : false,
+    isUnassigned: classification.isUnassigned,
+    isLate: classification.isLate,
   };
 }
 
 function buildFlowOrders(rows: PerformanceMirrorRow[], nowIso: string) {
+  const classifiedRows = rows.map((row) => {
+    const classification = classifyOrderState({
+      status: row.status,
+      isCompleted: row.isCompleted,
+      pickupAt: row.pickupAt,
+      isUnassigned: row.isUnassigned,
+      shopperId: row.shopperId,
+    }, nowIso);
+
+    return {
+      row,
+      classification,
+      liveOrder: toLiveOrder(row, nowIso, classification),
+    };
+  });
+
   return {
-    onHoldOrders: rows
-      .filter((row) => row.status === "ON_HOLD")
-      .sort(compareFlowRows)
-      .map((row) => toLiveOrder(row, nowIso)),
-    unassignedOrders: rows
-      .filter((row) => row.status === "UNASSIGNED")
-      .sort(comparePlacedRows)
-      .map((row) => toLiveOrder(row, nowIso)),
-    inPrepOrders: rows
-      .filter((row) => IN_PREP_STATUSES.has(row.status))
-      .sort(compareFlowRows)
-      .map((row) => toLiveOrder(row, nowIso)),
-    readyToPickupOrders: rows
-      .filter((row) => row.status === "READY_FOR_PICKUP")
-      .sort(compareFlowRows)
-      .map((row) => toLiveOrder(row, nowIso)),
+    onHoldOrders: classifiedRows
+      .filter(({ row }) => row.status === "ON_HOLD")
+      .sort((left, right) => compareFlowRows(left.row, right.row))
+      .map(({ liveOrder }) => liveOrder),
+    unassignedOrders: classifiedRows
+      .filter(({ classification }) => classification.isUnassigned)
+      .sort((left, right) => comparePlacedRows(left.row, right.row))
+      .map(({ liveOrder }) => liveOrder),
+    inPrepOrders: classifiedRows
+      .filter(({ row, classification }) => row.status !== "ON_HOLD" && isPreparingQueueOrder(classification))
+      .sort((left, right) => compareFlowRows(left.row, right.row))
+      .map(({ liveOrder }) => liveOrder),
+    readyToPickupOrders: classifiedRows
+      .filter(({ classification }) => classification.isReadyToPickup)
+      .sort((left, right) => compareFlowRows(left.row, right.row))
+      .map(({ liveOrder }) => liveOrder),
   };
 }
 
@@ -354,7 +376,8 @@ function buildDetailSummary(params: {
     lateNow: params.aggregate.lateNow,
     onHoldOrders: params.aggregate.onHoldOrders,
     unassignedOrders: params.aggregate.unassignedOrders,
-    inPrepOrders: params.aggregate.inPrepOrders,
+    preparingNow: params.aggregate.preparingNow,
+    inPrepOrders: params.aggregate.preparingNow,
     readyToPickupOrders: params.aggregate.readyToPickupOrders,
     vendorOwnerCancelledCount: params.vendorOwnerCancelledCount,
     transportOwnerCancelledCount: params.transportOwnerCancelledCount,
@@ -430,6 +453,7 @@ function createAggregateMetrics(): PerformanceAggregateMetrics {
     lateNow: 0,
     onHoldOrders: 0,
     unassignedOrders: 0,
+    preparingNow: 0,
     inPrepOrders: 0,
     readyToPickupOrders: 0,
     sawLogisticsDelivery: false,
@@ -483,7 +507,7 @@ function trendBranchPassesAllFilters(
       case "unassigned":
         return branch.unassignedOrders > 0;
       case "in_prep":
-        return branch.inPrepOrders > 0;
+        return branch.preparingNow > 0;
       case "ready":
         return branch.readyToPickupOrders > 0;
       default:
@@ -574,7 +598,8 @@ function buildLightweightBranchAggregates(
       lateNow: aggregate.lateNow,
       onHoldOrders: aggregate.onHoldOrders,
       unassignedOrders: aggregate.unassignedOrders,
-      inPrepOrders: aggregate.inPrepOrders,
+      preparingNow: aggregate.preparingNow,
+      inPrepOrders: aggregate.preparingNow,
       readyToPickupOrders: aggregate.readyToPickupOrders,
       deliveryMode,
       lfrApplicable,
@@ -597,28 +622,38 @@ function applyAggregateRow(
   cancelledOrder: PerformanceCancelledOrderItem | null,
   nowIso: string,
 ) {
+  const classification = classifyOrderState({
+    status: row.status,
+    isCompleted: row.isCompleted,
+    pickupAt: row.pickupAt,
+    isUnassigned: row.isUnassigned,
+    shopperId: row.shopperId,
+  }, nowIso);
   aggregate.totalOrders += 1;
   aggregate.statusCounts.set(row.status, (aggregate.statusCounts.get(row.status) ?? 0) + 1);
   if (cancelledOrder) {
     aggregate.cancelledOrders.push(cancelledOrder);
   }
 
-  if (row.isCompleted === 0) {
+  if (classification.isActive) {
     aggregate.activeOrders += 1;
   }
-  if (row.isActiveNow === 1 && row.status !== "READY_FOR_PICKUP" && row.pickupAt && isPastPickup(nowIso, row.pickupAt)) {
+  if (classification.isLate) {
     aggregate.lateNow += 1;
   }
   if (row.status === "ON_HOLD") {
     aggregate.onHoldOrders += 1;
   }
-  if (row.status === "UNASSIGNED") {
+  if (classification.isUnassigned) {
     aggregate.unassignedOrders += 1;
   }
-  if (IN_PREP_STATUSES.has(row.status)) {
+  if (classification.isInPreparation) {
+    aggregate.preparingNow += 1;
+  }
+  if (row.status !== "ON_HOLD" && isPreparingQueueOrder(classification)) {
     aggregate.inPrepOrders += 1;
   }
-  if (row.status === "READY_FOR_PICKUP") {
+  if (classification.isReadyToPickup) {
     aggregate.readyToPickupOrders += 1;
   }
   if (row.shopperId != null) {
@@ -874,7 +909,8 @@ function aggregatePerformanceData(params: {
         lateNow: aggregate.lateNow,
         onHoldOrders: aggregate.onHoldOrders,
         unassignedOrders: aggregate.unassignedOrders,
-        inPrepOrders: aggregate.inPrepOrders,
+        preparingNow: aggregate.preparingNow,
+        inPrepOrders: aggregate.preparingNow,
         readyToPickupOrders: aggregate.readyToPickupOrders,
         deliveryMode,
         lfrApplicable,
@@ -1026,7 +1062,7 @@ function aggregatePerformanceData(params: {
   const summaryLateOrders = entityBranches.reduce((sum, branch) => sum + branch.lateNow, 0);
   const summaryOnHoldOrders = entityBranches.reduce((sum, branch) => sum + branch.onHoldOrders, 0);
   const summaryUnassignedOrders = entityBranches.reduce((sum, branch) => sum + branch.unassignedOrders, 0);
-  const summaryInPrepOrders = entityBranches.reduce((sum, branch) => sum + branch.inPrepOrders, 0);
+  const summaryPreparingNow = entityBranches.reduce((sum, branch) => sum + branch.preparingNow, 0);
   const summaryReadyToPickupOrders = entityBranches.reduce((sum, branch) => sum + branch.readyToPickupOrders, 0);
   const summaryVendorOwnerCancelledCount = entityBranches.reduce(
     (sum, branch) => sum + branch.vendorOwnerCancelledCount,
@@ -1066,7 +1102,8 @@ function aggregatePerformanceData(params: {
         lateNow: summaryLateOrders,
         onHoldOrders: summaryOnHoldOrders,
         unassignedOrders: summaryUnassignedOrders,
-        inPrepOrders: summaryInPrepOrders,
+        preparingNow: summaryPreparingNow,
+        inPrepOrders: summaryPreparingNow,
         readyToPickupOrders: summaryReadyToPickupOrders,
         vfr: calculateVfr(summaryVendorOwnerCancelledCount, params.rows.length),
         lfr: calculateLfr(summaryTransportOwnerCancelledCount, params.rows.length),

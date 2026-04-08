@@ -9,10 +9,11 @@ import type {
   OrdersVendorId,
   ResolvedBranchMapping,
 } from "../types/models.js";
-import { TZ, cairoDayWindowUtc, cairoHourWindowUtc, isPastPickup, nowUtcIso } from "../utils/time.js";
+import { TZ, cairoDayWindowUtc, cairoHourWindowUtc, nowUtcIso } from "../utils/time.js";
 import { Mutex } from "../utils/mutex.js";
 import { listResolvedBranches } from "./branchStore.js";
 import { getGlobalEntityId, getSettings } from "./settingsStore.js";
+import { classifyOrderState, isPreparingQueueOrder } from "./orders/classification.js";
 import { getWithRetry } from "./orders/httpClient.js";
 import { createPageLimitError } from "./orders/paginationGuards.js";
 import {
@@ -31,10 +32,6 @@ const ACTIVE_SYNC_PAGE_SIZE = 500;
 const HISTORY_SYNC_PAGE_SIZE = 500;
 const HISTORY_OVERLAP_MS = 10 * 60 * 1000;
 const PICKER_RECENT_ACTIVE_WINDOW_MS = 60 * 60 * 1000;
-
-function isReadyToPickupStatus(status: unknown) {
-  return typeof status === "string" && status === "READY_FOR_PICKUP";
-}
 
 export type BranchDetailCacheState = "fresh" | "warming" | "stale";
 export type MirrorSyncPhase = "bootstrap" | "active" | "history" | "repair";
@@ -86,6 +83,7 @@ interface MirrorOrdersDetail {
   fetchedAt: string | null;
   unassignedOrders: BranchLiveOrder[];
   preparingOrders: BranchLiveOrder[];
+  readyToPickupOrders: BranchLiveOrder[];
   pickers: BranchPickersSummary;
   cacheState: BranchDetailCacheState;
 }
@@ -218,6 +216,7 @@ function emptyMetrics(): OrdersMetrics {
     cancelledToday: 0,
     doneToday: 0,
     activeNow: 0,
+    preparingNow: 0,
     lateNow: 0,
     unassignedNow: 0,
     readyNow: 0,
@@ -406,8 +405,13 @@ function normalizeMirrorOrder(order: any, dayKey: string, globalEntityId: string
 }
 
 function toLiveOrder(row: OrdersMirrorRow, nowIso: string): BranchLiveOrder {
-  const isUnassigned = row.isUnassigned === 1;
-  const isLate = row.pickupAt ? isPastPickup(nowIso, row.pickupAt) : false;
+  const classification = classifyOrderState({
+    status: row.status,
+    isCompleted: row.isCompleted,
+    pickupAt: row.pickupAt,
+    isUnassigned: row.isUnassigned,
+    shopperId: row.shopperId,
+  }, nowIso);
 
   return {
     id: row.orderId,
@@ -418,8 +422,8 @@ function toLiveOrder(row: OrdersMirrorRow, nowIso: string): BranchLiveOrder {
     customerFirstName: row.customerFirstName ?? undefined,
     shopperId: row.shopperId ?? undefined,
     shopperFirstName: row.shopperFirstName ?? undefined,
-    isUnassigned,
-    isLate,
+    isUnassigned: classification.isUnassigned,
+    isLate: classification.isLate,
   };
 }
 
@@ -1573,29 +1577,50 @@ export function getMirrorBranchDetail(params: {
     FROM orders_mirror
     WHERE dayKey = ? AND globalEntityId = ? AND vendorId = ?
   `).all(dayKey, params.globalEntityId, params.vendorId);
+  const classifiedRows = rows.map((row) => ({
+    row,
+    classification: classifyOrderState({
+      status: row.status,
+      isCompleted: row.isCompleted,
+      pickupAt: row.pickupAt,
+      isUnassigned: row.isUnassigned,
+      shopperId: row.shopperId,
+    }, nowIso),
+  }));
 
-  const metrics = rows.length
-    ? rows.reduce<OrdersMetrics>((current, row) => {
+  const metrics = classifiedRows.length
+      ? classifiedRows.reduce<OrdersMetrics>((current, { row, classification }) => {
         current.totalToday += 1;
         if (row.isCancelled === 1) current.cancelledToday += 1;
         if (row.isCompleted === 1) current.doneToday += 1;
-        if (row.isActiveNow === 1) {
+        if (classification.isActive) {
           current.activeNow += 1;
-          if (row.isUnassigned === 1) current.unassignedNow += 1;
-          if (isReadyToPickupStatus(row.status)) current.readyNow = (current.readyNow ?? 0) + 1;
-          if (row.pickupAt && isPastPickup(nowIso, row.pickupAt)) current.lateNow += 1;
         }
+        if (classification.isInPreparation) {
+          current.preparingNow = (current.preparingNow ?? 0) + 1;
+        }
+        if (classification.isUnassigned) current.unassignedNow += 1;
+        if (classification.isReadyToPickup) current.readyNow = (current.readyNow ?? 0) + 1;
+        if (classification.isLate) current.lateNow += 1;
         return current;
       }, emptyMetrics())
     : emptyMetrics();
 
-  const unassignedOrders = rows
-    .filter((row) => row.isActiveNow === 1 && row.isUnassigned === 1)
+  const unassignedOrders = classifiedRows
+    .filter(({ classification }) => classification.isUnassigned)
+    .map(({ row }) => row)
     .sort((left, right) => toMillis(left.placedAt) - toMillis(right.placedAt))
     .map((row) => toLiveOrder(row, nowIso));
 
-  const preparingOrders = rows
-    .filter((row) => row.isActiveNow === 1 && row.isUnassigned === 0)
+  const preparingOrders = classifiedRows
+    .filter(({ classification }) => isPreparingQueueOrder(classification))
+    .map(({ row }) => row)
+    .sort((left, right) => toMillis(left.pickupAt) - toMillis(right.pickupAt))
+    .map((row) => toLiveOrder(row, nowIso));
+
+  const readyToPickupOrders = classifiedRows
+    .filter(({ classification }) => classification.isReadyToPickup)
+    .map(({ row }) => row)
     .sort((left, right) => toMillis(left.pickupAt) - toMillis(right.pickupAt))
     .map((row) => toLiveOrder(row, nowIso));
 
@@ -1606,7 +1631,7 @@ export function getMirrorBranchDetail(params: {
   }>(`
     SELECT
       COUNT(DISTINCT CASE WHEN shopperId IS NOT NULL THEN shopperId END) AS todayCount,
-      COUNT(DISTINCT CASE WHEN shopperId IS NOT NULL AND isActiveNow = 1 AND isUnassigned = 0 THEN shopperId END) AS activePreparingCount,
+      COUNT(DISTINCT CASE WHEN shopperId IS NOT NULL AND isActiveNow = 1 AND isUnassigned = 0 AND status <> 'READY_FOR_PICKUP' THEN shopperId END) AS activePreparingCount,
       COUNT(DISTINCT CASE WHEN shopperId IS NOT NULL AND lastActiveSeenAt IS NOT NULL AND lastActiveSeenAt <= ? AND lastActiveSeenAt >= ? THEN shopperId END) AS recentActiveCount
     FROM orders_mirror
     WHERE dayKey = ? AND globalEntityId = ? AND vendorId = ?
@@ -1668,6 +1693,7 @@ export function getMirrorBranchDetail(params: {
     fetchedAt,
     unassignedOrders,
     preparingOrders,
+    readyToPickupOrders,
     pickers: {
       todayCount: pickerCountRow.todayCount ?? 0,
       activePreparingCount: pickerCountRow.activePreparingCount ?? 0,

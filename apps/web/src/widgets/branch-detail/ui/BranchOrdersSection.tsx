@@ -5,6 +5,16 @@ import { fmtElapsedDuration, fmtSignedPickupDiff, fmtPlacedAt } from "../lib/tim
 
 type TimeDisplayMode = "pickup_delta" | "duration" | "none";
 
+const timeMetricPanelSx = {
+  minWidth: { xs: "auto", sm: 124 },
+  textAlign: { xs: "left", sm: "right" },
+  borderRadius: 1.75,
+  px: { xs: 0, sm: 0.85 },
+  py: { xs: 0, sm: 0.7 },
+  bgcolor: { xs: "transparent", sm: "rgba(248,250,252,0.92)" },
+  border: { xs: "none", sm: "1px solid rgba(148,163,184,0.10)" },
+} as const;
+
 function OrderRow(props: { item: BranchLiveOrder; nowMs: number; timeDisplayMode: TimeDisplayMode }) {
   const pickupDiff = fmtSignedPickupDiff(props.item.pickupAt, props.nowMs);
   const duration = fmtElapsedDuration(props.item.placedAt, props.nowMs);
@@ -70,15 +80,7 @@ function OrderRow(props: { item: BranchLiveOrder; nowMs: number; timeDisplayMode
 
         {props.timeDisplayMode === "pickup_delta" ? (
           <Box
-            sx={{
-              minWidth: { xs: "auto", sm: 124 },
-              textAlign: { xs: "left", sm: "right" },
-              borderRadius: 1.75,
-              px: { xs: 0, sm: 0.85 },
-              py: { xs: 0, sm: 0.7 },
-              bgcolor: { xs: "transparent", sm: "rgba(248,250,252,0.92)" },
-              border: { xs: "none", sm: "1px solid rgba(148,163,184,0.10)" },
-            }}
+            sx={timeMetricPanelSx}
           >
             <Typography variant="caption" sx={{ color: "text.secondary", display: "block", fontWeight: 800 }}>
               Pickup delta
@@ -98,10 +100,7 @@ function OrderRow(props: { item: BranchLiveOrder; nowMs: number; timeDisplayMode
 
         {props.timeDisplayMode === "duration" ? (
           <Box
-            sx={{
-              minWidth: { xs: "auto", sm: 92 },
-              textAlign: { xs: "left", sm: "right" },
-            }}
+            sx={timeMetricPanelSx}
           >
             <Typography variant="caption" sx={{ color: "text.secondary", display: "block", fontWeight: 800 }}>
               Duration

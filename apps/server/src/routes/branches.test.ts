@@ -428,6 +428,7 @@ describe("branches routes", () => {
       fetchedAt: "2026-03-06T10:05:00.000Z",
       unassignedOrders: [{ id: "1", externalId: "ORD-1", status: "UNASSIGNED", isUnassigned: true, isLate: false }],
       preparingOrders: [{ id: "2", externalId: "ORD-2", status: "PREPARING", isUnassigned: false, isLate: false }],
+      readyToPickupOrders: [{ id: "3", externalId: "ORD-3", status: "READY_FOR_PICKUP", isUnassigned: false, isLate: false }],
       pickers: emptyPickers({ todayCount: 2, activePreparingCount: 1, recentActiveCount: 1 }),
       cacheState: "fresh",
     });
@@ -450,6 +451,7 @@ describe("branches routes", () => {
       cacheState: "fresh",
       unassignedOrders: [{ id: "1", externalId: "ORD-1", status: "UNASSIGNED", isUnassigned: true, isLate: false }],
       preparingOrders: [{ id: "2", externalId: "ORD-2", status: "PREPARING", isUnassigned: false, isLate: false }],
+      readyToPickupOrders: [{ id: "3", externalId: "ORD-3", status: "READY_FOR_PICKUP", isUnassigned: false, isLate: false }],
       pickers: emptyPickers({ todayCount: 2, activePreparingCount: 1, recentActiveCount: 1 }),
     });
   });
@@ -472,6 +474,41 @@ describe("branches routes", () => {
       branchId: 7,
       availabilityVendorId: "222",
       message: "Local vendor catalog data is unavailable for this branch.",
+    });
+  });
+
+  it("derives snapshot-unavailable preparation counts from active minus ready orders", async () => {
+    mockGetBranchById.mockReturnValue(branchMapping());
+    mockGetResolvedBranchById.mockReturnValue(resolvedBranch({ globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT }));
+    mockGetMirrorBranchDetail.mockReturnValue({
+      metrics: {
+        ...branchSnapshot().metrics,
+        activeNow: 4,
+        readyNow: 1,
+        unassignedNow: 1,
+      },
+      fetchedAt: "2026-03-06T10:05:00.000Z",
+      unassignedOrders: [{ id: "1", externalId: "ORD-1", status: "UNASSIGNED", isUnassigned: true, isLate: false }],
+      preparingOrders: [{ id: "2", externalId: "ORD-2", status: "PREPARING", isUnassigned: false, isLate: false }],
+      readyToPickupOrders: [{ id: "3", externalId: "ORD-3", status: "READY_FOR_PICKUP", isUnassigned: false, isLate: false }],
+      pickers: emptyPickers({ todayCount: 2, activePreparingCount: 1, recentActiveCount: 1 }),
+      cacheState: "fresh",
+    });
+    const res = createResponse();
+
+    await branchDetailRoute({ getSnapshot: () => ({ branches: [] }) } as any)({ params: { id: "7" } } as any, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      kind: "snapshot_unavailable",
+      branch: expect.objectContaining({
+        metrics: expect.objectContaining({
+          activeNow: 4,
+          readyNow: 1,
+        }),
+        preparingNow: 3,
+      }),
+      readyToPickupOrders: [{ id: "3", externalId: "ORD-3", status: "READY_FOR_PICKUP", isUnassigned: false, isLate: false }],
     });
   });
 

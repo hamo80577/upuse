@@ -173,11 +173,12 @@ function FlowOrdersSection(props: {
   title: string;
   count: number;
   items: BranchLiveOrder[];
+  nowMs: number;
   open: boolean;
   onToggle: () => void;
   emptyText: string;
   tone: "warning" | "info";
-  timeDisplayMode: "duration" | "none";
+  timeDisplayMode: "pickup_delta" | "none";
 }) {
   const palette = props.tone === "warning"
     ? {
@@ -263,7 +264,7 @@ function FlowOrdersSection(props: {
             subtitle={props.emptyText}
             items={props.items}
             emptyText={props.emptyText}
-            nowMs={Date.now()}
+            nowMs={props.nowMs}
             hideHeader
             timeDisplayMode={props.timeDisplayMode}
           />
@@ -500,6 +501,7 @@ export function PerformanceBranchDialog(props: {
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
   const [tab, setTab] = useState<DetailTab>("overview");
   const [openFlowSections, setOpenFlowSections] = useState<FlowSectionKey[]>([]);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
     if (!props.open) {
@@ -515,6 +517,19 @@ export function PerformanceBranchDialog(props: {
     }
   }, [props.detail?.vendor.vendorId, props.open]);
 
+  useEffect(() => {
+    if (!props.open) return;
+
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [props.open]);
+
   const detail = props.detail;
   const mappedBranch = detail?.mappedBranch;
   const summary = detail?.summary;
@@ -529,7 +544,7 @@ export function PerformanceBranchDialog(props: {
               items: detail.onHoldOrders,
               emptyText: "No on-hold orders in the current Cairo day.",
               tone: "warning" as const,
-              timeDisplayMode: "duration" as const,
+              timeDisplayMode: "pickup_delta" as const,
             },
             {
               key: "unassignedOrders" as const,
@@ -538,16 +553,16 @@ export function PerformanceBranchDialog(props: {
               items: detail.unassignedOrders,
               emptyText: "No unassigned orders in the current Cairo day.",
               tone: "warning" as const,
-              timeDisplayMode: "duration" as const,
+              timeDisplayMode: "pickup_delta" as const,
             },
             {
               key: "inPrepOrders" as const,
-              title: "In Prep",
-              count: detail.summary.inPrepOrders,
+              title: "Assigned Prep Queue",
+              count: detail.inPrepOrders.length,
               items: detail.inPrepOrders,
-              emptyText: "No in-prep orders in the current Cairo day.",
+              emptyText: "No assigned prep-queue orders in the current Cairo day.",
               tone: "info" as const,
-              timeDisplayMode: "duration" as const,
+              timeDisplayMode: "pickup_delta" as const,
             },
             {
               key: "readyToPickupOrders" as const,
@@ -556,7 +571,7 @@ export function PerformanceBranchDialog(props: {
               items: detail.readyToPickupOrders,
               emptyText: "No ready-to-pickup orders in the current Cairo day.",
               tone: "info" as const,
-              timeDisplayMode: "none" as const,
+              timeDisplayMode: "pickup_delta" as const,
             },
           ]
         : [],
@@ -744,6 +759,7 @@ export function PerformanceBranchDialog(props: {
                         title={section.title}
                         count={section.count}
                         items={section.items}
+                        nowMs={nowMs}
                         open={openFlowSections.includes(section.key)}
                         onToggle={() => toggleFlowSection(section.key)}
                         emptyText={section.emptyText}

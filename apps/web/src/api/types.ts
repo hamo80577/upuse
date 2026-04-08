@@ -46,6 +46,7 @@ export interface OrdersMetrics {
   cancelledToday: number;
   doneToday: number;
   activeNow: number;
+  preparingNow?: number;
   lateNow: number;
   unassignedNow: number;
   readyNow?: number;
@@ -236,6 +237,7 @@ export interface PerformanceEntityBranchCard {
   lateNow: number;
   onHoldOrders: number;
   unassignedOrders: number;
+  preparingNow: number;
   inPrepOrders: number;
   readyToPickupOrders: number;
   deliveryMode: "logistics" | "self" | "mixed" | "unknown";
@@ -293,6 +295,7 @@ export interface PerformanceDetailSummary {
   lateNow: number;
   onHoldOrders: number;
   unassignedOrders: number;
+  preparingNow: number;
   inPrepOrders: number;
   readyToPickupOrders: number;
   vendorOwnerCancelledCount: number;
@@ -321,6 +324,7 @@ export interface PerformanceSummaryResponse {
     lateNow: number;
     onHoldOrders: number;
     unassignedOrders: number;
+    preparingNow: number;
     inPrepOrders: number;
     readyToPickupOrders: number;
     vfr: number;
@@ -459,6 +463,7 @@ interface BranchDetailBase {
   cacheState: BranchDetailCacheState;
   unassignedOrders: BranchLiveOrder[];
   preparingOrders: BranchLiveOrder[];
+  readyToPickupOrders: BranchLiveOrder[];
   pickers: BranchPickersSummary;
 }
 
