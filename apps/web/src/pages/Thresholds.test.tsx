@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
@@ -9,6 +10,32 @@ const mockApi = vi.hoisted(() => ({
   listBranchSource: vi.fn(),
 }));
 
+const authState = vi.hoisted(() => ({
+  canManageMonitor: true,
+  canManageThresholds: true,
+}));
+
+vi.mock("motion/react", () => ({
+  AnimatePresence: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  motion: {
+    div: ({
+      children,
+      initial: _initial,
+      animate: _animate,
+      exit: _exit,
+      transition: _transition,
+      ...props
+    }: {
+      children?: ReactNode;
+      initial?: unknown;
+      animate?: unknown;
+      exit?: unknown;
+      transition?: unknown;
+    }) => <div {...props}>{children}</div>,
+  },
+  useReducedMotion: () => true,
+}));
+
 vi.mock("../api/client", () => ({
   api: mockApi,
   describeApiError: (error: unknown, fallback = "Request failed") => (error instanceof Error ? error.message : fallback),
@@ -16,8 +43,7 @@ vi.mock("../api/client", () => ({
 
 vi.mock("../app/providers/AuthProvider", () => ({
   useAuth: () => ({
-    canManageMonitor: true,
-    canManageThresholds: true,
+    ...authState,
     canManageSettings: true,
     canManageTokens: true,
     canTestTokens: true,
@@ -39,17 +65,32 @@ vi.mock("../widgets/top-bar/ui/TopBar", () => ({
 }));
 
 vi.mock("../features/settings/ChainThresholdManager", () => ({
-  ChainThresholdManager: () => null,
+  ChainThresholdManager: (props: any) => (
+    <div data-testid="chains-studio">
+      <div>{props.readOnly ? "chains-read-only" : "chains-editable"}</div>
+      <div>Selected Chain: {props.selectedChainName ?? "none"}</div>
+      <button type="button" onClick={() => props.onOpenOverrides("Chain A")}>
+        Jump To Chain A Overrides
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("../features/settings/BranchThresholdOverrideManager", () => ({
-  BranchThresholdOverrideManager: () => null,
+  BranchThresholdOverrideManager: (props: any) => (
+    <div data-testid="overrides-studio">
+      <div>{props.readOnly ? "overrides-read-only" : "overrides-editable"}</div>
+      <div>Active Chain Filter: {props.chainFilter}</div>
+    </div>
+  ),
 }));
 
 import { ThresholdsPage } from "./thresholds/ui/ThresholdsPage";
 
 describe("ThresholdsPage", () => {
   beforeEach(() => {
+    authState.canManageMonitor = true;
+    authState.canManageThresholds = true;
     mockApi.dashboard.mockReset();
     mockApi.getSettings.mockReset();
     mockApi.listBranches.mockReset();
@@ -80,7 +121,26 @@ describe("ThresholdsPage", () => {
       availabilityRefreshSeconds: 30,
       maxVendorsPerOrdersRequest: 50,
     });
-    mockApi.listBranches.mockResolvedValue({ items: [] });
+    mockApi.listBranches.mockResolvedValue({
+      items: [{
+        id: 1,
+        name: "Branch A",
+        chainName: "Chain A",
+        ordersVendorId: 1001,
+        availabilityVendorId: "2002",
+        enabled: true,
+        catalogState: "available",
+        lateThresholdOverride: null,
+        lateReopenThresholdOverride: null,
+        unassignedThresholdOverride: null,
+        unassignedReopenThresholdOverride: null,
+        readyThresholdOverride: null,
+        readyReopenThresholdOverride: null,
+        capacityRuleEnabledOverride: null,
+        capacityPerHourEnabledOverride: null,
+        capacityPerHourLimitOverride: null,
+      }],
+    });
     mockApi.listBranchSource.mockResolvedValue({ items: [] });
   });
 
@@ -98,10 +158,11 @@ describe("ThresholdsPage", () => {
     });
 
     expect(mockApi.dashboard).not.toHaveBeenCalled();
-    expect(screen.queryByText("Add From Local Source")).not.toBeInTheDocument();
+    expect(screen.getByText("Rule Control Studio")).toBeInTheDocument();
+    expect(screen.getByTestId("chains-studio")).toBeInTheDocument();
   });
 
-  it("shows default thresholds only in the chains tab", async () => {
+  it("hands a selected chain into overrides mode while keeping the filter", async () => {
     render(
       <MemoryRouter>
         <ThresholdsPage />
@@ -109,22 +170,31 @@ describe("ThresholdsPage", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByLabelText("Default Late Threshold")).toBeInTheDocument();
-      expect(screen.getByLabelText("Default Late Reopen Threshold")).toBeInTheDocument();
-      expect(screen.getByLabelText("Default Unassigned Threshold")).toBeInTheDocument();
-      expect(screen.getByLabelText("Default Unassigned Reopen Threshold")).toBeInTheDocument();
-      expect(screen.getByLabelText("Default Ready To Pickup Threshold")).toBeInTheDocument();
-      expect(screen.getByLabelText("Default Ready To Pickup Reopen Threshold")).toBeInTheDocument();
+      expect(screen.getByTestId("chains-studio")).toBeInTheDocument();
+      expect(screen.getByText("Selected Chain: Chain A")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("tab", { name: "Overrides" }));
+    fireEvent.click(screen.getByRole("button", { name: "Jump To Chain A Overrides" }));
 
-    expect(screen.queryByLabelText("Default Late Threshold")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Default Late Reopen Threshold")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Default Unassigned Threshold")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Default Unassigned Reopen Threshold")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Default Ready To Pickup Threshold")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Default Ready To Pickup Reopen Threshold")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Save Defaults" })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("overrides-studio")).toBeInTheDocument();
+      expect(screen.getByText("Active Chain Filter: Chain A")).toBeInTheDocument();
+    });
+  });
+
+  it("passes read-only mode through to the studios when thresholds cannot be managed", async () => {
+    authState.canManageThresholds = false;
+
+    render(
+      <MemoryRouter>
+        <ThresholdsPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("chains-read-only")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("You can review thresholds, but editing actions are disabled for your role.")).toBeInTheDocument();
   });
 });
