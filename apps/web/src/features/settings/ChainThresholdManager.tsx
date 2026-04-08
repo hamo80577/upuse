@@ -4,9 +4,7 @@ import ArrowOutwardRoundedIcon from "@mui/icons-material/ArrowOutwardRounded";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
-import PublicRoundedIcon from "@mui/icons-material/PublicRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
-import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
 import {
   Alert,
   Box,
@@ -61,18 +59,15 @@ export interface DefaultThresholdEditorDraft {
 
 function surfaceCardSx(entry: RuleCatalogEntry, highlighted = false) {
   return {
-    position: "relative" as const,
-    overflow: "hidden",
-    p: 1.35,
+    p: 1.15,
     borderRadius: 3,
-    border: `1px solid ${highlighted ? entry.accent.border : "rgba(148,163,184,0.16)"}`,
+    border: `1px solid ${highlighted ? "rgba(15,23,42,0.12)" : "rgba(148,163,184,0.16)"}`,
     bgcolor: "rgba(255,255,255,0.94)",
-    boxShadow: highlighted ? entry.accent.glow : "0 18px 40px rgba(15,23,42,0.06)",
+    boxShadow: highlighted ? "0 12px 28px rgba(15,23,42,0.07)" : "0 10px 24px rgba(15,23,42,0.05)",
     transition: "transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease",
     "&:hover": {
-      transform: "translateY(-2px)",
-      boxShadow: entry.accent.glow,
-      borderColor: entry.accent.border,
+      boxShadow: "0 14px 28px rgba(15,23,42,0.08)",
+      borderColor: "rgba(15,23,42,0.16)",
     },
   };
 }
@@ -137,13 +132,13 @@ function RuleShowcaseCard(props: {
 
   return (
     <Box sx={surfaceCardSx(entry)}>
-      <Stack spacing={1.05}>
+      <Stack spacing={0.9}>
         <Stack direction="row" spacing={1} alignItems="center">
           <Box
             sx={{
-              width: 42,
-              height: 42,
-              borderRadius: 2.2,
+              width: 38,
+              height: 38,
+              borderRadius: 2,
               display: "grid",
               placeItems: "center",
               color: entry.accent.solid,
@@ -153,14 +148,9 @@ function RuleShowcaseCard(props: {
           >
             {entry.icon}
           </Box>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
-              {entry.label}
-            </Typography>
-            <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>
-              {entry.description}
-            </Typography>
-          </Box>
+          <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
+            {entry.label}
+          </Typography>
         </Stack>
 
         <Stack direction="row" spacing={0.75} flexWrap="wrap">
@@ -197,10 +187,6 @@ function RuleShowcaseCard(props: {
             />
           ) : null}
         </Stack>
-
-        <Typography variant="caption" sx={{ color: "#64748b" }}>
-          {props.caption}
-        </Typography>
       </Stack>
     </Box>
   );
@@ -228,13 +214,13 @@ function RuleEditorCard(props: {
 
   return (
     <Box sx={surfaceCardSx(entry, true)}>
-      <Stack spacing={1.15}>
+      <Stack spacing={1}>
         <Stack direction="row" spacing={1} alignItems="center">
           <Box
             sx={{
-              width: 42,
-              height: 42,
-              borderRadius: 2.2,
+              width: 38,
+              height: 38,
+              borderRadius: 2,
               display: "grid",
               placeItems: "center",
               color: entry.accent.solid,
@@ -244,14 +230,9 @@ function RuleEditorCard(props: {
           >
             {entry.icon}
           </Box>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
-              {entry.label}
-            </Typography>
-            <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>
-              {entry.description}
-            </Typography>
-          </Box>
+          <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
+            {entry.label}
+          </Typography>
         </Stack>
 
         {entry.supportsClose ? (
@@ -284,14 +265,9 @@ function RuleEditorCard(props: {
             alignItems={{ xs: "flex-start", sm: "center" }}
             justifyContent="space-between"
           >
-            <Stack spacing={0.25}>
-              <Typography sx={{ fontWeight: 800, color: "#0f172a" }}>
-                {entry.supportsLimit ? "Hourly limiter" : "Rule state"}
-              </Typography>
-              <Typography variant="caption" sx={{ color: "#64748b" }}>
-                {entry.supportsLimit ? "Keep a custom limit only when this limiter is enabled." : "Turn this rule on or off for the selected scope."}
-              </Typography>
-            </Stack>
+            <Typography sx={{ fontWeight: 800, color: "#0f172a" }}>
+              {entry.supportsLimit ? "Hourly limit" : "State"}
+            </Typography>
 
             <Stack direction="row" spacing={0.9} alignItems="center">
               <Typography variant="caption" sx={{ color: "#64748b" }}>
@@ -354,7 +330,6 @@ export function ChainThresholdManager(props: {
 }) {
   const {
     chains,
-    globalThresholds,
     selectedChainName,
     editingChainIndex,
     chainEditor,
@@ -379,8 +354,6 @@ export function ChainThresholdManager(props: {
     ?? null;
   const chainDraft = buildChainRuleEditorDraft(chainEditor);
   const defaultsDraft = buildDefaultRuleEditorDraft(defaultEditor);
-  const enabledCapacityChains = chains.filter((chain) => chain.capacityRuleEnabled !== false).length;
-  const enabledReadyChains = chains.filter((chain) => (chain.readyThreshold ?? 0) > 0).length;
 
   useEffect(() => {
     if (!chainEntries.length) {
@@ -409,49 +382,42 @@ export function ChainThresholdManager(props: {
     <Stack spacing={2}>
       <Box
         sx={{
-          p: { xs: 1.4, md: 1.7 },
-          borderRadius: 4,
+          p: { xs: 1.1, md: 1.35 },
+          borderRadius: 3.5,
           border: "1px solid rgba(148,163,184,0.16)",
-          background:
-            "linear-gradient(135deg, rgba(255,255,255,0.95), rgba(248,250,252,0.98) 55%, rgba(239,246,255,0.92) 100%)",
-          boxShadow: "0 28px 54px rgba(15,23,42,0.08)",
+          bgcolor: "rgba(255,255,255,0.96)",
+          boxShadow: "0 16px 36px rgba(15,23,42,0.06)",
         }}
       >
         <Stack
           direction={{ xs: "column", xl: "row" }}
-          spacing={1.6}
+          spacing={1.2}
           sx={{ alignItems: { xs: "stretch", xl: "flex-start" } }}
         >
           <Box
             sx={{
               width: { xs: "100%", xl: 320 },
               flexShrink: 0,
-              p: 1.35,
-              borderRadius: 3.2,
+              p: 1.15,
+              borderRadius: 3,
               border: "1px solid rgba(148,163,184,0.16)",
-              bgcolor: "rgba(248,250,252,0.8)",
-              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.86)",
+              bgcolor: "rgba(248,250,252,0.72)",
             }}
           >
-            <Stack spacing={1.2}>
+            <Stack spacing={1}>
               <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-                <Box>
-                  <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
-                    Chains Studio
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: "#64748b" }}>
-                    Select a chain to review and tune its rule profile.
-                  </Typography>
-                </Box>
+                <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
+                  Chains
+                </Typography>
                 <Chip
                   size="small"
-                  label={`${chains.length} chains`}
-                  sx={{ fontWeight: 900, bgcolor: "rgba(37,99,235,0.08)", color: "#1d4ed8" }}
+                  label={chains.length}
+                  sx={{ fontWeight: 900, bgcolor: "rgba(15,23,42,0.06)", color: "#334155" }}
                 />
               </Stack>
 
               <TextField
-                placeholder="Search chains"
+                placeholder="Search"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 size="small"
@@ -465,19 +431,6 @@ export function ChainThresholdManager(props: {
                 }}
               />
 
-              <Stack direction="row" spacing={0.75} flexWrap="wrap">
-                <Chip
-                  size="small"
-                  label={`${enabledCapacityChains} capacity on`}
-                  sx={{ fontWeight: 900, bgcolor: "rgba(20,184,166,0.1)", color: "#0f766e" }}
-                />
-                <Chip
-                  size="small"
-                  label={`${enabledReadyChains} ready active`}
-                  sx={{ fontWeight: 900, bgcolor: "rgba(59,130,246,0.1)", color: "#1d4ed8" }}
-                />
-              </Stack>
-
               <Button
                 variant="contained"
                 startIcon={<AddRoundedIcon />}
@@ -486,16 +439,14 @@ export function ChainThresholdManager(props: {
                 sx={{
                   borderRadius: 999,
                   justifyContent: "flex-start",
-                  background: "linear-gradient(135deg, #0f172a, #1d4ed8)",
-                  boxShadow: "0 18px 30px rgba(29,78,216,0.22)",
+                  background: "#0f172a",
+                  boxShadow: "none",
                 }}
               >
-                Add Chain Workspace
+                Add Chain
               </Button>
 
-              <Divider />
-
-              <Stack spacing={0.9}>
+              <Stack spacing={0.75}>
                 {filteredChains.length ? (
                   filteredChains.map(({ chain, index }) => {
                     const selected = selectedChainEntry?.chain.name === chain.name;
@@ -512,67 +463,27 @@ export function ChainThresholdManager(props: {
                         <Box
                           sx={{
                             width: "100%",
-                            p: 1.15,
+                            p: 1,
                             borderRadius: 3,
-                            border: selected ? "1px solid rgba(29,78,216,0.26)" : "1px solid rgba(148,163,184,0.16)",
-                            bgcolor: selected ? "rgba(219,234,254,0.72)" : "rgba(255,255,255,0.9)",
-                            boxShadow: selected ? "0 20px 32px rgba(29,78,216,0.14)" : "0 10px 20px rgba(15,23,42,0.05)",
-                            transition: "transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease",
+                            border: selected ? "1px solid rgba(15,23,42,0.18)" : "1px solid rgba(148,163,184,0.16)",
+                            bgcolor: "rgba(255,255,255,0.94)",
+                            boxShadow: selected ? "0 12px 24px rgba(15,23,42,0.08)" : "0 8px 18px rgba(15,23,42,0.04)",
+                            transition: "box-shadow 180ms ease, border-color 180ms ease",
                             "&:hover": {
-                              transform: "translateY(-1px)",
-                              boxShadow: "0 18px 30px rgba(15,23,42,0.08)",
+                              boxShadow: "0 12px 24px rgba(15,23,42,0.08)",
                             },
                           }}
                         >
-                          <Stack spacing={0.8}>
-                            <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-                              <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
-                                <Box
-                                  sx={{
-                                    width: 36,
-                                    height: 36,
-                                    borderRadius: 2.2,
-                                    display: "grid",
-                                    placeItems: "center",
-                                    bgcolor: selected ? "rgba(29,78,216,0.16)" : "rgba(15,23,42,0.06)",
-                                    color: selected ? "#1d4ed8" : "#334155",
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  <AccountTreeRoundedIcon sx={{ fontSize: 18 }} />
-                                </Box>
-                                <Box sx={{ minWidth: 0 }}>
-                                  <Typography sx={{ fontWeight: 900, color: "#0f172a" }} noWrap>
-                                    {chain.name}
-                                  </Typography>
-                                  <Typography variant="caption" sx={{ color: "#64748b", display: "block" }} noWrap>
-                                    {countProfileRules({
-                                      ...chain,
-                                    })} rules tuned
-                                  </Typography>
-                                </Box>
-                              </Stack>
-                              {selected ? (
-                                <Chip
-                                  size="small"
-                                  label="Selected"
-                                  sx={{ fontWeight: 900, bgcolor: "rgba(29,78,216,0.14)", color: "#1d4ed8" }}
-                                />
-                              ) : null}
-                            </Stack>
-
-                            <Stack direction="row" spacing={0.6} flexWrap="wrap">
-                              <Chip
-                                size="small"
-                                label={`Late ${formatThresholdPair(chain.lateThreshold, chain.lateReopenThreshold)}`}
-                                sx={{ fontWeight: 900, bgcolor: "rgba(251,146,60,0.1)", color: "#c2410c" }}
-                              />
-                              <Chip
-                                size="small"
-                                label={`Ready ${formatThresholdPair(chain.readyThreshold ?? 0, chain.readyReopenThreshold)}`}
-                                sx={{ fontWeight: 900, bgcolor: "rgba(59,130,246,0.1)", color: "#1d4ed8" }}
-                              />
-                            </Stack>
+                          <Stack spacing={0.35}>
+                            <Typography sx={{ fontWeight: 900, color: "#0f172a" }} noWrap>
+                              {chain.name}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: "#64748b", display: "block" }} noWrap>
+                              Late {formatThresholdPair(chain.lateThreshold, chain.lateReopenThreshold)}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: "#64748b", display: "block" }} noWrap>
+                              Ready {formatThresholdPair(chain.readyThreshold ?? 0, chain.readyReopenThreshold)}
+                            </Typography>
                           </Stack>
                         </Box>
                       </ButtonBase>
@@ -587,199 +498,131 @@ export function ChainThresholdManager(props: {
             </Stack>
           </Box>
 
-          <Stack sx={{ flex: 1, minWidth: 0 }} spacing={1.4}>
-            <Box
-              sx={{
-                p: 1.35,
-                borderRadius: 3.2,
-                border: "1px solid rgba(148,163,184,0.16)",
-                bgcolor: "rgba(255,255,255,0.88)",
-                boxShadow: "0 18px 40px rgba(15,23,42,0.06)",
-              }}
-            >
-              <Stack
-                direction={{ xs: "column", lg: "row" }}
-                spacing={1.25}
-                justifyContent="space-between"
-                alignItems={{ xs: "flex-start", lg: "center" }}
-              >
-                <Box>
-                  <Stack direction="row" spacing={0.9} alignItems="center">
-                    <Box
-                      sx={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 2.4,
-                        display: "grid",
-                        placeItems: "center",
-                        bgcolor: "rgba(15,118,110,0.1)",
-                        color: "#0f766e",
-                      }}
-                    >
-                      <PublicRoundedIcon sx={{ fontSize: 20 }} />
-                    </Box>
-                    <Box>
-                      <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
-                        Global Defaults
-                      </Typography>
-                      <Typography variant="caption" sx={{ color: "#64748b", display: "block" }}>
-                        Pinned baseline for every chain before custom tuning starts.
-                      </Typography>
-                    </Box>
-                  </Stack>
-                </Box>
-
-                <Button
-                  variant="outlined"
-                  startIcon={<TuneRoundedIcon />}
-                  onClick={props.onOpenDefaults}
-                  disabled={readOnly}
-                  sx={{ borderRadius: 999, fontWeight: 900 }}
-                >
-                  Edit Defaults
-                </Button>
-              </Stack>
-
-              <Box
-                sx={{
-                  mt: 1.3,
-                  display: "grid",
-                  gap: 1,
-                  gridTemplateColumns: { xs: "1fr", md: "repeat(3, minmax(0, 1fr))" },
-                }}
-              >
-                {thresholdRuleCatalog
-                  .filter((entry) => entry.id === "late" || entry.id === "unassigned" || entry.id === "ready")
-                  .map((entry) => {
-                    if (entry.id === "late") {
-                      return (
-                        <RuleShowcaseCard
-                          key={entry.id}
-                          entry={entry}
-                          closeValue={globalThresholds.lateThreshold}
-                          reopenValue={globalThresholds.lateReopenThreshold}
-                          caption="Global default pair for late-order closures."
-                        />
-                      );
-                    }
-
-                    if (entry.id === "unassigned") {
-                      return (
-                        <RuleShowcaseCard
-                          key={entry.id}
-                          entry={entry}
-                          closeValue={globalThresholds.unassignedThreshold}
-                          reopenValue={globalThresholds.unassignedReopenThreshold}
-                          caption="Global default pair for unassigned queue pressure."
-                        />
-                      );
-                    }
-
-                    return (
-                      <RuleShowcaseCard
-                        key={entry.id}
-                        entry={entry}
-                        closeValue={globalThresholds.readyThreshold ?? 0}
-                        reopenValue={globalThresholds.readyReopenThreshold}
-                        caption="Global default pair for ready-to-pickup pressure."
-                      />
-                    );
-                  })}
-              </Box>
-            </Box>
-
+          <Stack sx={{ flex: 1, minWidth: 0 }} spacing={1.1}>
             {selectedChainEntry ? (
               <Box
                 sx={{
-                  p: 1.35,
-                  borderRadius: 3.2,
+                  p: { xs: 1.1, md: 1.25 },
+                  borderRadius: 3,
                   border: "1px solid rgba(148,163,184,0.16)",
-                  background:
-                    "linear-gradient(140deg, rgba(255,255,255,0.94), rgba(239,246,255,0.82) 48%, rgba(248,250,252,0.98) 100%)",
-                  boxShadow: "0 18px 44px rgba(15,23,42,0.08)",
+                  bgcolor: "rgba(255,255,255,0.96)",
+                  boxShadow: "0 12px 28px rgba(15,23,42,0.06)",
                 }}
               >
-                <Stack spacing={1.25}>
+                <Stack spacing={1.1}>
                   <Stack
                     direction={{ xs: "column", lg: "row" }}
-                    spacing={1.2}
+                    spacing={1}
                     justifyContent="space-between"
                     alignItems={{ xs: "flex-start", lg: "center" }}
                   >
                     <Box>
-                      <Stack direction="row" spacing={0.9} alignItems="center">
-                        <Box
-                          sx={{
-                            width: 42,
-                            height: 42,
-                            borderRadius: 2.4,
-                            display: "grid",
-                            placeItems: "center",
-                            bgcolor: "rgba(29,78,216,0.12)",
-                            color: "#1d4ed8",
-                          }}
-                        >
-                          <AccountTreeRoundedIcon sx={{ fontSize: 21 }} />
-                        </Box>
-                        <Box>
-                          <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
-                            Focused Chain Screens
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: "#64748b", display: "block" }}>
-                            Chain details now open in a dedicated popup so the studio stays easy to scan.
-                          </Typography>
-                        </Box>
-                      </Stack>
+                      <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
+                        {selectedChainEntry.chain.name}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: "#64748b", display: "block" }}>
+                        {countProfileRules({
+                          ...selectedChainEntry.chain,
+                        })} rules
+                      </Typography>
                     </Box>
 
                     <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
                       <Button
-                        variant="contained"
-                        startIcon={<TuneRoundedIcon />}
-                        onClick={() => handleOpenChainDetails(selectedChainEntry.chain.name)}
-                        sx={{
-                          borderRadius: 999,
-                          background: "linear-gradient(135deg, #0f172a, #1d4ed8)",
-                          boxShadow: "0 18px 30px rgba(29,78,216,0.18)",
-                        }}
-                      >
-                        Open Chain Screen
-                      </Button>
-                      <Button
                         variant="outlined"
-                        startIcon={<ArrowOutwardRoundedIcon />}
-                        onClick={() => props.onOpenOverrides(selectedChainEntry.chain.name)}
+                        startIcon={<EditOutlinedIcon />}
+                        onClick={() => props.onEditChain(selectedChainEntry.chain, selectedChainEntry.index)}
+                        disabled={readOnly}
                         sx={{ borderRadius: 999, fontWeight: 900 }}
                       >
-                        Branch Overrides
+                        Edit
+                      </Button>
+                      <Button
+                        variant="contained"
+                        startIcon={<ArrowOutwardRoundedIcon />}
+                        onClick={() => props.onOpenOverrides(selectedChainEntry.chain.name)}
+                        sx={{
+                          borderRadius: 999,
+                          background: "#0f172a",
+                          boxShadow: "none",
+                        }}
+                      >
+                        Overrides
                       </Button>
                     </Stack>
                   </Stack>
 
-                  <Stack direction="row" spacing={0.75} flexWrap="wrap">
-                    <Chip
-                      size="small"
-                      label={selectedChainEntry.chain.name}
-                      sx={{ fontWeight: 900, bgcolor: "rgba(29,78,216,0.12)", color: "#1d4ed8" }}
-                    />
-                    <Chip
-                      size="small"
-                      label={`${countProfileRules({
-                        ...selectedChainEntry.chain,
-                      })} rules active`}
-                      sx={{ fontWeight: 900, bgcolor: "rgba(15,23,42,0.06)", color: "#334155" }}
-                    />
-                    <Chip
-                      size="small"
-                      label="Click any chain card to inspect it in a popup"
-                      sx={{ fontWeight: 900, bgcolor: "rgba(15,118,110,0.08)", color: "#0f766e" }}
-                    />
-                  </Stack>
+                  <Box
+                    sx={{
+                      display: "grid",
+                      gap: 1,
+                      gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))", xl: "repeat(3, minmax(0, 1fr))" },
+                    }}
+                  >
+                    {thresholdRuleCatalog.map((entry) => {
+                      if (entry.id === "late") {
+                        return (
+                          <RuleShowcaseCard
+                            key={entry.id}
+                            entry={entry}
+                            closeValue={selectedChainEntry.chain.lateThreshold}
+                            reopenValue={selectedChainEntry.chain.lateReopenThreshold}
+                            caption=""
+                          />
+                        );
+                      }
+
+                      if (entry.id === "unassigned") {
+                        return (
+                          <RuleShowcaseCard
+                            key={entry.id}
+                            entry={entry}
+                            closeValue={selectedChainEntry.chain.unassignedThreshold}
+                            reopenValue={selectedChainEntry.chain.unassignedReopenThreshold}
+                            caption=""
+                          />
+                        );
+                      }
+
+                      if (entry.id === "ready") {
+                        return (
+                          <RuleShowcaseCard
+                            key={entry.id}
+                            entry={entry}
+                            closeValue={selectedChainEntry.chain.readyThreshold ?? 0}
+                            reopenValue={selectedChainEntry.chain.readyReopenThreshold}
+                            caption=""
+                          />
+                        );
+                      }
+
+                      if (entry.id === "capacity") {
+                        return (
+                          <RuleShowcaseCard
+                            key={entry.id}
+                            entry={entry}
+                            enabled={selectedChainEntry.chain.capacityRuleEnabled !== false}
+                            caption=""
+                          />
+                        );
+                      }
+
+                      return (
+                        <RuleShowcaseCard
+                          key={entry.id}
+                          entry={entry}
+                          enabled={selectedChainEntry.chain.capacityPerHourEnabled === true}
+                          limit={selectedChainEntry.chain.capacityPerHourLimit ?? null}
+                          caption=""
+                        />
+                      );
+                    })}
+                  </Box>
                 </Stack>
               </Box>
             ) : (
-              <Alert severity="info" variant="outlined" sx={{ borderRadius: 3.2 }}>
-                Create your first chain workspace to start grouping rule profiles.
+              <Alert severity="info" variant="outlined" sx={{ borderRadius: 3 }}>
+                No chains
               </Alert>
             )}
           </Stack>
@@ -844,11 +687,6 @@ export function ChainThresholdManager(props: {
                   <Box>
                     <Typography sx={{ fontWeight: 900, fontSize: { xs: "1.1rem", md: "1.25rem" }, color: "#0f172a" }}>
                       {selectedChainEntry.chain.name}
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: "#64748b", display: "block" }}>
-                      {countProfileRules({
-                        ...selectedChainEntry.chain,
-                      })} rules active in this workspace.
                     </Typography>
                   </Box>
                 </Stack>
@@ -1020,10 +858,7 @@ export function ChainThresholdManager(props: {
           <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
             <Box>
               <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
-                Edit Global Defaults
-              </Typography>
-              <Typography variant="caption" sx={{ color: "#64748b" }}>
-                Update the baseline thresholds every chain starts from.
+                Defaults
               </Typography>
             </Box>
 
@@ -1139,10 +974,7 @@ export function ChainThresholdManager(props: {
           <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
             <Box>
               <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
-                {editingChainIndex !== null ? "Edit Chain Workspace" : "New Chain Workspace"}
-              </Typography>
-              <Typography variant="caption" sx={{ color: "#64748b" }}>
-                Create a modern rule profile for a single chain and reuse it across overrides.
+                {editingChainIndex !== null ? "Edit Chain" : "New Chain"}
               </Typography>
             </Box>
 

@@ -1,13 +1,11 @@
 import AccountTreeRoundedIcon from "@mui/icons-material/AccountTreeRounded";
-import AutoAwesomeRoundedIcon from "@mui/icons-material/AutoAwesomeRounded";
-import LayersRoundedIcon from "@mui/icons-material/LayersRounded";
-import StorefrontRoundedIcon from "@mui/icons-material/StorefrontRounded";
 import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
 import {
   Alert,
   Box,
   ButtonBase,
   Chip,
+  Grow,
   Snackbar,
   Stack,
   Typography,
@@ -49,29 +47,6 @@ function emptyDefaultThresholdEditor(): DefaultThresholdEditorDraft {
     unassignedReopenThreshold: "0",
     readyThreshold: "0",
     readyReopenThreshold: "0",
-  };
-}
-
-function metricCardSx(accent: { soft: string; solid: string }) {
-  return {
-    p: 1.35,
-    borderRadius: 3.2,
-    border: "1px solid rgba(148,163,184,0.16)",
-    bgcolor: "rgba(255,255,255,0.92)",
-    boxShadow: "0 18px 38px rgba(15,23,42,0.06)",
-    display: "grid",
-    gap: 0.7,
-    minWidth: 0,
-    "& .metric-icon": {
-      width: 42,
-      height: 42,
-      borderRadius: 2.4,
-      display: "grid",
-      placeItems: "center",
-      bgcolor: accent.soft,
-      color: accent.solid,
-      border: `1px solid ${accent.soft}`,
-    },
   };
 }
 
@@ -561,19 +536,16 @@ export function ThresholdsPage() {
   const modeCards: Array<{
     value: ThresholdWorkspaceMode;
     label: string;
-    caption: string;
     icon: JSX.Element;
   }> = [
     {
       value: "chains",
-      label: "Chains Studio",
-      caption: "Design reusable rule workspaces for chain-level profiles.",
+      label: "Chains",
       icon: <AccountTreeRoundedIcon sx={{ fontSize: 22 }} />,
     },
     {
       value: "overrides",
-      label: "Overrides Studio",
-      caption: "Drill into branches, inspect effective rules, and override only what is necessary.",
+      label: "Overrides",
       icon: <TuneRoundedIcon sx={{ fontSize: 22 }} />,
     },
   ];
@@ -582,8 +554,7 @@ export function ThresholdsPage() {
     <Box
       sx={{
         minHeight: "100vh",
-        background:
-          "radial-gradient(circle at top left, rgba(59,130,246,0.08), transparent 24%), radial-gradient(circle at top right, rgba(99,102,241,0.08), transparent 22%), #f7f8fa",
+        background: "#f5f7fa",
       }}
     >
       <TopBar
@@ -596,131 +567,65 @@ export function ThresholdsPage() {
 
       <Box sx={{ p: { xs: 2, md: 3 }, display: "grid", gap: 2 }}>
         {loadError ? <Alert severity="error" variant="outlined">{loadError}</Alert> : null}
-        {!canManageThresholds ? (
-          <Alert severity="info" variant="outlined" sx={{ borderRadius: 3 }}>
-            You can review thresholds, but editing actions are disabled for your role.
-          </Alert>
-        ) : null}
+        {!canManageThresholds ? <Alert severity="info" variant="outlined" sx={{ borderRadius: 3 }}>Read only</Alert> : null}
 
         <Box
           sx={{
-            p: { xs: 1.7, md: 2.2 },
-            borderRadius: 4,
+            p: { xs: 1.25, md: 1.5 },
+            borderRadius: 3.5,
             border: "1px solid rgba(148,163,184,0.16)",
-            background:
-              "linear-gradient(135deg, rgba(255,255,255,0.95), rgba(239,246,255,0.92) 45%, rgba(238,242,255,0.95) 100%)",
-            boxShadow: "0 28px 54px rgba(15,23,42,0.08)",
+            bgcolor: "rgba(255,255,255,0.96)",
+            boxShadow: "0 16px 36px rgba(15,23,42,0.06)",
           }}
         >
-          <Stack spacing={1.55}>
+          <Stack spacing={1.25}>
             <Stack
-              direction={{ xs: "column", xl: "row" }}
-              spacing={1.35}
-              alignItems={{ xs: "flex-start", xl: "center" }}
+              direction={{ xs: "column", lg: "row" }}
+              spacing={1}
+              alignItems={{ xs: "flex-start", lg: "center" }}
               justifyContent="space-between"
             >
-              <Box>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Box
-                    sx={{
-                      width: 46,
-                      height: 46,
-                      borderRadius: 2.8,
-                      display: "grid",
-                      placeItems: "center",
-                      bgcolor: "rgba(99,102,241,0.14)",
-                      color: "#4338ca",
-                    }}
-                  >
-                    <AutoAwesomeRoundedIcon sx={{ fontSize: 23 }} />
-                  </Box>
-                  <Box>
-                    <Typography variant="h5" sx={{ fontWeight: 900, color: "#0f172a" }}>
-                      Rule Control Studio
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: "#475569", maxWidth: 760 }}>
-                      A redesigned threshold workspace built for larger rule sets, faster navigation, and clearer control over chain profiles and branch overrides.
-                    </Typography>
-                  </Box>
-                </Stack>
-              </Box>
+              <Typography variant="h5" sx={{ fontWeight: 900, color: "#0f172a" }}>
+                Thresholds
+              </Typography>
 
               <Stack direction="row" spacing={0.8} flexWrap="wrap">
                 <Chip
-                  size="medium"
-                  label={rulesMode === "chains" ? "Chain design mode" : "Branch override mode"}
+                  size="small"
+                  label={rulesMode === "chains" ? "Chains" : "Overrides"}
                   sx={{ fontWeight: 900, bgcolor: "rgba(15,23,42,0.06)", color: "#0f172a" }}
                 />
                 {overrideChainFilter !== "all" ? (
                   <Chip
-                    size="medium"
-                    label={`Override filter: ${overrideChainFilter === "__no_chain__" ? "No Chain" : overrideChainFilter}`}
-                    sx={{ fontWeight: 900, bgcolor: "rgba(14,165,233,0.1)", color: "#0369a1" }}
+                    size="small"
+                    label={overrideChainFilter === "__no_chain__" ? "No Chain" : overrideChainFilter}
+                    sx={{ fontWeight: 900, bgcolor: "rgba(15,23,42,0.06)", color: "#334155" }}
                   />
                 ) : null}
+                <Chip
+                  size="small"
+                  label={`${thresholdForm.chains.length} Chains`}
+                  sx={{ fontWeight: 900, bgcolor: "rgba(15,23,42,0.06)", color: "#334155" }}
+                />
+                <Chip
+                  size="small"
+                  label={`${customOverrideCount} Overrides`}
+                  sx={{ fontWeight: 900, bgcolor: "rgba(15,23,42,0.06)", color: "#334155" }}
+                />
+                <Chip
+                  size="small"
+                  label={`${activeRuleCount} Rules`}
+                  sx={{ fontWeight: 900, bgcolor: "rgba(15,23,42,0.06)", color: "#334155" }}
+                />
               </Stack>
             </Stack>
 
             <Box
               sx={{
-                display: "grid",
-                gap: 1,
-                gridTemplateColumns: { xs: "1fr", md: "repeat(3, minmax(0, 1fr))" },
-              }}
-            >
-              <Box sx={metricCardSx({ soft: "rgba(29,78,216,0.14)", solid: "#1d4ed8" })}>
-                <Box className="metric-icon">
-                  <LayersRoundedIcon sx={{ fontSize: 22 }} />
-                </Box>
-                <Typography variant="caption" sx={{ color: "#64748b" }}>
-                  Chains
-                </Typography>
-                <Typography sx={{ fontSize: 28, fontWeight: 900, color: "#0f172a", lineHeight: 1 }}>
-                  {thresholdForm.chains.length}
-                </Typography>
-                <Typography variant="caption" sx={{ color: "#64748b" }}>
-                  Reusable workspaces ready for branch inheritance.
-                </Typography>
-              </Box>
-
-              <Box sx={metricCardSx({ soft: "rgba(14,165,233,0.14)", solid: "#0369a1" })}>
-                <Box className="metric-icon">
-                  <TuneRoundedIcon sx={{ fontSize: 22 }} />
-                </Box>
-                <Typography variant="caption" sx={{ color: "#64748b" }}>
-                  Custom Overrides
-                </Typography>
-                <Typography sx={{ fontSize: 28, fontWeight: 900, color: "#0f172a", lineHeight: 1 }}>
-                  {customOverrideCount}
-                </Typography>
-                <Typography variant="caption" sx={{ color: "#64748b" }}>
-                  Branches already tuned away from inherited values.
-                </Typography>
-              </Box>
-
-              <Box sx={metricCardSx({ soft: "rgba(16,185,129,0.14)", solid: "#047857" })}>
-                <Box className="metric-icon">
-                  <StorefrontRoundedIcon sx={{ fontSize: 22 }} />
-                </Box>
-                <Typography variant="caption" sx={{ color: "#64748b" }}>
-                  Active Rules
-                </Typography>
-                <Typography sx={{ fontSize: 28, fontWeight: 900, color: "#0f172a", lineHeight: 1 }}>
-                  {activeRuleCount}
-                </Typography>
-                <Typography variant="caption" sx={{ color: "#64748b" }}>
-                  Rule types currently configured across this workspace.
-                </Typography>
-              </Box>
-            </Box>
-
-            <Box
-              sx={{
-                p: 0.55,
+                p: 0.4,
                 borderRadius: 999,
                 border: "1px solid rgba(148,163,184,0.16)",
                 bgcolor: "rgba(248,250,252,0.84)",
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.82), 0 14px 28px rgba(15,23,42,0.05)",
               }}
             >
               <Stack direction={{ xs: "column", md: "row" }} spacing={0.8}>
@@ -740,18 +645,15 @@ export function ThresholdsPage() {
                       <Box
                         sx={{
                           width: "100%",
-                          px: 1.35,
-                          py: 1.05,
+                          px: 1.15,
+                          py: 0.9,
                           borderRadius: 999,
-                          border: active ? "1px solid rgba(79,70,229,0.18)" : "1px solid transparent",
-                          background: active
-                            ? "linear-gradient(135deg, rgba(79,70,229,0.18), rgba(255,255,255,0.98) 55%, rgba(224,231,255,0.9) 100%)"
-                            : "transparent",
-                          boxShadow: active ? "0 18px 32px rgba(79,70,229,0.14)" : "none",
+                          border: active ? "1px solid rgba(15,23,42,0.14)" : "1px solid transparent",
+                          background: active ? "rgba(255,255,255,0.98)" : "transparent",
+                          boxShadow: active ? "0 8px 20px rgba(15,23,42,0.06)" : "none",
                           transition: "transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease",
                           "&:hover": {
-                            transform: "translateY(-1px)",
-                            boxShadow: active ? "0 18px 32px rgba(79,70,229,0.14)" : "0 12px 24px rgba(15,23,42,0.06)",
+                            boxShadow: "0 10px 22px rgba(15,23,42,0.05)",
                           },
                         }}
                       >
@@ -763,21 +665,16 @@ export function ThresholdsPage() {
                               borderRadius: 2.2,
                               display: "grid",
                               placeItems: "center",
-                              bgcolor: active ? "rgba(79,70,229,0.16)" : "rgba(15,23,42,0.06)",
-                              color: active ? "#4338ca" : "#475569",
+                              bgcolor: "rgba(15,23,42,0.06)",
+                              color: "#334155",
                               flexShrink: 0,
                             }}
                           >
                             {item.icon}
                           </Box>
-                          <Box sx={{ minWidth: 0 }}>
-                            <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
-                              {item.label}
-                            </Typography>
-                            <Typography variant="caption" sx={{ color: "#64748b", display: "block" }}>
-                              {item.caption}
-                            </Typography>
-                          </Box>
+                          <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
+                            {item.label}
+                          </Typography>
                         </Stack>
                       </Box>
                     </ButtonBase>
@@ -852,11 +749,25 @@ export function ThresholdsPage() {
 
       <Snackbar
         open={!!toast}
-        autoHideDuration={2500}
+        autoHideDuration={2200}
         onClose={() => setToast(null)}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        TransitionComponent={Grow}
+        TransitionProps={{ timeout: 220 }}
       >
-        {toast ? <Alert severity={toast.type}>{toast.msg}</Alert> : undefined}
+        {toast ? (
+          <Alert
+            severity={toast.type}
+            variant="filled"
+            sx={{
+              borderRadius: 999,
+              minWidth: { xs: "calc(100vw - 32px)", sm: 0 },
+              boxShadow: "0 18px 40px rgba(15,23,42,0.16)",
+            }}
+          >
+            {toast.msg}
+          </Alert>
+        ) : undefined}
       </Snackbar>
     </Box>
   );

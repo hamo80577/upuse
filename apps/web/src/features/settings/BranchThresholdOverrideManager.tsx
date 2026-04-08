@@ -54,6 +54,10 @@ function safeText(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+function normalizeChainName(value: unknown) {
+  return safeText(value).trim().toLowerCase();
+}
+
 function branchLabel(branch: Pick<BranchMappingItem, "name" | "availabilityVendorId">) {
   return safeText(branch.name).trim() || `Availability ${branch.availabilityVendorId}`;
 }
@@ -119,9 +123,9 @@ function resolveEffectiveThresholdProfile(
     | "capacityPerHourLimit"
   >,
 ): ThresholdProfile {
-  const chainKey = safeText(branch.chainName).trim().toLowerCase();
+  const chainKey = normalizeChainName(branch.chainName);
   const chain = chainKey
-    ? chains.find((item) => item.name.trim().toLowerCase() === chainKey)
+    ? chains.find((item) => normalizeChainName(item.name) === chainKey)
     : undefined;
   const inherited = chain
     ? {
@@ -215,18 +219,15 @@ function stripBranchOverrides(branch: BranchMappingItem): BranchMappingItem {
 
 function ruleSurfaceSx(entry: RuleCatalogEntry, highlighted = false) {
   return {
-    position: "relative" as const,
-    overflow: "hidden",
-    p: 1.3,
+    p: 1.1,
     borderRadius: 3,
-    border: `1px solid ${highlighted ? entry.accent.border : "rgba(148,163,184,0.16)"}`,
+    border: `1px solid ${highlighted ? "rgba(15,23,42,0.12)" : "rgba(148,163,184,0.16)"}`,
     bgcolor: "rgba(255,255,255,0.94)",
-    boxShadow: highlighted ? entry.accent.glow : "0 18px 38px rgba(15,23,42,0.06)",
+    boxShadow: highlighted ? "0 12px 28px rgba(15,23,42,0.07)" : "0 10px 24px rgba(15,23,42,0.05)",
     transition: "transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease",
     "&:hover": {
-      transform: "translateY(-2px)",
-      boxShadow: entry.accent.glow,
-      borderColor: entry.accent.border,
+      boxShadow: "0 14px 28px rgba(15,23,42,0.08)",
+      borderColor: "rgba(15,23,42,0.16)",
     },
   };
 }
@@ -271,13 +272,13 @@ function RuleComparisonCard(props: {
 
   return (
     <Box sx={ruleSurfaceSx(entry)}>
-      <Stack spacing={1}>
+      <Stack spacing={0.9}>
         <Stack direction="row" spacing={1} alignItems="center">
           <Box
             sx={{
-              width: 42,
-              height: 42,
-              borderRadius: 2.2,
+              width: 38,
+              height: 38,
+              borderRadius: 2,
               display: "grid",
               placeItems: "center",
               color: entry.accent.solid,
@@ -287,14 +288,9 @@ function RuleComparisonCard(props: {
           >
             {entry.icon}
           </Box>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
-              {entry.label}
-            </Typography>
-            <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>
-              {entry.description}
-            </Typography>
-          </Box>
+          <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
+            {entry.label}
+          </Typography>
         </Stack>
 
         <Stack direction="row" spacing={0.7} flexWrap="wrap">
@@ -307,7 +303,7 @@ function RuleComparisonCard(props: {
 
         <Stack spacing={0.4}>
           <Typography variant="caption" sx={{ color: "#64748b" }}>
-            Effective
+            Current
           </Typography>
           <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
             {props.effectiveLabel}
@@ -353,13 +349,13 @@ function RuleEditorCard(props: {
 
   return (
     <Box sx={ruleSurfaceSx(entry, true)}>
-      <Stack spacing={1.15}>
+      <Stack spacing={1}>
         <Stack direction="row" spacing={1} alignItems="center">
           <Box
             sx={{
-              width: 42,
-              height: 42,
-              borderRadius: 2.2,
+              width: 38,
+              height: 38,
+              borderRadius: 2,
               display: "grid",
               placeItems: "center",
               color: entry.accent.solid,
@@ -369,14 +365,9 @@ function RuleEditorCard(props: {
           >
             {entry.icon}
           </Box>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
-              {entry.label}
-            </Typography>
-            <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>
-              {props.helperText}
-            </Typography>
-          </Box>
+          <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
+            {entry.label}
+          </Typography>
         </Stack>
 
         {entry.supportsClose ? (
@@ -411,8 +402,8 @@ function RuleEditorCard(props: {
             alignItems={{ xs: "flex-start", sm: "center" }}
             justifyContent="space-between"
           >
-            <Typography variant="caption" sx={{ color: "#64748b" }}>
-              Match the inherited state to clear the custom override.
+            <Typography sx={{ fontWeight: 800, color: "#0f172a" }}>
+              {entry.supportsLimit ? "Hourly limit" : "State"}
             </Typography>
 
             <Stack direction="row" spacing={0.9} alignItems="center">
@@ -487,8 +478,17 @@ export function BranchThresholdOverrideManager(props: {
 
   const filteredBranches = branches.filter((branch) => {
     const branchChainName = safeText(branch.chainName).trim();
+    const normalizedBranchChainName = normalizeChainName(branch.chainName);
+    const normalizedChainFilter = normalizeChainName(chainFilter);
+
     if (chainFilter === "__no_chain__" && branchChainName) return false;
-    if (chainFilter !== "all" && chainFilter !== "__no_chain__" && branchChainName !== chainFilter) return false;
+    if (
+      chainFilter !== "all"
+      && chainFilter !== "__no_chain__"
+      && normalizedBranchChainName !== normalizedChainFilter
+    ) {
+      return false;
+    }
     if (normalizedQuery) {
       const haystack = [
         branchLabel(branch).toLowerCase(),
@@ -549,48 +549,42 @@ export function BranchThresholdOverrideManager(props: {
     <Stack spacing={2}>
       <Box
         sx={{
-          p: { xs: 1.4, md: 1.7 },
-          borderRadius: 4,
+          p: { xs: 1.1, md: 1.35 },
+          borderRadius: 3.5,
           border: "1px solid rgba(148,163,184,0.16)",
-          background:
-            "linear-gradient(135deg, rgba(255,255,255,0.95), rgba(248,250,252,0.98) 48%, rgba(238,242,255,0.94) 100%)",
-          boxShadow: "0 28px 54px rgba(15,23,42,0.08)",
+          bgcolor: "rgba(255,255,255,0.96)",
+          boxShadow: "0 16px 36px rgba(15,23,42,0.06)",
         }}
       >
-        <Stack spacing={1.35}>
+        <Stack spacing={1.1}>
           <Stack
             direction={{ xs: "column", xl: "row" }}
-            spacing={1.15}
+            spacing={1}
             alignItems={{ xs: "stretch", xl: "center" }}
             justifyContent="space-between"
           >
             <Stack direction="row" spacing={1} alignItems="center">
               <Box
                 sx={{
-                  width: 42,
-                  height: 42,
-                  borderRadius: 2.4,
+                  width: 36,
+                  height: 36,
+                  borderRadius: 2,
                   display: "grid",
                   placeItems: "center",
-                  bgcolor: "rgba(99,102,241,0.12)",
-                  color: "#4338ca",
+                  bgcolor: "rgba(15,23,42,0.06)",
+                  color: "#334155",
                 }}
               >
-                <FilterAltRoundedIcon sx={{ fontSize: 21 }} />
+                <FilterAltRoundedIcon sx={{ fontSize: 18 }} />
               </Box>
-              <Box>
-                <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
-                  Overrides Studio
-                </Typography>
-                <Typography variant="caption" sx={{ color: "#64748b", display: "block" }}>
-                  Filter branches, inspect effective rules, then open the side panel only when you need to override.
-                </Typography>
-              </Box>
+              <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
+                Overrides
+              </Typography>
             </Stack>
 
             <Stack direction={{ xs: "column", md: "row" }} spacing={1} sx={{ width: { xs: "100%", xl: "auto" } }}>
               <TextField
-                placeholder="Search branches"
+                placeholder="Search"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 size="small"
@@ -633,12 +627,18 @@ export function BranchThresholdOverrideManager(props: {
                   <Button
                     key={item.key}
                     variant={active ? "contained" : "outlined"}
-                    color={active ? "primary" : "inherit"}
                     onClick={() => setLens(item.key)}
                     sx={{
                       borderRadius: 999,
                       fontWeight: 900,
-                      boxShadow: active ? "0 16px 30px rgba(79,70,229,0.18)" : "none",
+                      color: active ? "#ffffff" : "#334155",
+                      borderColor: "rgba(148,163,184,0.2)",
+                      backgroundColor: active ? "#0f172a" : "transparent",
+                      boxShadow: "none",
+                      "&:hover": {
+                        backgroundColor: active ? "#0f172a" : "rgba(15,23,42,0.04)",
+                        borderColor: "rgba(15,23,42,0.16)",
+                      },
                     }}
                   >
                     {item.label}
@@ -647,33 +647,25 @@ export function BranchThresholdOverrideManager(props: {
               })}
             </Stack>
 
-            <Stack direction="row" spacing={0.75} flexWrap="wrap">
-              <Chip
-                size="small"
-                label={`${filteredBranches.length} shown`}
-                sx={{ fontWeight: 900, bgcolor: "rgba(15,23,42,0.06)", color: "#0f172a" }}
-              />
-              <Chip
-                size="small"
-                label={`${filteredBranches.filter((branch) => branchHasCustomOverride(branch)).length} custom in view`}
-                sx={{ fontWeight: 900, bgcolor: "rgba(14,165,233,0.1)", color: "#0369a1" }}
-              />
-            </Stack>
+            <Chip
+              size="small"
+              label={`${filteredBranches.length} shown`}
+              sx={{ fontWeight: 900, bgcolor: "rgba(15,23,42,0.06)", color: "#334155" }}
+            />
           </Stack>
 
-          <Stack direction={{ xs: "column", xl: "row" }} spacing={1.5} sx={{ alignItems: { xs: "stretch", xl: "flex-start" } }}>
+          <Stack direction={{ xs: "column", xl: "row" }} spacing={1.2} sx={{ alignItems: { xs: "stretch", xl: "flex-start" } }}>
             <Box
               sx={{
                 width: { xs: "100%", xl: 360 },
                 flexShrink: 0,
-                p: 1.2,
-                borderRadius: 3.2,
+                p: 1.05,
+                borderRadius: 3,
                 border: "1px solid rgba(148,163,184,0.16)",
-                bgcolor: "rgba(248,250,252,0.82)",
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.84)",
+                bgcolor: "rgba(248,250,252,0.72)",
               }}
             >
-              <Stack spacing={0.95}>
+              <Stack spacing={0.75}>
                 {filteredBranches.length ? (
                   filteredBranches.map((branch) => {
                     const active = selectedBranch?.id === branch.id;
@@ -688,55 +680,30 @@ export function BranchThresholdOverrideManager(props: {
                         <Box
                           sx={{
                             width: "100%",
-                            p: 1.1,
+                            p: 1,
                             borderRadius: 3,
-                            border: active ? "1px solid rgba(79,70,229,0.26)" : "1px solid rgba(148,163,184,0.16)",
-                            bgcolor: active ? "rgba(238,242,255,0.92)" : "rgba(255,255,255,0.92)",
-                            boxShadow: active ? "0 18px 30px rgba(79,70,229,0.14)" : "0 10px 20px rgba(15,23,42,0.05)",
-                            transition: "transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease",
+                            border: active ? "1px solid rgba(15,23,42,0.18)" : "1px solid rgba(148,163,184,0.16)",
+                            bgcolor: "rgba(255,255,255,0.94)",
+                            boxShadow: active ? "0 12px 24px rgba(15,23,42,0.08)" : "0 8px 18px rgba(15,23,42,0.04)",
+                            transition: "box-shadow 180ms ease, border-color 180ms ease",
                             "&:hover": {
-                              transform: "translateY(-1px)",
-                              boxShadow: "0 18px 30px rgba(15,23,42,0.08)",
+                              boxShadow: "0 12px 24px rgba(15,23,42,0.08)",
                             },
                           }}
                         >
-                          <Stack spacing={0.8}>
-                            <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-                              <Box sx={{ minWidth: 0 }}>
-                                <Typography sx={{ fontWeight: 900, color: "#0f172a" }} noWrap>
-                                  {branchLabel(branch)}
-                                </Typography>
-                                <Typography variant="caption" sx={{ color: "#64748b", display: "block" }} noWrap>
-                                  {safeText(branch.chainName).trim() || "No Chain"} • Orders {branch.ordersVendorId ?? "N/A"} • Availability {branch.availabilityVendorId}
-                                </Typography>
-                              </Box>
-                              <Chip
-                                size="small"
-                                label={thresholdSourceLabel(branchEffective.source)}
-                                sx={{
-                                  fontWeight: 900,
-                                  bgcolor: branchEffective.source === "branch" ? "rgba(14,165,233,0.1)" : "rgba(15,23,42,0.06)",
-                                  color: branchEffective.source === "branch" ? "#0369a1" : "#334155",
-                                }}
-                              />
-                            </Stack>
-
-                            <Stack direction="row" spacing={0.6} flexWrap="wrap">
-                              <Chip
-                                size="small"
-                                label={`Late ${branchEffective.lateThreshold} -> ${branchEffective.lateReopenThreshold ?? 0}`}
-                                sx={{ fontWeight: 900, bgcolor: "rgba(251,146,60,0.1)", color: "#c2410c" }}
-                              />
-                              <Chip
-                                size="small"
-                                label={customCount ? `${customCount} custom` : "Fully inherited"}
-                                sx={{
-                                  fontWeight: 900,
-                                  bgcolor: customCount ? "rgba(14,165,233,0.1)" : "rgba(148,163,184,0.14)",
-                                  color: customCount ? "#0369a1" : "#475569",
-                                }}
-                              />
-                            </Stack>
+                          <Stack spacing={0.35}>
+                            <Typography sx={{ fontWeight: 900, color: "#0f172a" }} noWrap>
+                              {branchLabel(branch)}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: "#64748b", display: "block" }} noWrap>
+                              {safeText(branch.chainName).trim() || "No Chain"}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: "#64748b", display: "block" }} noWrap>
+                              Late {branchEffective.lateThreshold} {"->"} {branchEffective.lateReopenThreshold ?? 0}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: "#64748b", display: "block" }} noWrap>
+                              {customCount ? `${customCount} custom` : thresholdSourceLabel(branchEffective.source)}
+                            </Typography>
                           </Stack>
                         </Box>
                       </ButtonBase>
@@ -754,57 +721,55 @@ export function BranchThresholdOverrideManager(props: {
               {selectedBranch && effective && inherited ? (
                 <Box
                   sx={{
-                    p: 1.35,
-                    borderRadius: 3.2,
+                    p: { xs: 1.1, md: 1.25 },
+                    borderRadius: 3,
                     border: "1px solid rgba(148,163,184,0.16)",
-                    background:
-                      "linear-gradient(140deg, rgba(255,255,255,0.94), rgba(238,242,255,0.82) 55%, rgba(248,250,252,0.98) 100%)",
-                    boxShadow: "0 18px 44px rgba(15,23,42,0.08)",
+                    bgcolor: "rgba(255,255,255,0.96)",
+                    boxShadow: "0 12px 28px rgba(15,23,42,0.06)",
                   }}
                 >
-                  <Stack spacing={1.2}>
+                  <Stack spacing={1.1}>
                     <Stack
                       direction={{ xs: "column", lg: "row" }}
-                      spacing={1.1}
+                      spacing={1}
                       justifyContent="space-between"
                       alignItems={{ xs: "flex-start", lg: "center" }}
                     >
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Box
-                          sx={{
-                            width: 42,
-                            height: 42,
-                            borderRadius: 2.4,
-                            display: "grid",
-                            placeItems: "center",
-                            bgcolor: "rgba(99,102,241,0.12)",
-                            color: "#4338ca",
-                          }}
-                        >
-                          <ApartmentRoundedIcon sx={{ fontSize: 21 }} />
-                        </Box>
-                        <Box>
-                          <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
-                            Focused Branch Screens
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: "#64748b", display: "block" }}>
-                            Branch details now open in a dedicated popup so the override studio stays compact.
-                          </Typography>
-                        </Box>
-                      </Stack>
+                      <Box>
+                        <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
+                          {branchLabel(selectedBranch)}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: "#64748b", display: "block" }}>
+                          {safeText(selectedBranch.chainName).trim() || "No Chain"} • {thresholdSourceLabel(effective.source)}
+                        </Typography>
+                      </Box>
 
                       <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
                         <Button
+                          variant="outlined"
+                          startIcon={<RestartAltRoundedIcon />}
+                          onClick={() => props.onClearBranchOverride(selectedBranch)}
+                          disabled={readOnly || savingBranchId === selectedBranch.id || !branchHasCustomOverride(selectedBranch)}
+                          sx={{ borderRadius: 999, fontWeight: 900 }}
+                        >
+                          Inherited
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          startIcon={<ApartmentRoundedIcon />}
+                          onClick={() => handleOpenBranchDetails(selectedBranch.id)}
+                          sx={{ borderRadius: 999, fontWeight: 900 }}
+                        >
+                          Open
+                        </Button>
+                        <Button
                           variant="contained"
                           startIcon={<TuneRoundedIcon />}
-                          onClick={() => handleOpenBranchDetails(selectedBranch.id)}
-                          sx={{
-                            borderRadius: 999,
-                            background: "linear-gradient(135deg, #312e81, #4f46e5)",
-                            boxShadow: "0 18px 30px rgba(79,70,229,0.18)",
-                          }}
+                          onClick={() => props.onEditBranch(selectedBranch)}
+                          disabled={readOnly || savingBranchId === selectedBranch.id}
+                          sx={{ borderRadius: 999, background: "#0f172a", boxShadow: "none" }}
                         >
-                          Open Branch Screen
+                          Edit
                         </Button>
                       </Stack>
                     </Stack>
@@ -812,29 +777,121 @@ export function BranchThresholdOverrideManager(props: {
                     <Stack direction="row" spacing={0.75} flexWrap="wrap">
                       <Chip
                         size="small"
-                        label={branchLabel(selectedBranch)}
-                        sx={{ fontWeight: 900, bgcolor: "rgba(14,165,233,0.1)", color: "#0369a1" }}
-                      />
-                      <Chip
-                        size="small"
                         label={`${countBranchOverrideRules(selectedBranch)} override rules`}
-                        sx={{ fontWeight: 900, bgcolor: "rgba(99,102,241,0.1)", color: "#4338ca" }}
+                        sx={{ fontWeight: 900, bgcolor: "rgba(15,23,42,0.06)", color: "#334155" }}
                       />
                       <Chip
                         size="small"
-                        label={`Source ${thresholdSourceLabel(effective.source)}`}
+                        label={`Orders ${selectedBranch.ordersVendorId ?? "N/A"}`}
+                        sx={{ fontWeight: 900, bgcolor: "rgba(15,23,42,0.06)", color: "#334155" }}
+                      />
+                      <Chip
+                        size="small"
+                        label={`Availability ${selectedBranch.availabilityVendorId}`}
                         sx={{ fontWeight: 900, bgcolor: "rgba(15,23,42,0.06)", color: "#334155" }}
                       />
                     </Stack>
 
-                    <Alert severity="info" variant="outlined" sx={{ borderRadius: 3 }}>
-                      Click any branch card to open its full branch screen, inspect effective rules, then edit overrides from there.
-                    </Alert>
+                    <Box
+                      sx={{
+                        display: "grid",
+                        gap: 1,
+                        gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))", xl: "repeat(3, minmax(0, 1fr))" },
+                      }}
+                    >
+                      {thresholdRuleCatalog.map((entry) => {
+                        if (entry.id === "late") {
+                          return (
+                            <RuleComparisonCard
+                              key={entry.id}
+                              entry={entry}
+                              effectiveLabel={`${effective.lateThreshold} -> ${effective.lateReopenThreshold ?? 0}`}
+                              overrideLabel={
+                                hasLateOverride(selectedBranch)
+                                  ? `${selectedBranch.lateThresholdOverride ?? inherited.lateThreshold} -> ${selectedBranch.lateReopenThresholdOverride ?? inherited.lateReopenThreshold ?? 0}`
+                                  : "Inherited"
+                              }
+                              statusLabel={hasLateOverride(selectedBranch) ? "Custom" : thresholdSourceLabel(inherited.source)}
+                            />
+                          );
+                        }
+
+                        if (entry.id === "unassigned") {
+                          return (
+                            <RuleComparisonCard
+                              key={entry.id}
+                              entry={entry}
+                              effectiveLabel={`${effective.unassignedThreshold} -> ${effective.unassignedReopenThreshold ?? 0}`}
+                              overrideLabel={
+                                hasUnassignedOverride(selectedBranch)
+                                  ? `${selectedBranch.unassignedThresholdOverride ?? inherited.unassignedThreshold} -> ${selectedBranch.unassignedReopenThresholdOverride ?? inherited.unassignedReopenThreshold ?? 0}`
+                                  : "Inherited"
+                              }
+                              statusLabel={hasUnassignedOverride(selectedBranch) ? "Custom" : thresholdSourceLabel(inherited.source)}
+                            />
+                          );
+                        }
+
+                        if (entry.id === "ready") {
+                          return (
+                            <RuleComparisonCard
+                              key={entry.id}
+                              entry={entry}
+                              effectiveLabel={`${effective.readyThreshold ?? 0} -> ${effective.readyReopenThreshold ?? 0}`}
+                              overrideLabel={
+                                hasReadyOverride(selectedBranch)
+                                  ? `${selectedBranch.readyThresholdOverride ?? inherited.readyThreshold ?? 0} -> ${selectedBranch.readyReopenThresholdOverride ?? inherited.readyReopenThreshold ?? 0}`
+                                  : "Inherited"
+                              }
+                              statusLabel={hasReadyOverride(selectedBranch) ? "Custom" : thresholdSourceLabel(inherited.source)}
+                            />
+                          );
+                        }
+
+                        if (entry.id === "capacity") {
+                          return (
+                            <RuleComparisonCard
+                              key={entry.id}
+                              entry={entry}
+                              effectiveLabel={effective.capacityRuleEnabled === false ? "Disabled" : "Enabled"}
+                              overrideLabel={
+                                hasCapacityOverride(selectedBranch)
+                                  ? (selectedBranch.capacityRuleEnabledOverride ? "Enabled" : "Disabled")
+                                  : "Inherited"
+                              }
+                              statusLabel={hasCapacityOverride(selectedBranch) ? "Custom" : thresholdSourceLabel(inherited.source)}
+                            />
+                          );
+                        }
+
+                        return (
+                          <RuleComparisonCard
+                            key={entry.id}
+                            entry={entry}
+                            effectiveLabel={
+                              effective.capacityPerHourEnabled === true && typeof effective.capacityPerHourLimit === "number"
+                                ? `${effective.capacityPerHourLimit}/h`
+                                : "Disabled"
+                            }
+                            overrideLabel={
+                              hasCapacityHourOverride(selectedBranch)
+                                ? (
+                                  selectedBranch.capacityPerHourEnabledOverride && typeof selectedBranch.capacityPerHourLimitOverride === "number"
+                                    ? `${selectedBranch.capacityPerHourLimitOverride}/h`
+                                    : "Disabled"
+                                )
+                                : "Inherited"
+                            }
+                            statusLabel={hasCapacityHourOverride(selectedBranch) ? "Custom" : thresholdSourceLabel(inherited.source)}
+                          />
+                        );
+                      })}
+                    </Box>
                   </Stack>
                 </Box>
               ) : (
-                <Alert severity="info" variant="outlined" sx={{ borderRadius: 3.2 }}>
-                  Select a branch to inspect its effective rules and override state.
+                <Alert severity="info" variant="outlined" sx={{ borderRadius: 3 }}>
+                  No branches
                 </Alert>
               )}
             </Box>
@@ -902,7 +959,7 @@ export function BranchThresholdOverrideManager(props: {
                       {branchLabel(selectedBranch)}
                     </Typography>
                     <Typography variant="caption" sx={{ color: "#64748b", display: "block" }}>
-                      {safeText(selectedBranch.chainName).trim() || "No Chain"} • {thresholdSourceLabel(effective.source)} profile
+                      {safeText(selectedBranch.chainName).trim() || "No Chain"} • {thresholdSourceLabel(effective.source)}
                     </Typography>
                   </Box>
                 </Stack>
@@ -952,7 +1009,7 @@ export function BranchThresholdOverrideManager(props: {
                 />
                 <Chip
                   size="small"
-                  label={`Inherited from ${inherited.source === "chain" ? safeText(selectedBranch.chainName).trim() || "No Chain" : "Global defaults"}`}
+                  label={inherited.source === "chain" ? safeText(selectedBranch.chainName).trim() || "No Chain" : "Global"}
                   sx={{ fontWeight: 900, bgcolor: "rgba(15,23,42,0.06)", color: "#334155" }}
                 />
                 <Chip
@@ -1086,10 +1143,10 @@ export function BranchThresholdOverrideManager(props: {
             <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
               <Box>
                 <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
-                  Edit Branch Override
+                  Edit Override
                 </Typography>
                 <Typography variant="caption" sx={{ color: "#64748b", display: "block" }}>
-                  {branchLabel(selectedBranch)} • leave numeric fields blank to inherit the effective value.
+                  {branchLabel(selectedBranch)}
                 </Typography>
               </Box>
 
@@ -1102,12 +1159,6 @@ export function BranchThresholdOverrideManager(props: {
                 Close
               </Button>
             </Stack>
-
-            <Alert severity="info" variant="outlined" sx={{ borderRadius: 2.8 }}>
-              Close thresholds for Late and Unassigned still save together. Reopen values can stay blank to inherit.
-            </Alert>
-
-            <Divider />
 
             <Stack spacing={1.1}>
               {thresholdRuleCatalog.map((entry) => {
@@ -1123,7 +1174,7 @@ export function BranchThresholdOverrideManager(props: {
                       limitLabel=""
                       closePlaceholder={String(effective.lateThreshold)}
                       reopenPlaceholder={String(effective.lateReopenThreshold ?? 0)}
-                      helperText="Override the branch-level late close/reopen pair only when this branch needs extra protection."
+                      helperText=""
                       onCloseChange={(value) => props.onChangeEditor({ lateThreshold: value })}
                       onReopenChange={(value) => props.onChangeEditor({ lateReopenThreshold: value })}
                     />
@@ -1142,7 +1193,7 @@ export function BranchThresholdOverrideManager(props: {
                       limitLabel=""
                       closePlaceholder={String(effective.unassignedThreshold)}
                       reopenPlaceholder={String(effective.unassignedReopenThreshold ?? 0)}
-                      helperText="Override the branch-level unassigned thresholds for special staffing situations."
+                      helperText=""
                       onCloseChange={(value) => props.onChangeEditor({ unassignedThreshold: value })}
                       onReopenChange={(value) => props.onChangeEditor({ unassignedReopenThreshold: value })}
                     />
@@ -1161,7 +1212,7 @@ export function BranchThresholdOverrideManager(props: {
                       limitLabel=""
                       closePlaceholder={String(effective.readyThreshold ?? 0)}
                       reopenPlaceholder={String(effective.readyReopenThreshold ?? 0)}
-                      helperText="Override the ready-to-pickup pressure thresholds for this branch only."
+                      helperText=""
                       onCloseChange={(value) => props.onChangeEditor({ readyThreshold: value })}
                       onReopenChange={(value) => props.onChangeEditor({ readyReopenThreshold: value })}
                     />
@@ -1178,7 +1229,7 @@ export function BranchThresholdOverrideManager(props: {
                       closeLabelSuffix=""
                       reopenLabelSuffix=""
                       limitLabel=""
-                      helperText="Match the inherited toggle to clear the custom capacity override."
+                      helperText=""
                       onToggleChange={(value) => props.onChangeEditor({ capacityRuleEnabled: value })}
                     />
                   );
@@ -1194,7 +1245,7 @@ export function BranchThresholdOverrideManager(props: {
                     reopenLabelSuffix=""
                     limitLabel="Capacity / Hour Limit Override"
                     limitPlaceholder={effective.capacityPerHourLimit == null ? "" : String(effective.capacityPerHourLimit)}
-                    helperText="Set a branch-only hourly limiter, or match the inherited state to remove the custom override."
+                    helperText=""
                     onToggleChange={(value) => props.onChangeEditor({ capacityPerHourEnabled: value })}
                     onLimitChange={(value) => props.onChangeEditor({ capacityPerHourLimit: value })}
                   />

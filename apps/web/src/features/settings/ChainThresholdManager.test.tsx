@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 describe("ChainThresholdManager", () => {
-  it("opens a chain popup when a chain card is pressed while keeping the global defaults pinned", async () => {
+  it("hides the defaults section while still allowing chain details", async () => {
     window.matchMedia = desktopMatchMedia as any;
 
     render(
@@ -83,9 +83,11 @@ describe("ChainThresholdManager", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Global Defaults")).toBeInTheDocument();
       expect(screen.getAllByText("Chain A").length).toBeGreaterThan(0);
+      expect(screen.getByRole("button", { name: "Overrides" })).toBeInTheDocument();
     });
+
+    expect(screen.queryByText("Global Defaults")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getAllByText("Chain A")[0]);
 
@@ -166,6 +168,6 @@ describe("ChainThresholdManager", () => {
 
     expect(screen.getByLabelText("Chain Name")).toHaveValue("Chain A");
     expect(screen.getByLabelText("Late Reopen Threshold")).toHaveValue(1);
-    expect(screen.getByText("Edit Chain Workspace")).toBeInTheDocument();
+    expect(screen.getByText("Edit Chain")).toBeInTheDocument();
   });
 });

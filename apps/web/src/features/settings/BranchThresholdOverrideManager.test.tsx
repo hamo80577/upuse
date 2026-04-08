@@ -81,6 +81,7 @@ describe("BranchThresholdOverrideManager", () => {
     await waitFor(() => {
       expect(screen.getAllByText("Branch A").length).toBeGreaterThan(0);
       expect(screen.getAllByText(/No Chain/i).length).toBeGreaterThan(0);
+      expect(screen.getByText("Late Orders")).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getAllByText("Branch A")[0]);
@@ -89,6 +90,85 @@ describe("BranchThresholdOverrideManager", () => {
       expect(screen.getByTestId("branch-details-dialog")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Edit Override" })).toBeInTheDocument();
     });
+  });
+
+  it("keeps matching branches visible when the chain filter casing or spaces differ", async () => {
+    window.matchMedia = desktopMatchMedia as any;
+
+    render(
+      <BranchThresholdOverrideManager
+        branches={[
+          {
+            id: 10,
+            name: "Branch D",
+            chainName: "Chain A",
+            ordersVendorId: 1004,
+            availabilityVendorId: "2005",
+            enabled: true,
+            catalogState: "available",
+            lateThresholdOverride: null,
+            lateReopenThresholdOverride: null,
+            unassignedThresholdOverride: null,
+            unassignedReopenThresholdOverride: null,
+            readyThresholdOverride: null,
+            readyReopenThresholdOverride: null,
+            capacityRuleEnabledOverride: null,
+            capacityPerHourEnabledOverride: null,
+            capacityPerHourLimitOverride: null,
+          },
+        ]}
+        chains={[{
+          name: "Chain A",
+          lateThreshold: 5,
+          lateReopenThreshold: 1,
+          unassignedThreshold: 7,
+          unassignedReopenThreshold: 2,
+          readyThreshold: 3,
+          readyReopenThreshold: 1,
+          capacityRuleEnabled: true,
+          capacityPerHourEnabled: false,
+          capacityPerHourLimit: null,
+        }]}
+        globalThresholds={{
+          lateThreshold: 5,
+          lateReopenThreshold: 1,
+          unassignedThreshold: 7,
+          unassignedReopenThreshold: 2,
+          readyThreshold: 2,
+          readyReopenThreshold: 1,
+          capacityRuleEnabled: true,
+          capacityPerHourEnabled: false,
+          capacityPerHourLimit: null,
+        }}
+        chainFilter="  chain a  "
+        onChainFilterChange={vi.fn()}
+        editingBranchId={null}
+        branchEditor={{
+          lateThreshold: "",
+          lateReopenThreshold: "",
+          unassignedThreshold: "",
+          unassignedReopenThreshold: "",
+          readyThreshold: "",
+          readyReopenThreshold: "",
+          capacityRuleEnabled: true,
+          capacityPerHourEnabled: false,
+          capacityPerHourLimit: "",
+        }}
+        savingBranchId={null}
+        onEditBranch={vi.fn()}
+        onChangeEditor={vi.fn()}
+        onSaveBranch={vi.fn()}
+        onClearBranchOverride={vi.fn()}
+        onCancelEdit={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Branch D").length).toBeGreaterThan(0);
+      expect(screen.getByText("Late Orders")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("No branches match the current filters.")).not.toBeInTheDocument();
   });
 
   it("shows the override drawer fields for the selected branch", async () => {
@@ -170,7 +250,7 @@ describe("BranchThresholdOverrideManager", () => {
     expect(screen.getByLabelText("Unassigned Reopen Threshold Override")).toHaveValue(3);
     expect(screen.getByLabelText("Ready Threshold Override")).toHaveValue(4);
     expect(screen.getByLabelText("Ready Reopen Threshold Override")).toHaveValue(1);
-    expect(screen.getByText("Edit Branch Override")).toBeInTheDocument();
+    expect(screen.getByText("Edit Override")).toBeInTheDocument();
   });
 
   it("uses a bottom sheet on mobile", async () => {

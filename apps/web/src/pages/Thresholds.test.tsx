@@ -158,7 +158,7 @@ describe("ThresholdsPage", () => {
     });
 
     expect(mockApi.dashboard).not.toHaveBeenCalled();
-    expect(screen.getByText("Rule Control Studio")).toBeInTheDocument();
+    expect(screen.getByText("Thresholds")).toBeInTheDocument();
     expect(screen.getByTestId("chains-studio")).toBeInTheDocument();
   });
 
@@ -195,6 +195,6 @@ describe("ThresholdsPage", () => {
       expect(screen.getByText("chains-read-only")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("You can review thresholds, but editing actions are disabled for your role.")).toBeInTheDocument();
+    expect(screen.getByText("Read only")).toBeInTheDocument();
   });
 });
