@@ -5,6 +5,7 @@ import type { SecurityConfig } from "../config/security.js";
 import { getSessionUserByToken } from "../services/authStore.js";
 import type { MonitorEngine } from "../services/monitorEngine.js";
 import type { AppUser, DashboardSnapshot } from "../types/models.js";
+import { createConnectionQuota } from "./connectionQuota.js";
 import { readAuthSessionTokenFromCookieHeader } from "./sessionCookie.js";
 import { isTrustedOrigin, parseCorsOrigins } from "./security.js";
 
@@ -69,35 +70,13 @@ export function attachDashboardWebSocketServer(options: {
 }) {
   const webSocketServer = new WebSocketServer({ noServer: true });
   const allowedOrigins = parseCorsOrigins(process.env.UPUSE_CORS_ORIGINS);
-  const activeConnectionsByUserId = new Map<number, number>();
   const aliveBySocket = new WeakMap<WebSocket, boolean>();
-  let activeConnectionsTotal = 0;
-
-  const releaseConnectionSlot = (userId: number) => {
-    const nextUserCount = (activeConnectionsByUserId.get(userId) ?? 1) - 1;
-    if (nextUserCount > 0) {
-      activeConnectionsByUserId.set(userId, nextUserCount);
-    } else {
-      activeConnectionsByUserId.delete(userId);
-    }
-
-    activeConnectionsTotal = Math.max(0, activeConnectionsTotal - 1);
-  };
-
-  const acceptConnection = (user: AppUser) => {
-    const userConnectionCount = activeConnectionsByUserId.get(user.id) ?? 0;
-    if (userConnectionCount >= options.securityConfig.maxStreamConnectionsPerUser) {
-      return { ok: false as const, statusCode: 429, message: "Too many active dashboard streams for the current user." };
-    }
-
-    if (activeConnectionsTotal >= options.securityConfig.maxStreamConnectionsTotal) {
-      return { ok: false as const, statusCode: 429, message: "Too many active dashboard streams." };
-    }
-
-    activeConnectionsByUserId.set(user.id, userConnectionCount + 1);
-    activeConnectionsTotal += 1;
-    return { ok: true as const };
-  };
+  const connectionQuota = createConnectionQuota({
+    maxConnectionsPerUser: options.securityConfig.maxStreamConnectionsPerUser,
+    maxConnectionsTotal: options.securityConfig.maxStreamConnectionsTotal,
+    perUserLimitMessage: "Too many active dashboard streams for the current user.",
+    globalLimitMessage: "Too many active dashboard streams.",
+  });
 
   options.server.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -117,7 +96,7 @@ export function attachDashboardWebSocketServer(options: {
       return;
     }
 
-    const accepted = acceptConnection(user);
+    const accepted = connectionQuota.acquire(user.id);
     if (!accepted.ok) {
       writeUpgradeError(socket, accepted.statusCode, accepted.message);
       return;
@@ -142,7 +121,7 @@ export function attachDashboardWebSocketServer(options: {
       });
     } catch (error) {
       console.error("Dashboard WebSocket subscription failed", error);
-      releaseConnectionSlot(user.id);
+      connectionQuota.release(user.id);
       try {
         ws.close(1011, "Failed to initialize live dashboard stream");
       } catch {
@@ -173,7 +152,7 @@ export function attachDashboardWebSocketServer(options: {
       cleaned = true;
       clearInterval(heartbeat);
       unsubscribe();
-      releaseConnectionSlot(user.id);
+      connectionQuota.release(user.id);
     };
 
     ws.on("pong", () => {

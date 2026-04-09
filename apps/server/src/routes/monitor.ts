@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { createConnectionQuota } from "../http/connectionQuota.js";
 import type { MonitorEngine } from "../services/monitorEngine.js";
 
 interface StreamRouteSecurityOptions {
@@ -41,8 +42,12 @@ export function refreshOrdersNowRoute(engine: MonitorEngine) {
 
 // Server-Sent Events stream for live dashboard updates
 export function streamRoute(engine: MonitorEngine, options: StreamRouteSecurityOptions) {
-  const activeConnectionsByUserId = new Map<number, number>();
-  let activeConnectionsTotal = 0;
+  const connectionQuota = createConnectionQuota({
+    maxConnectionsPerUser: options.maxConnectionsPerUser,
+    maxConnectionsTotal: options.maxTotalConnections,
+    perUserLimitMessage: "Too many active dashboard streams for the current user.",
+    globalLimitMessage: "Too many active dashboard streams.",
+  });
 
   return (req: Request, res: Response) => {
     const userId = req.authUser?.id;
@@ -54,25 +59,14 @@ export function streamRoute(engine: MonitorEngine, options: StreamRouteSecurityO
       return;
     }
 
-    const userConnectionCount = activeConnectionsByUserId.get(userId) ?? 0;
-    if (userConnectionCount >= options.maxConnectionsPerUser) {
+    const acquireResult = connectionQuota.acquire(userId);
+    if (!acquireResult.ok) {
       res.status(429).json({
         ok: false,
-        message: "Too many active dashboard streams for the current user.",
+        message: acquireResult.message,
       });
       return;
     }
-
-    if (activeConnectionsTotal >= options.maxTotalConnections) {
-      res.status(429).json({
-        ok: false,
-        message: "Too many active dashboard streams.",
-      });
-      return;
-    }
-
-    activeConnectionsByUserId.set(userId, userConnectionCount + 1);
-    activeConnectionsTotal += 1;
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-store");
@@ -98,13 +92,7 @@ export function streamRoute(engine: MonitorEngine, options: StreamRouteSecurityO
       cleaned = true;
       clearInterval(heartbeat);
       unsubscribe();
-      const nextUserCount = (activeConnectionsByUserId.get(userId) ?? 1) - 1;
-      if (nextUserCount > 0) {
-        activeConnectionsByUserId.set(userId, nextUserCount);
-      } else {
-        activeConnectionsByUserId.delete(userId);
-      }
-      activeConnectionsTotal = Math.max(0, activeConnectionsTotal - 1);
+      connectionQuota.release(userId);
       if (!res.writableEnded && !res.destroyed) {
         try {
           res.end();

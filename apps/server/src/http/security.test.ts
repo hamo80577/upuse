@@ -35,7 +35,7 @@ describe("security helpers", () => {
     expect(isAllowedOrigin("https://other.upuse.local", ["https://console.upuse.local"])).toBe(false);
   });
 
-  it("returns a CORS deny error for blocked origins in the cors delegate", () => {
+  it("silently denies blocked origins in the cors delegate", () => {
     const delegate = createCorsOptions(["https://console.upuse.local"]);
     const callback = vi.fn();
 
@@ -51,11 +51,32 @@ describe("security helpers", () => {
       },
     } as any, callback);
 
-    expect(callback).toHaveBeenCalledWith(expect.any(Error), {
+    expect(callback).toHaveBeenCalledWith(null, {
       origin: false,
       credentials: true,
     });
-    expect((callback.mock.calls[0]?.[0] as Error).message).toBe("CORS origin not allowed");
+  });
+
+  it("allows trusted origins in the cors delegate without entering an error flow", () => {
+    const delegate = createCorsOptions(["https://console.upuse.local"]);
+    const callback = vi.fn();
+
+    delegate({
+      headers: {
+        origin: "https://console.upuse.local",
+        host: "api.upuse.local",
+      },
+      protocol: "https",
+      get: (name: string) => (name.toLowerCase() === "host" ? "api.upuse.local" : undefined),
+      app: {
+        get: () => false,
+      },
+    } as any, callback);
+
+    expect(callback).toHaveBeenCalledWith(null, {
+      origin: "https://console.upuse.local",
+      credentials: true,
+    });
   });
 
   it("resolves the request origin from forwarded production headers", () => {

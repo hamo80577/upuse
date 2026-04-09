@@ -73,6 +73,11 @@ async function startServer(overrides?: Partial<{ maxConnectionsPerUser: number; 
       loginRateLimitMaxKeys: 5000,
       maxStreamConnectionsPerUser: overrides?.maxConnectionsPerUser ?? 3,
       maxStreamConnectionsTotal: overrides?.maxConnectionsTotal ?? 10,
+      scanoCsvUploadMaxFileSizeBytes: 5 * 1024 * 1024,
+      scanoCsvUploadMaxParts: 5,
+      scanoImageUploadMaxFileSizeBytes: 5 * 1024 * 1024,
+      scanoImageUploadMaxFiles: 5,
+      scanoImageUploadMaxParts: 10,
     },
   });
 

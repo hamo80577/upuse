@@ -177,6 +177,11 @@ If you want one Windows command that loads `.env`, builds, and starts production
 - `UPUSE_LOGIN_RATE_LIMIT_MAX_KEYS`: maximum number of distinct login throttle keys retained in memory. Default `5000`.
 - `UPUSE_STREAM_MAX_CONNECTIONS_PER_USER`: maximum concurrent `/api/stream` connections per authenticated user. Default `3`.
 - `UPUSE_STREAM_MAX_CONNECTIONS_TOTAL`: maximum concurrent `/api/stream` connections across the process. Default `100`.
+- `UPUSE_SCANO_CSV_UPLOAD_MAX_FILE_SIZE_BYTES`: maximum CSV upload size for Scano master-product imports. Default `5242880` (5 MB).
+- `UPUSE_SCANO_CSV_UPLOAD_MAX_PARTS`: maximum multipart parts accepted for Scano CSV uploads. Default `5`.
+- `UPUSE_SCANO_IMAGE_UPLOAD_MAX_FILE_SIZE_BYTES`: maximum size per uploaded Scano task image. Default `5242880` (5 MB).
+- `UPUSE_SCANO_IMAGE_UPLOAD_MAX_FILES`: maximum uploaded Scano task images per request. Default `5`.
+- `UPUSE_SCANO_IMAGE_UPLOAD_MAX_PARTS`: maximum multipart parts accepted for Scano task-image uploads. Default `10`.
 - `UPUSE_BOOTSTRAP_ADMIN_EMAIL`: email for creating the first admin account when the database has no users yet.
 - `UPUSE_BOOTSTRAP_ADMIN_PASSWORD`: password for the bootstrap admin account. Minimum 12 characters.
 - `UPUSE_BOOTSTRAP_ADMIN_NAME`: optional display name for the bootstrap admin. Defaults to `Administrator`.

@@ -8,6 +8,7 @@ import { getCurrentCairoDayKey, getPerformanceSummary } from "../services/perfor
 import { buildPerformanceStatusColorMap } from "../services/performanceStatusColors.js";
 import { subscribeOrdersMirrorEntitySync, type OrdersMirrorEntitySyncStatus } from "../services/ordersMirrorStore.js";
 import type { AppUser, PerformanceSummaryResponse } from "../types/models.js";
+import { createConnectionQuota } from "./connectionQuota.js";
 import { readAuthSessionTokenFromCookieHeader } from "./sessionCookie.js";
 import { isTrustedOrigin, parseCorsOrigins } from "./security.js";
 
@@ -72,41 +73,19 @@ export function attachPerformanceWebSocketServer(options: {
 }) {
   const webSocketServer = new WebSocketServer({ noServer: true });
   const allowedOrigins = parseCorsOrigins(process.env.UPUSE_CORS_ORIGINS);
-  const activeConnectionsByUserId = new Map<number, number>();
   const activeSockets = new Set<WebSocket>();
   const aliveBySocket = new WeakMap<WebSocket, boolean>();
-  let activeConnectionsTotal = 0;
+  const connectionQuota = createConnectionQuota({
+    maxConnectionsPerUser: options.securityConfig.maxStreamConnectionsPerUser,
+    maxConnectionsTotal: options.securityConfig.maxStreamConnectionsTotal,
+    perUserLimitMessage: "Too many active performance streams for the current user.",
+    globalLimitMessage: "Too many active performance streams.",
+  });
   let unsubscribeSync = () => {};
   let syncSubscribed = false;
   let lastSummarySnapshot: PerformanceSummaryResponse | null = null;
   let summaryBuildPromise: Promise<PerformanceSummaryResponse | null> | null = null;
   let pendingSummaryBroadcast = false;
-
-  const releaseConnectionSlot = (userId: number) => {
-    const nextUserCount = (activeConnectionsByUserId.get(userId) ?? 1) - 1;
-    if (nextUserCount > 0) {
-      activeConnectionsByUserId.set(userId, nextUserCount);
-    } else {
-      activeConnectionsByUserId.delete(userId);
-    }
-
-    activeConnectionsTotal = Math.max(0, activeConnectionsTotal - 1);
-  };
-
-  const acceptConnection = (user: AppUser) => {
-    const userConnectionCount = activeConnectionsByUserId.get(user.id) ?? 0;
-    if (userConnectionCount >= options.securityConfig.maxStreamConnectionsPerUser) {
-      return { ok: false as const, statusCode: 429, message: "Too many active performance streams for the current user." };
-    }
-
-    if (activeConnectionsTotal >= options.securityConfig.maxStreamConnectionsTotal) {
-      return { ok: false as const, statusCode: 429, message: "Too many active performance streams." };
-    }
-
-    activeConnectionsByUserId.set(user.id, userConnectionCount + 1);
-    activeConnectionsTotal += 1;
-    return { ok: true as const };
-  };
 
   const getCachedSummarySnapshot = () => {
     if (!lastSummarySnapshot) return null;
@@ -223,7 +202,7 @@ export function attachPerformanceWebSocketServer(options: {
       return;
     }
 
-    const accepted = acceptConnection(user);
+    const accepted = connectionQuota.acquire(user.id);
     if (!accepted.ok) {
       writeUpgradeError(socket, accepted.statusCode, accepted.message);
       return;
@@ -244,7 +223,7 @@ export function attachPerformanceWebSocketServer(options: {
     } catch (error) {
       console.error("Performance WebSocket subscription failed", error);
       activeSockets.delete(ws);
-      releaseConnectionSlot(user.id);
+      connectionQuota.release(user.id);
       try {
         ws.close(1011, "Failed to initialize live performance stream");
       } catch {
@@ -278,7 +257,7 @@ export function attachPerformanceWebSocketServer(options: {
       activeSockets.delete(ws);
       clearInterval(heartbeat);
       releaseSyncSubscriptionIfIdle();
-      releaseConnectionSlot(user.id);
+      connectionQuota.release(user.id);
     };
 
     ws.on("pong", () => {

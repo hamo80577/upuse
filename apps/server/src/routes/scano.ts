@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import multer from "multer";
 import { z } from "zod";
+import { resolveSecurityConfig } from "../config/security.js";
 import {
   completeScanoTask,
   createScanoTask,
@@ -197,15 +198,68 @@ const ScanoMasterProductFormSchema = z.object({
   mappingJson: z.string().trim().min(2),
 });
 
-const masterProductUpload = multer({
-  storage: multer.memoryStorage(),
-});
-const scanoTaskProductUpload = multer({
-  storage: multer.memoryStorage(),
-});
+const securityConfig = resolveSecurityConfig();
+const ALLOWED_SCANO_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg"]);
 
-export const scanoMasterProductUpload = masterProductUpload.single("file");
-export const scanoTaskProductImagesUpload = scanoTaskProductUpload.array("images");
+function looksLikeCsvUpload(file: Express.Multer.File) {
+  const normalizedName = file.originalname.trim().toLowerCase();
+  const normalizedMimeType = file.mimetype.trim().toLowerCase();
+  return normalizedName.endsWith(".csv")
+    || normalizedMimeType.includes("csv")
+    || normalizedMimeType === "text/plain"
+    || normalizedMimeType === "application/vnd.ms-excel";
+}
+
+function isAllowedScanoImageUpload(file: Express.Multer.File) {
+  return ALLOWED_SCANO_IMAGE_MIME_TYPES.has(file.mimetype.trim().toLowerCase());
+}
+
+export function createScanoCsvUploadMiddleware() {
+  return multer({
+    storage: multer.memoryStorage(),
+    limits: {
+      fileSize: securityConfig.scanoCsvUploadMaxFileSizeBytes,
+      files: 1,
+      parts: securityConfig.scanoCsvUploadMaxParts,
+    },
+    fileFilter: (_req, file, callback) => {
+      if (looksLikeCsvUpload(file)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(Object.assign(
+        new ScanoMasterProductStoreError("Only CSV files are supported.", 400, "SCANO_MASTER_PRODUCT_FILE_INVALID"),
+        { errorOrigin: "validation" as const },
+      ));
+    },
+  }).single("file");
+}
+
+export function createScanoImageUploadMiddleware() {
+  return multer({
+    storage: multer.memoryStorage(),
+    limits: {
+      fileSize: securityConfig.scanoImageUploadMaxFileSizeBytes,
+      files: securityConfig.scanoImageUploadMaxFiles,
+      parts: securityConfig.scanoImageUploadMaxParts,
+    },
+    fileFilter: (_req, file, callback) => {
+      if (isAllowedScanoImageUpload(file)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(Object.assign(
+        new ScanoTaskStoreError("Only PNG and JPEG image uploads are supported.", 400, "SCANO_TASK_PRODUCT_IMAGE_TYPE_INVALID"),
+        { errorOrigin: "validation" as const },
+      ));
+    },
+  }).array("images");
+}
+
+export const scanoMasterProductUpload = createScanoCsvUploadMiddleware();
+export const scanoTaskProductImagesUpload = createScanoImageUploadMiddleware();
 
 function getActorContext(req: Request) {
   const actorUserId = req.authUser?.id;

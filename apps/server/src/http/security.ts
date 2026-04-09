@@ -105,8 +105,8 @@ export function createCorsOptions(
     const requestOrigin = firstHeaderValue(req.headers.origin);
     const allow = isTrustedOrigin(requestOrigin, req, trustedOrigins);
 
-    callback(allow ? null : new Error("CORS origin not allowed"), {
-      origin: allow,
+    callback(null, {
+      origin: allow ? requestOrigin ?? true : false,
       credentials: true,
     });
   };

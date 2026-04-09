@@ -125,6 +125,7 @@ const TINY_PNG_BYTES = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZfV8AAAAASUVORK5CYII=",
   "base64",
 );
+const TOO_LARGE_UPLOAD_BYTES = Buffer.alloc((5 * 1024 * 1024) + 1, 0x61);
 const TEST_SCANO_STORAGE_DIR = path.join(resolveDataDir(), "scano");
 
 function createApp() {
@@ -943,6 +944,53 @@ describe("scano routes", () => {
     expect(detailBody.item.exampleRows).toHaveLength(2);
     expect(detailBody.item.exampleRows[0]?.sku).toBe("SKU-1");
     expect(detailBody.item.exampleRows[1]?.sku).toBe("SKU-2");
+  });
+
+  it("rejects non-csv master-product uploads with a clear 400 response", async () => {
+    const previewFormData = new FormData();
+    previewFormData.set("file", new Blob([TINY_PNG_BYTES], { type: "image/png" }), "products.png");
+
+    const response = await fetch(`${baseUrl}/api/scano/master-products/preview`, {
+      method: "POST",
+      headers: {
+        "x-role": "user",
+        "x-user-id": "4",
+        "x-scano-role": "team_lead",
+      },
+      body: previewFormData,
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toMatchObject({
+      ok: false,
+      message: "Only CSV files are supported.",
+      code: "SCANO_MASTER_PRODUCT_FILE_INVALID",
+      errorOrigin: "validation",
+    });
+  });
+
+  it("rejects oversized master-product csv uploads with a clear 400 response", async () => {
+    const previewFormData = new FormData();
+    previewFormData.set("file", new Blob([TOO_LARGE_UPLOAD_BYTES], { type: "text/csv" }), "products.csv");
+
+    const response = await fetch(`${baseUrl}/api/scano/master-products/preview`, {
+      method: "POST",
+      headers: {
+        "x-role": "admin",
+        "x-primary-admin": "true",
+      },
+      body: previewFormData,
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toMatchObject({
+      ok: false,
+      message: "File too large",
+      code: "UPLOAD_ERROR",
+      errorOrigin: "validation",
+    });
   });
 
   it("rejects invalid master product mappings and replaces existing chain imports atomically", async () => {
@@ -3002,9 +3050,151 @@ describe("scano routes", () => {
     });
   });
 
-  it.todo("rejects oversized scanner image uploads before product persistence");
+  it("rejects oversized scanner image uploads before product persistence", async () => {
+    insertTeamMember({ id: 11, name: "Ali", linkedUserId: 2 });
+    insertTask({ id: TASK_1, scheduledAt: "2026-04-10T08:00:00.000Z", status: "in_progress", startedByUserId: 2, startedByTeamMemberId: 11 });
+    assignTask(TASK_1, 11);
+    insertParticipant({ taskId: TASK_1, teamMemberId: 11 });
 
-  it.todo("rejects non-image scanner uploads before product persistence");
+    const oversizedForm = new FormData();
+    oversizedForm.set("payloadJson", JSON.stringify({
+      externalProductId: null,
+      barcode: "2233445566",
+      barcodes: ["2233445566"],
+      sku: "SKU-BIG",
+      price: "200",
+      itemNameEn: "Big Upload Product",
+      itemNameAr: null,
+      sourceMeta: {
+        sourceType: "manual",
+        chain: "no",
+        vendor: "no",
+        masterfile: "no",
+        new: "yes",
+      },
+      imageUrls: [],
+      existingImageIds: [],
+    }));
+    oversizedForm.append("images", new Blob([TOO_LARGE_UPLOAD_BYTES], { type: "image/png" }), "too-large.png");
+
+    const response = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/products`, {
+      method: "POST",
+      headers: {
+        "x-role": "user",
+        "x-user-id": "2",
+        "x-scano-role": "scanner",
+      },
+      body: oversizedForm,
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toMatchObject({
+      ok: false,
+      message: "File too large",
+      code: "UPLOAD_ERROR",
+      errorOrigin: "validation",
+    });
+    expect(testDb.prepare("SELECT COUNT(*) AS count FROM scano_task_products WHERE taskId = ?").get(TASK_1)).toEqual({ count: 0 });
+  });
+
+  it("rejects non-image scanner uploads before product persistence", async () => {
+    insertTeamMember({ id: 11, name: "Ali", linkedUserId: 2 });
+    insertTask({ id: TASK_1, scheduledAt: "2026-04-10T08:00:00.000Z", status: "in_progress", startedByUserId: 2, startedByTeamMemberId: 11 });
+    assignTask(TASK_1, 11);
+    insertParticipant({ taskId: TASK_1, teamMemberId: 11 });
+
+    const invalidTypeForm = new FormData();
+    invalidTypeForm.set("payloadJson", JSON.stringify({
+      externalProductId: null,
+      barcode: "9988776655",
+      barcodes: ["9988776655"],
+      sku: "SKU-TEXT",
+      price: "200",
+      itemNameEn: "Invalid Type Product",
+      itemNameAr: null,
+      sourceMeta: {
+        sourceType: "manual",
+        chain: "no",
+        vendor: "no",
+        masterfile: "no",
+        new: "yes",
+      },
+      imageUrls: [],
+      existingImageIds: [],
+    }));
+    invalidTypeForm.append("images", new Blob(["not-an-image"], { type: "text/plain" }), "notes.txt");
+
+    const response = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/products`, {
+      method: "POST",
+      headers: {
+        "x-role": "user",
+        "x-user-id": "2",
+        "x-scano-role": "scanner",
+      },
+      body: invalidTypeForm,
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toMatchObject({
+      ok: false,
+      message: "Only PNG and JPEG image uploads are supported.",
+      code: "SCANO_TASK_PRODUCT_IMAGE_TYPE_INVALID",
+      errorOrigin: "validation",
+    });
+    expect(testDb.prepare("SELECT COUNT(*) AS count FROM scano_task_products WHERE taskId = ?").get(TASK_1)).toEqual({ count: 0 });
+  });
+
+  it("rejects more than five scanner image uploads in one request", async () => {
+    insertTeamMember({ id: 11, name: "Ali", linkedUserId: 2 });
+    insertTask({ id: TASK_1, scheduledAt: "2026-04-10T08:00:00.000Z", status: "in_progress", startedByUserId: 2, startedByTeamMemberId: 11 });
+    assignTask(TASK_1, 11);
+    insertParticipant({ taskId: TASK_1, teamMemberId: 11 });
+
+    const tooManyImagesForm = new FormData();
+    tooManyImagesForm.set("payloadJson", JSON.stringify({
+      externalProductId: null,
+      barcode: "1122334455",
+      barcodes: ["1122334455"],
+      sku: "SKU-MANY",
+      price: "200",
+      itemNameEn: "Too Many Images Product",
+      itemNameAr: null,
+      sourceMeta: {
+        sourceType: "manual",
+        chain: "no",
+        vendor: "no",
+        masterfile: "no",
+        new: "yes",
+      },
+      imageUrls: [],
+      existingImageIds: [],
+    }));
+    for (let index = 0; index < 6; index += 1) {
+      tooManyImagesForm.append("images", new Blob([TINY_PNG_BYTES], { type: "image/png" }), `image-${index + 1}.png`);
+    }
+
+    const response = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/products`, {
+      method: "POST",
+      headers: {
+        "x-role": "user",
+        "x-user-id": "2",
+        "x-scano-role": "scanner",
+      },
+      body: tooManyImagesForm,
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toMatchObject({
+      ok: false,
+      message: "Too many files",
+      code: "UPLOAD_ERROR",
+      errorOrigin: "validation",
+    });
+    expect(testDb.prepare("SELECT COUNT(*) AS count FROM scano_task_products WHERE taskId = ?").get(TASK_1)).toEqual({ count: 0 });
+  });
 
   it.todo("removes local task-image files immediately after export download confirmation");
 
