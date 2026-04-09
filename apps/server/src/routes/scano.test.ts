@@ -741,6 +741,45 @@ function insertTaskProductImageRecord(params: {
   `).run(params.imageId, params.productId, params.fileName, params.filePath);
 }
 
+function insertTaskProductBarcodeRecord(params: {
+  productId: string;
+  barcode: string;
+  createdAt?: string;
+}) {
+  testDb.prepare(`
+    INSERT INTO scano_task_product_barcodes (productId, barcode, createdAt)
+    VALUES (?, ?, ?)
+  `).run(
+    params.productId,
+    params.barcode,
+    params.createdAt ?? "2026-04-04T11:30:00.000Z",
+  );
+}
+
+function insertResolvedProductSnapshotScan(params: {
+  taskId: string;
+  teamMemberId: number;
+  taskProductId: string;
+  barcode: string;
+  resolvedProductJson: string;
+  scannedAt?: string;
+}) {
+  const scannedAt = params.scannedAt ?? "2026-04-04T11:35:00.000Z";
+  testDb.prepare(`
+    INSERT INTO scano_task_scans (taskId, teamMemberId, barcode, source, lookupStatus, outcome, taskProductId, resolvedProductJson, scannedAt, createdAt, updatedAt)
+    VALUES (?, ?, ?, 'manual', 'pending_integration', 'manual_only', ?, ?, ?, ?, ?)
+  `).run(
+    params.taskId,
+    params.teamMemberId,
+    params.barcode,
+    params.taskProductId,
+    params.resolvedProductJson,
+    scannedAt,
+    scannedAt,
+    scannedAt,
+  );
+}
+
 function createProductFormData(payload: {
   externalProductId: string | null;
   barcode: string;
@@ -2213,6 +2252,14 @@ describe("scano routes", () => {
     });
     const createBody = await createResponse.json();
     expect(createResponse.status).toBe(201);
+    const createdSnapshotRow = testDb.prepare<[string], { resolvedProductJson: string }>(`
+      SELECT resolvedProductJson
+      FROM scano_task_scans
+      WHERE taskProductId = ?
+      ORDER BY id ASC
+      LIMIT 1
+    `).get(createBody.item.id);
+    expect(createdSnapshotRow?.resolvedProductJson).toEqual(expect.any(String));
 
     const bootstrapResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/runner/bootstrap`, {
       headers: {
@@ -2325,6 +2372,13 @@ describe("scano routes", () => {
         }),
       ],
     });
+    expect(testDb.prepare<[string], { resolvedProductJson: string }>(`
+      SELECT resolvedProductJson
+      FROM scano_task_scans
+      WHERE taskProductId = ?
+      ORDER BY id ASC
+      LIMIT 1
+    `).get(createBody.item.id)?.resolvedProductJson).toBe(createdSnapshotRow?.resolvedProductJson);
 
     const forbiddenUpdateResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/products/${createBody.item.id}`, {
       method: "PATCH",
@@ -2580,6 +2634,303 @@ describe("scano routes", () => {
         image: "https://images.example.com/master.jpg",
       },
     ]);
+  });
+
+  it("uses canonical product rows instead of stale scan snapshots for bootstrap, list, detail, image download, and duplicate detection", async () => {
+    const productId = "33333333-3333-4333-8333-333333333333";
+    const imageId = "44444444-4444-4444-8444-444444444444";
+    insertTeamMember({ id: 11, name: "Ali", linkedUserId: 2 });
+    insertTask({ id: TASK_1, scheduledAt: "2026-04-10T08:00:00.000Z", status: "in_progress", startedByUserId: 2, startedByTeamMemberId: 11 });
+    assignTask(TASK_1, 11);
+    insertParticipant({ taskId: TASK_1, teamMemberId: 11 });
+
+    const imageDir = path.join(TEST_SCANO_STORAGE_DIR, "product-images", TASK_1, productId);
+    fs.mkdirSync(imageDir, { recursive: true });
+    const imagePath = path.join(imageDir, "canonical.png");
+    fs.writeFileSync(imagePath, TINY_PNG_BYTES);
+
+    insertTaskProductRecord({
+      productId,
+      taskId: TASK_1,
+      teamMemberId: 11,
+      sourceType: "manual",
+      previewImageUrl: "https://images.example.com/canonical-preview.jpg",
+      barcode: "111111",
+      sku: "SKU-CANON",
+      price: "20",
+      itemNameEn: "Canonical Product",
+      itemNameAr: "منتج أصلي",
+    });
+    insertTaskProductBarcodeRecord({
+      productId,
+      barcode: "111111",
+    });
+    insertTaskProductBarcodeRecord({
+      productId,
+      barcode: "222222",
+    });
+    insertTaskProductImageRecord({
+      imageId,
+      productId,
+      fileName: "canonical.png",
+      filePath: imagePath,
+    });
+    insertResolvedProductSnapshotScan({
+      taskId: TASK_1,
+      teamMemberId: 11,
+      taskProductId: productId,
+      barcode: "999999",
+      resolvedProductJson: JSON.stringify({
+        sourceType: "vendor",
+        externalProductId: "STALE-EXT",
+        previewImageUrl: "https://images.example.com/stale-preview.jpg",
+        barcode: "999999",
+        barcodes: ["999999", "888888"],
+        sku: "SKU-STALE",
+        price: "5",
+        itemNameEn: "Stale Snapshot Product",
+        itemNameAr: "منتج قديم",
+        chain: "yes",
+        vendor: "yes",
+        masterfile: "no",
+        new: "no",
+        images: [{
+          id: "snapshot-image",
+          fileName: "stale.jpg",
+          url: "https://images.example.com/stale.jpg",
+        }],
+        createdBy: {
+          id: 11,
+          name: "Ali",
+          linkedUserId: 2,
+        },
+        confirmedAt: "2026-04-04T11:35:00.000Z",
+        updatedAt: "2026-04-04T11:35:00.000Z",
+      }),
+    });
+
+    const bootstrapResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/runner/bootstrap`, {
+      headers: {
+        "x-role": "user",
+        "x-user-id": "2",
+        "x-scano-role": "scanner",
+      },
+    });
+    const bootstrapBody = await bootstrapResponse.json();
+
+    expect(bootstrapResponse.status).toBe(200);
+    expect(bootstrapBody.item.confirmedProducts).toEqual([
+      expect.objectContaining({
+        id: productId,
+        barcode: "111111",
+        barcodes: ["111111", "222222"],
+        sku: "SKU-CANON",
+        itemNameEn: "Canonical Product",
+      }),
+    ]);
+
+    const listResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/products?page=1&pageSize=10&query=Canonical`, {
+      headers: {
+        "x-role": "user",
+        "x-user-id": "2",
+        "x-scano-role": "scanner",
+      },
+    });
+    const listBody = await listResponse.json();
+
+    expect(listResponse.status).toBe(200);
+    expect(listBody.items).toEqual([
+      expect.objectContaining({
+        id: productId,
+        barcode: "111111",
+        barcodes: ["111111", "222222"],
+        sku: "SKU-CANON",
+        itemNameEn: "Canonical Product",
+      }),
+    ]);
+
+    const staleListResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/products?page=1&pageSize=10&query=Stale%20Snapshot%20Product`, {
+      headers: {
+        "x-role": "user",
+        "x-user-id": "2",
+        "x-scano-role": "scanner",
+      },
+    });
+    const staleListBody = await staleListResponse.json();
+
+    expect(staleListResponse.status).toBe(200);
+    expect(staleListBody.total).toBe(0);
+    expect(staleListBody.items).toEqual([]);
+
+    const detailResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/products/${productId}`, {
+      headers: {
+        "x-role": "user",
+        "x-user-id": "2",
+        "x-scano-role": "scanner",
+      },
+    });
+    const detailBody = await detailResponse.json();
+
+    expect(detailResponse.status).toBe(200);
+    expect(detailBody.item).toMatchObject({
+      id: productId,
+      barcode: "111111",
+      barcodes: ["111111", "222222"],
+      sku: "SKU-CANON",
+      itemNameEn: "Canonical Product",
+      images: [{
+        id: imageId,
+        fileName: "canonical.png",
+        url: `/api/scano/tasks/${TASK_1}/products/${productId}/images/${imageId}`,
+      }],
+    });
+
+    const imageResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/products/${productId}/images/${imageId}`, {
+      headers: {
+        "x-role": "user",
+        "x-user-id": "2",
+        "x-scano-role": "scanner",
+      },
+    });
+
+    expect(imageResponse.status).toBe(200);
+    expect(imageResponse.headers.get("content-type")).toContain("image/png");
+    expect(Buffer.from(await imageResponse.arrayBuffer())).toEqual(TINY_PNG_BYTES);
+
+    const duplicateResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/scans/resolve`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-role": "user",
+        "x-user-id": "2",
+        "x-scano-role": "scanner",
+      },
+      body: JSON.stringify({
+        barcode: "222222",
+        source: "manual",
+      }),
+    });
+    const duplicateBody = await duplicateResponse.json();
+
+    expect(duplicateResponse.status).toBe(200);
+    expect(duplicateBody).toMatchObject({
+      kind: "duplicate",
+      existingProduct: {
+        id: productId,
+        barcode: "111111",
+        barcodes: ["111111", "222222"],
+        sku: "SKU-CANON",
+      },
+    });
+
+    const snapshotOnlyResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/scans/resolve`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-role": "user",
+        "x-user-id": "2",
+        "x-scano-role": "scanner",
+      },
+      body: JSON.stringify({
+        barcode: "999999",
+        source: "manual",
+      }),
+    });
+    const snapshotOnlyBody = await snapshotOnlyResponse.json();
+
+    expect(snapshotOnlyResponse.status).toBe(200);
+    expect(snapshotOnlyBody.kind).toBe("draft");
+    expect(snapshotOnlyBody.draft.itemNameEn).toBeNull();
+  });
+
+  it("exports canonical product rows instead of stale scan snapshots", async () => {
+    insertTeamMember({ id: 11, name: "Ali", linkedUserId: 2 });
+    insertTask({ id: TASK_1, scheduledAt: "2026-04-10T08:00:00.000Z", status: "awaiting_review" });
+    insertTaskProductRecord({
+      productId: "product-1",
+      taskId: TASK_1,
+      teamMemberId: 11,
+      sourceType: "manual",
+      barcode: "111111",
+      sku: "SKU-CANON",
+      price: "25",
+      itemNameEn: "Canonical Export Name",
+      itemNameAr: "اسم أصلي",
+    });
+    insertTaskProductBarcodeRecord({
+      productId: "product-1",
+      barcode: "111111",
+    });
+    insertTaskProductBarcodeRecord({
+      productId: "product-1",
+      barcode: "222222",
+    });
+    insertResolvedProductSnapshotScan({
+      taskId: TASK_1,
+      teamMemberId: 11,
+      taskProductId: "product-1",
+      barcode: "999999",
+      resolvedProductJson: JSON.stringify({
+        sourceType: "vendor",
+        externalProductId: "STALE-EXT",
+        previewImageUrl: "https://images.example.com/stale-preview.jpg",
+        barcode: "999999",
+        barcodes: ["999999", "888888"],
+        sku: "SKU-STALE",
+        price: "5",
+        itemNameEn: "Stale Export Name",
+        itemNameAr: "اسم قديم",
+        chain: "yes",
+        vendor: "yes",
+        masterfile: "no",
+        new: "no",
+        images: [],
+        createdBy: {
+          id: 11,
+          name: "Ali",
+          linkedUserId: 2,
+        },
+        confirmedAt: "2026-04-04T11:35:00.000Z",
+        updatedAt: "2026-04-04T11:35:00.000Z",
+      }),
+    });
+
+    const exportResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/exports`, {
+      method: "POST",
+      headers: {
+        "x-role": "admin",
+        "x-primary-admin": "true",
+      },
+    });
+    const exportBody = await exportResponse.json();
+
+    expect(exportResponse.status).toBe(201);
+
+    const exportRecord = testDb.prepare<[string], { filePath: string }>(`
+      SELECT filePath
+      FROM scano_task_exports
+      WHERE id = ?
+    `).get(exportBody.item.id);
+    expect(exportRecord).not.toBeUndefined();
+
+    const zipFile = await JSZip.loadAsync(fs.readFileSync(exportRecord!.filePath));
+    const workbookFile = zipFile.file(`task-${TASK_1}.xlsx`);
+    expect(workbookFile).not.toBeNull();
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(await workbookFile!.async("nodebuffer"));
+
+    const worksheet = workbook.getWorksheet("Scano Review");
+    expect(worksheet).toBeDefined();
+
+    const dataRows = Array.from({ length: Math.max((worksheet?.rowCount ?? 1) - 1, 0) }, (_, index) => worksheet!.getRow(index + 2))
+      .filter((row) => row.getCell(2).text.trim().length > 0);
+
+    expect(dataRows).toHaveLength(1);
+    expect(dataRows[0]?.getCell(2).text).toBe("SKU-CANON");
+    expect(dataRows[0]?.getCell(3).text).toBe("25");
+    expect(dataRows[0]?.getCell(4).text).toBe("111111, 222222");
+    expect(dataRows[0]?.getCell(5).text).toBe("Canonical Export Name");
   });
 
   it("stores previewImageUrl metadata for external-style saves without persisting external image rows", async () => {

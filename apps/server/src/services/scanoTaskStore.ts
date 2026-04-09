@@ -7,6 +7,11 @@ import { db } from "../config/db.js";
 import { resolveDataDir } from "../config/paths.js";
 import { searchScanoProductsByBarcode, getScanoProductAssignmentCheck, getScanoProductDetail } from "./scanoCatalogClient.js";
 import { findScanoMasterProductMatch, listScanoMasterProductIndex } from "./scanoMasterProductStore.js";
+import {
+  scanoTaskProductRepository,
+  type StoredScanoTaskProduct as StoredTaskProduct,
+  type StoredScanoTaskProductImage as StoredTaskProductImage,
+} from "./scanoTaskProductRepository.js";
 import { scanoRunnerSessionStore } from "./scanoRunnerSessionStore.js";
 import type {
   CreateScanoTaskInput,
@@ -94,45 +99,6 @@ interface ScanoTaskScanRow {
   linkedUserId: number;
 }
 
-interface ScanoTaskProductRow {
-  id: string;
-  taskId: ScanoTaskId;
-  createdByTeamMemberId: number;
-  sourceType: ScanoTaskProductSource;
-  externalProductId: string | null;
-  previewImageUrl: string | null;
-  barcode: string;
-  sku: string;
-  price: string | null;
-  itemNameEn: string;
-  itemNameAr: string | null;
-  chainFlag: ScanoYesNoFlag;
-  vendorFlag: ScanoYesNoFlag;
-  masterfileFlag: ScanoYesNoFlag;
-  newFlag: ScanoYesNoFlag;
-  edited: number;
-  confirmedAt: string;
-  updatedAt: string;
-  name: string;
-  linkedUserId: number;
-}
-
-interface ScanoTaskProductBarcodeRow {
-  productId: string;
-  barcode: string;
-}
-
-interface ScanoTaskProductImageRow {
-  id: string;
-  productId: string;
-  fileName: string;
-  storageKind: "local" | "external";
-  filePath: string | null;
-  externalUrl: string | null;
-  mimeType: string | null;
-  sortOrder: number;
-}
-
 interface TaskProgressRow {
   totalCount: number;
   startedCount: number | null;
@@ -163,26 +129,6 @@ interface ActorContext {
   canViewAllTasks: boolean;
   canManageTasks: boolean;
   canReviewTasks: boolean;
-}
-
-interface StoredTaskProductImage {
-  id: string;
-  fileName: string;
-  url: string;
-  filePath: string | null;
-}
-
-interface StoredTaskProduct extends ScanoTaskProductSnapshot {
-  id: string;
-  sourceType: ScanoTaskProductSource;
-  images: StoredTaskProductImage[];
-  createdBy: {
-    id: number;
-    name: string;
-    linkedUserId: number;
-  };
-  confirmedAt: string;
-  updatedAt: string;
 }
 
 interface StoredTaskExportState {
@@ -273,10 +219,6 @@ function buildPaginationMeta(page: number, pageSize: number, total: number): Sca
     total,
     totalPages: Math.max(1, Math.ceil(total / pageSize)),
   };
-}
-
-function escapeLikePattern(value: string) {
-  return value.replace(/[\\%_]/g, "\\$&");
 }
 
 function sanitizeFileName(value: string) {
@@ -493,22 +435,6 @@ function mapScanRows(rows: ScanoTaskScanRow[]): ScanoTaskScanItem[] {
   }));
 }
 
-function parseStoredTaskProduct(value: string | null): StoredTaskProduct | null {
-  if (!value) return null;
-  try {
-    const parsed = JSON.parse(value) as Partial<StoredTaskProduct>;
-    return {
-      ...parsed,
-      previewImageUrl: typeof parsed.previewImageUrl === "string" && parsed.previewImageUrl.trim()
-        ? parsed.previewImageUrl
-        : null,
-      images: Array.isArray(parsed.images) ? parsed.images : [],
-    } as StoredTaskProduct;
-  } catch {
-    return null;
-  }
-}
-
 function buildProductSnapshot(product: Pick<
   ScanoTaskProductSnapshot,
   "externalProductId" | "previewImageUrl" | "barcode" | "barcodes" | "sku" | "price" | "itemNameEn" | "itemNameAr" | "chain" | "vendor" | "masterfile" | "new"
@@ -529,293 +455,12 @@ function buildProductSnapshot(product: Pick<
   } satisfies ScanoTaskProductSnapshot;
 }
 
-function toProductImageUrl(taskId: ScanoTaskId, productId: string, image: ScanoTaskProductImageRow) {
-  if (image.storageKind === "local") {
-    return `/api/scano/tasks/${taskId}/products/${productId}/images/${image.id}`;
-  }
-  return image.externalUrl ?? "";
-}
-
-function mapTaskProductRow(
-  row: ScanoTaskProductRow,
-  canEdit: boolean,
-  barcodes: string[],
-  images: ScanoTaskProductImage[],
-): ScanoTaskProduct {
-  return {
-    id: row.id,
-    sourceType: row.sourceType,
-    externalProductId: row.externalProductId,
-    previewImageUrl: row.previewImageUrl,
-    barcode: row.barcode,
-    barcodes,
-    sku: row.sku,
-    price: row.price,
-    itemNameEn: row.itemNameEn,
-    itemNameAr: row.itemNameAr,
-    chain: row.chainFlag,
-    vendor: row.vendorFlag,
-    masterfile: row.masterfileFlag,
-    new: row.newFlag,
-    edited: row.edited === 1,
-    images,
-    edits: [],
-    createdBy: {
-      id: row.createdByTeamMemberId,
-      name: row.name,
-      linkedUserId: row.linkedUserId,
-    },
-    confirmedAt: row.confirmedAt,
-    updatedAt: row.updatedAt,
-    canEdit,
-  };
-}
-
-function mapTaskProduct(product: StoredTaskProduct, canEdit: boolean): ScanoTaskProduct {
-  return {
-    id: product.id,
-    sourceType: product.sourceType,
-    externalProductId: product.externalProductId,
-    previewImageUrl: product.previewImageUrl,
-    barcode: product.barcode,
-    barcodes: product.barcodes,
-    sku: product.sku,
-    price: product.price,
-    itemNameEn: product.itemNameEn,
-    itemNameAr: product.itemNameAr,
-    chain: product.chain,
-    vendor: product.vendor,
-    masterfile: product.masterfile,
-    new: product.new,
-    edited: false,
-    images: product.images.map((image) => ({
-      id: image.id,
-      fileName: image.fileName,
-      url: image.url,
-    })),
-    edits: [],
-    createdBy: product.createdBy,
-    confirmedAt: product.confirmedAt,
-    updatedAt: product.updatedAt,
-    canEdit,
-  };
-}
-
 function canActorEditTaskProducts(taskId: ScanoTaskId, actorUserId: number, taskStatus: ScanoTaskStatus) {
   if (taskStatus !== "in_progress") {
     return false;
   }
 
   return !!findAssignedScanner(taskId, actorUserId);
-}
-
-function getStoredTaskProductsFromRows(taskId: ScanoTaskId) {
-  const rows = db.prepare<[ScanoTaskId], ScanoTaskScanRow>(`
-    SELECT
-      s.id,
-      s.taskId,
-      s.teamMemberId,
-      s.barcode,
-      s.source,
-      s.lookupStatus,
-      s.outcome,
-      s.taskProductId,
-      s.resolvedProductJson,
-      s.scannedAt,
-      m.name,
-      m.linkedUserId
-    FROM scano_task_scans s
-    INNER JOIN scano_team_members m ON m.id = s.teamMemberId
-    WHERE s.taskId = ?
-      AND s.taskProductId IS NOT NULL
-      AND s.resolvedProductJson IS NOT NULL
-    ORDER BY datetime(s.scannedAt) DESC, s.id DESC
-  `).all(taskId);
-
-  return rows
-    .map((row) => parseStoredTaskProduct(row.resolvedProductJson))
-    .filter((product): product is StoredTaskProduct => !!product);
-}
-
-function getTaskProductsFromRows(taskId: ScanoTaskId, actorUserId: number, taskStatus: ScanoTaskStatus) {
-  const canEdit = canActorEditTaskProducts(taskId, actorUserId, taskStatus);
-  return getStoredTaskProductsFromRows(taskId)
-    .map((product) => mapTaskProduct(product, canEdit));
-}
-
-function getStoredTaskProductById(taskId: ScanoTaskId, productId: string) {
-  const row = db.prepare<[ScanoTaskId, string], { resolvedProductJson: string | null }>(`
-    SELECT resolvedProductJson
-    FROM scano_task_scans
-    WHERE taskId = ?
-      AND taskProductId = ?
-      AND resolvedProductJson IS NOT NULL
-    ORDER BY datetime(scannedAt) DESC, id DESC
-    LIMIT 1
-  `).get(taskId, productId);
-
-  const product = parseStoredTaskProduct(row?.resolvedProductJson ?? null);
-  if (!product) {
-    throw new ScanoTaskStoreError("Scano task product was not found.", 404, "SCANO_TASK_PRODUCT_NOT_FOUND");
-  }
-
-  return product;
-}
-
-function getTaskProductBarcodesByIds(productIds: string[]) {
-  if (!productIds.length) {
-    return new Map<string, string[]>();
-  }
-
-  const rows = db.prepare(`
-    SELECT productId, barcode
-    FROM scano_task_product_barcodes
-    WHERE productId IN (${buildPlaceholders(productIds.length)})
-    ORDER BY id ASC
-  `).all(...productIds) as ScanoTaskProductBarcodeRow[];
-
-  const result = new Map<string, string[]>();
-  for (const row of rows) {
-    result.set(row.productId, [...(result.get(row.productId) ?? []), row.barcode]);
-  }
-  return result;
-}
-
-function getTaskProductImagesByIds(taskId: ScanoTaskId, productIds: string[]) {
-  if (!productIds.length) {
-    return new Map<string, ScanoTaskProductImage[]>();
-  }
-
-  const rows = db.prepare(`
-    SELECT id, productId, fileName, storageKind, filePath, externalUrl, mimeType, sortOrder
-    FROM scano_task_product_images
-    WHERE productId IN (${buildPlaceholders(productIds.length)})
-    ORDER BY sortOrder ASC, id ASC
-  `).all(...productIds) as ScanoTaskProductImageRow[];
-
-  const result = new Map<string, ScanoTaskProductImage[]>();
-  for (const row of rows) {
-    const image: ScanoTaskProductImage = {
-      id: row.id,
-      fileName: row.fileName,
-      url: toProductImageUrl(taskId, row.productId, row),
-    };
-    result.set(row.productId, [...(result.get(row.productId) ?? []), image]);
-  }
-  return result;
-}
-
-function getStoredTaskProductImagesByIds(taskId: ScanoTaskId, productIds: string[]) {
-  if (!productIds.length) {
-    return new Map<string, StoredTaskProductImage[]>();
-  }
-
-  const rows = db.prepare(`
-    SELECT id, productId, fileName, storageKind, filePath, externalUrl, mimeType, sortOrder
-    FROM scano_task_product_images
-    WHERE productId IN (${buildPlaceholders(productIds.length)})
-    ORDER BY sortOrder ASC, id ASC
-  `).all(...productIds) as ScanoTaskProductImageRow[];
-
-  const result = new Map<string, StoredTaskProductImage[]>();
-  for (const row of rows) {
-    const image: StoredTaskProductImage = {
-      id: row.id,
-      fileName: row.fileName,
-      url: toProductImageUrl(taskId, row.productId, row),
-      filePath: row.filePath,
-    };
-    result.set(row.productId, [...(result.get(row.productId) ?? []), image]);
-  }
-  return result;
-}
-
-function mapStoredTaskProductRow(
-  row: ScanoTaskProductRow,
-  barcodes: string[],
-  images: StoredTaskProductImage[],
-): StoredTaskProduct {
-  return {
-    id: row.id,
-    sourceType: row.sourceType,
-    externalProductId: row.externalProductId,
-    previewImageUrl: row.previewImageUrl,
-    barcode: row.barcode,
-    barcodes,
-    sku: row.sku,
-    price: row.price,
-    itemNameEn: row.itemNameEn,
-    itemNameAr: row.itemNameAr,
-    chain: row.chainFlag,
-    vendor: row.vendorFlag,
-    masterfile: row.masterfileFlag,
-    new: row.newFlag,
-    images,
-    createdBy: {
-      id: row.createdByTeamMemberId,
-      name: row.name,
-      linkedUserId: row.linkedUserId,
-    },
-    confirmedAt: row.confirmedAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
-function getStoredTaskProductsForExport(taskId: ScanoTaskId) {
-  const rows = db.prepare<[ScanoTaskId], ScanoTaskProductRow>(`
-    SELECT
-      p.id,
-      p.taskId,
-      p.createdByTeamMemberId,
-      p.sourceType,
-      p.externalProductId,
-      p.previewImageUrl,
-      p.barcode,
-      p.sku,
-      p.price,
-      p.itemNameEn,
-      p.itemNameAr,
-      p.chainFlag,
-      p.vendorFlag,
-      p.masterfileFlag,
-      p.newFlag,
-      p.edited,
-      p.confirmedAt,
-      p.updatedAt,
-      creator.name,
-      creator.linkedUserId
-    FROM scano_task_products p
-    INNER JOIN scano_team_members creator ON creator.id = p.createdByTeamMemberId
-    WHERE p.taskId = ?
-    ORDER BY datetime(p.updatedAt) DESC, datetime(p.confirmedAt) DESC, p.id DESC
-  `).all(taskId);
-
-  if (!rows.length) {
-    return [];
-  }
-
-  const productIds = rows.map((row) => row.id);
-  const barcodesByProductId = getTaskProductBarcodesByIds(productIds);
-  const imagesByProductId = getStoredTaskProductImagesByIds(taskId, productIds);
-  const dedupedProducts = new Map<string, StoredTaskProduct>();
-
-  for (const row of rows) {
-    const skuKey = row.sku.trim().toLowerCase();
-    if (dedupedProducts.has(skuKey)) {
-      continue;
-    }
-
-    dedupedProducts.set(
-      skuKey,
-      mapStoredTaskProductRow(
-        row,
-        dedupeStrings([row.barcode, ...(barcodesByProductId.get(row.id) ?? [])]),
-        imagesByProductId.get(row.id) ?? [],
-      ),
-    );
-  }
-
-  return Array.from(dedupedProducts.values());
 }
 
 function buildCounters(taskId: ScanoTaskId): ScanoTaskCounters {
@@ -1120,134 +765,6 @@ function getTaskScans(taskId: ScanoTaskId) {
   return mapScanRows(rows);
 }
 
-function isExactTaskProductLookupQuery(value: string) {
-  return /^[a-z0-9._:-]+$/i.test(value) && value.length >= 6;
-}
-
-function executeTaskProductPageQuery(params: {
-  filters: string[];
-  values: Array<string | number>;
-  page: number;
-  pageSize: number;
-}) {
-  const whereClause = params.filters.join(" AND ");
-  const meta = normalizePagination(params.page, params.pageSize);
-  const totalRow = db.prepare<[...Array<string | number>], { total: number }>(`
-    SELECT COUNT(*) AS total
-    FROM scano_task_products p
-    WHERE ${whereClause}
-  `).get(...params.values);
-
-  const rows = db.prepare<[...Array<string | number>], ScanoTaskProductRow>(`
-    SELECT
-      p.id,
-      p.taskId,
-      p.createdByTeamMemberId,
-      p.sourceType,
-      p.externalProductId,
-      p.previewImageUrl,
-      p.barcode,
-      p.sku,
-      p.price,
-      p.itemNameEn,
-      p.itemNameAr,
-      p.chainFlag,
-      p.vendorFlag,
-      p.masterfileFlag,
-      p.newFlag,
-      p.edited,
-      p.confirmedAt,
-      p.updatedAt,
-      creator.name,
-      creator.linkedUserId
-    FROM scano_task_products p
-    INNER JOIN scano_team_members creator ON creator.id = p.createdByTeamMemberId
-    WHERE ${whereClause}
-    ORDER BY datetime(p.confirmedAt) DESC, p.id DESC
-    LIMIT ? OFFSET ?
-  `).all(...params.values, meta.pageSize, meta.offset);
-
-  return {
-    rows,
-    meta: buildPaginationMeta(meta.page, meta.pageSize, totalRow?.total ?? 0),
-  };
-}
-
-function getTaskProductPageRows(params: {
-  taskId: ScanoTaskId;
-  page: number;
-  pageSize: number;
-  query?: string;
-  source?: ScanoTaskProductListSourceFilter;
-}) {
-  const baseFilters = ["p.taskId = ?"];
-  const baseValues: Array<string | number> = [params.taskId];
-
-  if (params.source && params.source !== "all") {
-    baseFilters.push("p.sourceType = ?");
-    baseValues.push(params.source);
-  }
-
-  const trimmedQuery = params.query?.trim() ?? "";
-  if (!trimmedQuery) {
-    return executeTaskProductPageQuery({
-      filters: baseFilters,
-      values: baseValues,
-      page: params.page,
-      pageSize: params.pageSize,
-    });
-  }
-
-  if (isExactTaskProductLookupQuery(trimmedQuery)) {
-    const exactResult = executeTaskProductPageQuery({
-      filters: [
-        ...baseFilters,
-        `(
-          p.barcode = ? COLLATE NOCASE
-          OR p.sku = ? COLLATE NOCASE
-          OR p.externalProductId = ? COLLATE NOCASE
-          OR EXISTS (
-            SELECT 1
-            FROM scano_task_product_barcodes pb
-            WHERE pb.productId = p.id
-              AND pb.barcode = ? COLLATE NOCASE
-          )
-        )`,
-      ],
-      values: [...baseValues, trimmedQuery, trimmedQuery, trimmedQuery, trimmedQuery],
-      page: params.page,
-      pageSize: params.pageSize,
-    });
-
-    if (exactResult.meta.total > 0) {
-      return exactResult;
-    }
-  }
-
-  const pattern = `%${escapeLikePattern(trimmedQuery)}%`;
-  return executeTaskProductPageQuery({
-    filters: [
-      ...baseFilters,
-      `(
-        p.barcode LIKE ? ESCAPE '\\' COLLATE NOCASE
-        OR p.sku LIKE ? ESCAPE '\\' COLLATE NOCASE
-        OR COALESCE(p.externalProductId, '') LIKE ? ESCAPE '\\' COLLATE NOCASE
-        OR p.itemNameEn LIKE ? ESCAPE '\\' COLLATE NOCASE
-        OR COALESCE(p.itemNameAr, '') LIKE ? ESCAPE '\\' COLLATE NOCASE
-        OR EXISTS (
-          SELECT 1
-          FROM scano_task_product_barcodes pb
-          WHERE pb.productId = p.id
-            AND pb.barcode LIKE ? ESCAPE '\\' COLLATE NOCASE
-        )
-      )`,
-    ],
-    values: [...baseValues, pattern, pattern, pattern, pattern, pattern, pattern],
-    page: params.page,
-    pageSize: params.pageSize,
-  });
-}
-
 function ensureAssignableMembersExist(memberIds: number[]) {
   const deduped = dedupeIds(memberIds);
   if (!deduped.length) {
@@ -1503,14 +1020,6 @@ function insertScanRecord(taskId: ScanoTaskId, teamMemberId: number, input: Reso
   return mapScanRows([row])[0]!;
 }
 
-function getTaskProductById(taskId: ScanoTaskId, productId: string, actorUserId: number, taskStatus: ScanoTaskStatus) {
-  const product = getTaskProductsFromRows(taskId, actorUserId, taskStatus).find((item) => item.id === productId) ?? null;
-  if (!product) {
-    throw new ScanoTaskStoreError("Scano task product was not found.", 404, "SCANO_TASK_PRODUCT_NOT_FOUND");
-  }
-  return product;
-}
-
 function getProductEditLogs(productId: string): ScanoTaskProductEditLog[] {
   const rows = db.prepare<[string], { id: number; editedAt: string; editedByTeamMemberId: number; editedByName: string; editedByLinkedUserId: number; beforeJson: string; afterJson: string }>(`
     SELECT
@@ -1538,14 +1047,6 @@ function getProductEditLogs(productId: string): ScanoTaskProductEditLog[] {
     before: JSON.parse(row.beforeJson) as ScanoTaskProductSnapshot,
     after: JSON.parse(row.afterJson) as ScanoTaskProductSnapshot,
   }));
-}
-
-function getDuplicateTaskProduct(taskId: ScanoTaskId, barcode: string, excludeProductId?: string | null, actorUserId = -1) {
-  const products = getTaskProductsFromRows(taskId, actorUserId, "in_progress");
-  return products.find((product) =>
-    product.id !== (excludeProductId ?? null) &&
-    product.barcodes.some((value) => value.toLowerCase() === barcode.trim().toLowerCase()),
-  ) ?? null;
 }
 
 function removeStoredLocalImages(images: StoredTaskProductImage[]) {
@@ -1651,6 +1152,7 @@ function renameStoredLocalImages(taskId: ScanoTaskId, productId: string, sku: st
     fileName: image.finalFileName,
     url: image.url,
     filePath: image.finalPath,
+    mimeType: guessMimeTypeFromFileName(image.finalFileName),
   } satisfies StoredTaskProductImage));
 }
 
@@ -1674,6 +1176,7 @@ function createStoredImageFromUpload(
     fileName,
     url: `/api/scano/tasks/${taskId}/products/${productId}/images/${imageId}`,
     filePath,
+    mimeType: guessMimeTypeFromFileName(fileName),
   } satisfies StoredTaskProductImage;
 }
 
@@ -1712,107 +1215,12 @@ function buildStoredTaskProduct(params: {
     masterfile: params.sourceMeta.masterfile,
     new: params.sourceMeta.new,
     sourceType: params.sourceMeta.sourceType,
+    edited: false,
     images: params.images,
     createdBy: params.actor,
     confirmedAt: params.confirmedAt,
     updatedAt: params.updatedAt,
   };
-}
-
-function syncTaskProductProjection(taskId: ScanoTaskId, product: StoredTaskProduct, edited: boolean) {
-  db.prepare(`
-    INSERT INTO scano_task_products (
-      id,
-      taskId,
-      createdByTeamMemberId,
-      sourceType,
-      externalProductId,
-      previewImageUrl,
-      sku,
-      price,
-      barcode,
-      itemNameEn,
-      itemNameAr,
-      chainFlag,
-      vendorFlag,
-      masterfileFlag,
-      newFlag,
-      edited,
-      confirmedAt,
-      updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      sourceType = excluded.sourceType,
-      externalProductId = excluded.externalProductId,
-      previewImageUrl = excluded.previewImageUrl,
-      sku = excluded.sku,
-      price = excluded.price,
-      barcode = excluded.barcode,
-      itemNameEn = excluded.itemNameEn,
-      itemNameAr = excluded.itemNameAr,
-      chainFlag = excluded.chainFlag,
-      vendorFlag = excluded.vendorFlag,
-      masterfileFlag = excluded.masterfileFlag,
-      newFlag = excluded.newFlag,
-      edited = excluded.edited,
-      updatedAt = excluded.updatedAt
-  `).run(
-    product.id,
-    taskId,
-    product.createdBy.id,
-    product.sourceType,
-    product.externalProductId,
-    product.previewImageUrl,
-    product.sku,
-    product.price,
-    product.barcode,
-    product.itemNameEn,
-    product.itemNameAr,
-    product.chain,
-    product.vendor,
-    product.masterfile,
-    product.new,
-    edited ? 1 : 0,
-    product.confirmedAt,
-    product.updatedAt,
-  );
-
-  db.prepare(`DELETE FROM scano_task_product_barcodes WHERE productId = ?`).run(product.id);
-  for (const barcode of product.barcodes) {
-    db.prepare(`
-      INSERT INTO scano_task_product_barcodes (productId, barcode, createdAt)
-      VALUES (?, ?, ?)
-    `).run(product.id, barcode, product.updatedAt);
-  }
-
-  db.prepare(`DELETE FROM scano_task_product_images WHERE productId = ?`).run(product.id);
-  for (const [index, image] of product.images.entries()) {
-    const storageKind = image.filePath ? "local" : "external";
-    const externalUrl = image.filePath ? null : image.url;
-    db.prepare(`
-      INSERT INTO scano_task_product_images (
-        id,
-        productId,
-        fileName,
-        storageKind,
-        filePath,
-        externalUrl,
-        mimeType,
-        sortOrder,
-        createdAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      image.id,
-      product.id,
-      image.fileName,
-      storageKind,
-      image.filePath,
-      externalUrl,
-      guessMimeTypeFromFileName(image.fileName),
-      index,
-      product.updatedAt,
-    );
-  }
 }
 
 function saveStoredTaskProductScan(params: {
@@ -2081,7 +1489,10 @@ export function getScanoRunnerBootstrap(
     vendorId: task.branchId,
     globalEntityId: task.globalEntityId,
   });
-  const confirmedProducts = getTaskProductsFromRows(taskId, actorUserId, task.status);
+  const confirmedProducts = scanoTaskProductRepository.listTaskProducts(
+    taskId,
+    canActorEditTaskProducts(taskId, actorUserId, task.status),
+  );
 
   return {
     runnerToken: runnerSession.token,
@@ -2165,29 +1576,14 @@ export function listScanoTaskProducts(
 ): ScanoTaskProductsPageResponse {
   ensureTaskReadable(taskId, params);
   const taskStatus = getTaskByIdRow(taskId).status;
-  const canEdit = canActorEditTaskProducts(taskId, params.actorUserId, taskStatus);
-  const { rows, meta } = getTaskProductPageRows({
+  return scanoTaskProductRepository.listTaskProductPage({
     taskId,
     page: params.page ?? 1,
     pageSize: params.pageSize ?? 10,
     query: params.query,
     source: params.source,
+    canEdit: canActorEditTaskProducts(taskId, params.actorUserId, taskStatus),
   });
-
-  const productIds = rows.map((row) => row.id);
-  const barcodesByProductId = getTaskProductBarcodesByIds(productIds);
-  const imagesByProductId = getTaskProductImagesByIds(taskId, productIds);
-
-  return {
-    ...meta,
-    items: rows.map((row) =>
-      mapTaskProductRow(
-        row,
-        canEdit,
-        barcodesByProductId.get(row.id) ?? [row.barcode],
-        imagesByProductId.get(row.id) ?? [],
-      )),
-  };
 }
 
 export function listScanoTaskScans(
@@ -2480,7 +1876,9 @@ export async function resolveScanoTaskScan(id: ScanoTaskId, input: ResolveScanoT
   }
 
   const normalized = ensureResolveInput(input);
-  const existingProduct = getDuplicateTaskProduct(id, normalized.barcode, null, actorUserId);
+  const existingProduct = scanoTaskProductRepository.findDuplicateTaskProduct(id, normalized.barcode, {
+    canEdit: canActorEditTaskProducts(id, actorUserId, task.status),
+  });
   if (existingProduct) {
     const rawScan = insertScanRecord(id, teamMemberId, normalized, "duplicate_blocked", existingProduct.id, null);
     return {
@@ -2540,7 +1938,7 @@ export function createScanoTaskProduct(
     hasImage: uploadedFiles.length > 0 || normalized.imageUrls.length > 0,
   });
   for (const barcode of normalized.barcodes) {
-    if (getDuplicateTaskProduct(taskId, barcode)) {
+    if (scanoTaskProductRepository.findDuplicateTaskProduct(taskId, barcode, { canEdit: false })) {
       throw new ScanoTaskStoreError("This barcode already exists on another product in the task.", 409, "SCANO_TASK_PRODUCT_DUPLICATE_BARCODE");
     }
   }
@@ -2567,7 +1965,7 @@ export function createScanoTaskProduct(
     updatedAt: timestamp,
     images: toStoredImages(taskId, productId, normalized.sku, uploadedFiles),
   });
-  syncTaskProductProjection(taskId, product, false);
+  scanoTaskProductRepository.syncTaskProductProjection(taskId, product, false);
 
   const rawScan = saveStoredTaskProductScan({
     taskId,
@@ -2580,13 +1978,18 @@ export function createScanoTaskProduct(
     outcome: sourceMeta.sourceType === "master" ? "matched_master" : sourceMeta.sourceType === "manual" ? "manual_only" : "matched_external",
   });
 
+  const item = scanoTaskProductRepository.getTaskProductById(
+    taskId,
+    productId,
+    canActorEditTaskProducts(taskId, actorUserId, task.status),
+  );
+  if (!item) {
+    throw new ScanoTaskStoreError("Scano task product was not found.", 404, "SCANO_TASK_PRODUCT_NOT_FOUND");
+  }
+
   return {
     rawScan,
-    item: {
-      ...mapTaskProduct(product, canActorEditTaskProducts(taskId, actorUserId, task.status)),
-      edits: [],
-      edited: false,
-    },
+    item: { ...item, edits: [], edited: false },
     taskSummary: buildTaskSummaryPatch(
       getTaskItemsByIds([taskId], { actorUserId, canViewAllTasks: canReviewTasks, canManageTasks, canReviewTasks })[0]!,
     ),
@@ -2612,8 +2015,15 @@ export function updateScanoTaskProduct(
     throw new ScanoTaskStoreError("Resume the task before editing products.", 409, "SCANO_TASK_PRODUCT_AFTER_END");
   }
 
-  const current = getTaskProductById(taskId, productId, actorUserId, task.status);
-  const storedCurrent = getStoredTaskProductById(taskId, productId);
+  const current = scanoTaskProductRepository.getTaskProductById(
+    taskId,
+    productId,
+    canActorEditTaskProducts(taskId, actorUserId, task.status),
+  );
+  const storedCurrent = scanoTaskProductRepository.getStoredTaskProductById(taskId, productId);
+  if (!current || !storedCurrent) {
+    throw new ScanoTaskStoreError("Scano task product was not found.", 404, "SCANO_TASK_PRODUCT_NOT_FOUND");
+  }
 
   const normalized = normalizeProductInput(input);
   const sourceMeta = {
@@ -2638,7 +2048,10 @@ export function updateScanoTaskProduct(
     hasImage: images.length > 0 || !!nextPreviewImageUrl,
   });
   for (const barcode of normalized.barcodes) {
-    if (getDuplicateTaskProduct(taskId, barcode, productId)) {
+    if (scanoTaskProductRepository.findDuplicateTaskProduct(taskId, barcode, {
+      excludeProductId: productId,
+      canEdit: false,
+    })) {
       throw new ScanoTaskStoreError("This barcode already exists on another product in the task.", 409, "SCANO_TASK_PRODUCT_DUPLICATE_BARCODE");
     }
   }
@@ -2662,22 +2075,7 @@ export function updateScanoTaskProduct(
     images,
     updatedAt,
   };
-  syncTaskProductProjection(taskId, updatedProduct, true);
-
-  db.prepare(`
-    UPDATE scano_task_scans
-    SET
-      barcode = ?,
-      resolvedProductJson = ?,
-      updatedAt = ?
-    WHERE taskId = ? AND taskProductId = ?
-  `).run(
-    normalized.barcode,
-    JSON.stringify(updatedProduct),
-    updatedProduct.updatedAt,
-    taskId,
-    productId,
-  );
+  scanoTaskProductRepository.syncTaskProductProjection(taskId, updatedProduct, true);
 
   db.prepare(`
     INSERT INTO scano_task_product_edits (
@@ -2695,12 +2093,17 @@ export function updateScanoTaskProduct(
     updatedProduct.updatedAt,
   );
 
+  const item = scanoTaskProductRepository.getTaskProductById(
+    taskId,
+    productId,
+    canActorEditTaskProducts(taskId, actorUserId, task.status),
+  );
+  if (!item) {
+    throw new ScanoTaskStoreError("Scano task product was not found.", 404, "SCANO_TASK_PRODUCT_NOT_FOUND");
+  }
+
   return {
-    item: {
-      ...mapTaskProduct(updatedProduct, canActorEditTaskProducts(taskId, actorUserId, task.status)),
-      edits: getProductEditLogs(productId),
-      edited: true,
-    },
+    item: { ...item, edits: getProductEditLogs(productId), edited: true },
     taskSummary: buildTaskSummaryPatch(
       getTaskItemsByIds([taskId], { actorUserId, canViewAllTasks: canReviewTasks, canManageTasks, canReviewTasks })[0]!,
     ),
@@ -2716,7 +2119,14 @@ export function getScanoTaskProductDetail(
   canReviewTasks: boolean,
 ) {
   ensureTaskReadable(taskId, { actorUserId, canViewAllTasks, canManageTasks, canReviewTasks });
-  const product = getTaskProductById(taskId, productId, actorUserId, getTaskByIdRow(taskId).status);
+  const product = scanoTaskProductRepository.getTaskProductById(
+    taskId,
+    productId,
+    canActorEditTaskProducts(taskId, actorUserId, getTaskByIdRow(taskId).status),
+  );
+  if (!product) {
+    throw new ScanoTaskStoreError("Scano task product was not found.", 404, "SCANO_TASK_PRODUCT_NOT_FOUND");
+  }
   return {
     ...product,
     edits: getProductEditLogs(productId),
@@ -2734,7 +2144,10 @@ export function getScanoTaskProductImageDownload(
   canReviewTasks: boolean,
 ) {
   ensureTaskReadable(taskId, { actorUserId, canViewAllTasks, canManageTasks, canReviewTasks });
-  const product = getStoredTaskProductById(taskId, productId);
+  const product = scanoTaskProductRepository.getStoredTaskProductById(taskId, productId);
+  if (!product) {
+    throw new ScanoTaskStoreError("Scano task product was not found.", 404, "SCANO_TASK_PRODUCT_NOT_FOUND");
+  }
   const image = product.images.find((item) => item.id === imageId) ?? null;
   if (!image) {
     throw new ScanoTaskStoreError("Scano task product image was not found.", 404, "SCANO_TASK_PRODUCT_IMAGE_NOT_FOUND");
@@ -2771,7 +2184,7 @@ export async function createScanoTaskExport(taskId: ScanoTaskId, actorUserId: nu
   fs.mkdirSync(exportDir, { recursive: true });
   const zipPath = path.join(exportDir, `${exportId}.zip`);
   const fileName = `scano-task-${taskId}.zip`;
-  const products = getStoredTaskProductsForExport(taskId);
+  const products = scanoTaskProductRepository.getStoredTaskProductsForExport(taskId);
 
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet("Scano Review");
@@ -2910,9 +2323,9 @@ export function confirmScanoTaskExportDownload(taskId: ScanoTaskId, exportId: st
   }
 
   if (!row.confirmedDownloadAt) {
-    const products = getTaskProductsFromRows(taskId, actorUserId, getTaskByIdRow(taskId).status);
+    const products = scanoTaskProductRepository.listStoredTaskProducts(taskId);
     for (const product of products) {
-      for (const image of product.images as StoredTaskProductImage[]) {
+      for (const image of product.images) {
         if (image.filePath && fs.existsSync(image.filePath)) {
           fs.rmSync(image.filePath, { force: true });
         }

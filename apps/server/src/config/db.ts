@@ -5,6 +5,7 @@ import { createCryptoBox, createEncryptionKeyring, parseEncryptionSecretList } f
 import { resolveBootstrapGlobalEntityId } from "./globalEntityId.js";
 import { resolveEncryptionSecret } from "./secret.js";
 import { hashPassword, normalizeEmail } from "../services/auth/passwords.js";
+import { backfillScanoTaskProductCanonicalRows } from "../services/scanoTaskProductMutations.js";
 
 function isProduction() {
   return process.env.NODE_ENV?.trim().toLowerCase() === "production";
@@ -1178,6 +1179,7 @@ export function migrate() {
   if (!scanoTaskProductColumns.some((column) => column.name === "previewImageUrl")) {
     db.exec("ALTER TABLE scano_task_products ADD COLUMN previewImageUrl TEXT");
   }
+  backfillScanoTaskProductCanonicalRows(db);
   const branchRuntimeColumns = db.prepare("PRAGMA table_info(branch_runtime)").all() as Array<{ name: string }>;
   if (!branchRuntimeColumns.some((column) => column.name === "lastExternalCloseUntil")) {
     db.exec("ALTER TABLE branch_runtime ADD COLUMN lastExternalCloseUntil TEXT");
