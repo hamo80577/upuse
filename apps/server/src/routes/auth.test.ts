@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { AUTH_SESSION_COOKIE_NAME } from "../http/sessionCookie.js";
 
 const {
@@ -8,28 +8,7 @@ const {
   mockDeleteUserById,
   mockUpdateUser,
   mockVerifyUserCredentials,
-  mockResetLoginThrottleStoreForTests,
-  mockLoginThrottleStore,
 } = vi.hoisted(() => {
-  const attempts = new Map<string, {
-    count: number;
-    windowStartedAtMs: number;
-    blockedUntilMs: number | null;
-  }>();
-  const MAX_LOGIN_ATTEMPTS = 5;
-  const LOGIN_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
-  const LOGIN_ATTEMPT_BLOCK_MS = 15 * 60 * 1000;
-
-  function prune(nowMs = Date.now()) {
-    for (const [key, state] of attempts.entries()) {
-      const windowExpired = nowMs - state.windowStartedAtMs > LOGIN_ATTEMPT_WINDOW_MS;
-      const blockExpired = !state.blockedUntilMs || state.blockedUntilMs <= nowMs;
-      if (windowExpired && blockExpired) {
-        attempts.delete(key);
-      }
-    }
-  }
-
   return {
     mockCreateAuthSession: vi.fn(),
     mockCreateUser: vi.fn(),
@@ -37,62 +16,25 @@ const {
     mockDeleteUserById: vi.fn(),
     mockUpdateUser: vi.fn(),
     mockVerifyUserCredentials: vi.fn(),
-    mockResetLoginThrottleStoreForTests: vi.fn(() => {
-      attempts.clear();
-    }),
-    mockLoginThrottleStore: {
-      initialize: vi.fn(),
-      pruneExpired: vi.fn(() => {
-        prune();
-      }),
-      getBlockedUntilMs: vi.fn((key: string) => {
-        prune();
-        const state = attempts.get(key);
-        if (!state?.blockedUntilMs || state.blockedUntilMs <= Date.now()) {
-          if (state?.blockedUntilMs && state.blockedUntilMs <= Date.now()) {
-            attempts.delete(key);
-          }
-          return null;
-        }
-        attempts.delete(key);
-        attempts.set(key, state);
-        return state.blockedUntilMs;
-      }),
-      registerFailedAttempt: vi.fn((key: string) => {
-        const nowMs = Date.now();
-        const current = attempts.get(key);
-        const withinWindow = current && nowMs - current.windowStartedAtMs <= LOGIN_ATTEMPT_WINDOW_MS;
-        const nextState = withinWindow
-          ? {
-              count: current.count + 1,
-              windowStartedAtMs: current.windowStartedAtMs,
-              blockedUntilMs: current.blockedUntilMs,
-            }
-          : {
-              count: 1,
-              windowStartedAtMs: nowMs,
-              blockedUntilMs: null,
-            };
-
-        if (nextState.count >= MAX_LOGIN_ATTEMPTS) {
-          nextState.blockedUntilMs = nowMs + LOGIN_ATTEMPT_BLOCK_MS;
-        }
-
-        attempts.delete(key);
-        attempts.set(key, nextState);
-        return {
-          count: nextState.count,
-          blockedUntilMs: nextState.blockedUntilMs,
-        };
-      }),
-      clear: vi.fn((key: string) => {
-        attempts.delete(key);
-      }),
-      resetForTests: vi.fn(() => {
-        attempts.clear();
-      }),
-    },
   };
+});
+
+vi.mock("../config/db.js", async () => {
+  const BetterSqlite3 = (await import("better-sqlite3")).default;
+  const db = new BetterSqlite3(":memory:");
+  db.exec(`
+    CREATE TABLE login_attempts (
+      key TEXT PRIMARY KEY,
+      count INTEGER NOT NULL,
+      windowStartedAt TEXT NOT NULL,
+      blockedUntil TEXT,
+      updatedAt TEXT NOT NULL
+    );
+
+    CREATE INDEX idx_login_attempts_updated
+      ON login_attempts(updatedAt, key);
+  `);
+  return { db };
 });
 
 vi.mock("../services/authStore.js", () => ({
@@ -105,10 +47,7 @@ vi.mock("../services/authStore.js", () => ({
   verifyUserCredentials: mockVerifyUserCredentials,
 }));
 
-vi.mock("../services/loginThrottleStore.js", () => ({
-  loginThrottleStore: mockLoginThrottleStore,
-}));
-
+import { db as authTestDb } from "../config/db.js";
 import { createUserRoute, deleteUserRoute, loginRoute, logoutRoute, meRoute, resetLoginRateLimitStateForTests, updateUserRoute } from "./auth.js";
 
 function createMockResponse() {
@@ -135,17 +74,17 @@ function createMockResponse() {
 describe("auth.logoutRoute", () => {
   beforeEach(() => {
     resetLoginRateLimitStateForTests();
-    mockResetLoginThrottleStoreForTests.mockClear();
+    authTestDb.prepare("DELETE FROM login_attempts").run();
     mockCreateAuthSession.mockReset();
     mockCreateUser.mockReset();
     mockDeleteAuthSession.mockReset();
     mockDeleteUserById.mockReset();
     mockUpdateUser.mockReset();
     mockVerifyUserCredentials.mockReset();
-    mockLoginThrottleStore.getBlockedUntilMs.mockClear();
-    mockLoginThrottleStore.registerFailedAttempt.mockClear();
-    mockLoginThrottleStore.clear.mockClear();
-    mockLoginThrottleStore.resetForTests.mockClear();
+  });
+
+  afterAll(() => {
+    authTestDb.close();
   });
 
   it("sets the auth cookie and returns the authenticated user without exposing the session token", () => {
@@ -216,6 +155,56 @@ describe("auth.logoutRoute", () => {
     loginRoute(req as any, blockedAttempt as any);
     expect(blockedAttempt.statusCode).toBe(429);
     expect(mockVerifyUserCredentials).toHaveBeenCalledTimes(5);
+  });
+
+  it("persists throttle rows in sqlite and clears them after a successful login", () => {
+    mockVerifyUserCredentials.mockReturnValue(null);
+
+    const failedAttemptResponse = createMockResponse();
+    loginRoute({
+      ip: "127.0.0.1",
+      body: {
+        email: "admin@example.com",
+        password: "wrong-password",
+      },
+    } as any, failedAttemptResponse as any);
+
+    expect(failedAttemptResponse.statusCode).toBe(401);
+    expect(
+      authTestDb.prepare("SELECT key, count, blockedUntil FROM login_attempts WHERE key = ?").get("127.0.0.1:admin@example.com"),
+    ).toEqual({
+      key: "127.0.0.1:admin@example.com",
+      count: 1,
+      blockedUntil: null,
+    });
+
+    const user = {
+      id: 1,
+      email: "admin@example.com",
+      name: "Admin",
+      role: "admin",
+      active: true,
+      createdAt: "2026-03-07T10:00:00.000Z",
+    };
+    mockVerifyUserCredentials.mockReturnValue(user);
+    mockCreateAuthSession.mockReturnValue({
+      token: "raw-session-token",
+      userId: 1,
+      expiresAt: "2026-03-07T22:00:00.000Z",
+      createdAt: "2026-03-07T10:00:00.000Z",
+    });
+
+    const successResponse = createMockResponse();
+    loginRoute({
+      ip: "127.0.0.1",
+      body: {
+        email: "admin@example.com",
+        password: "correct horse battery staple",
+      },
+    } as any, successResponse as any);
+
+    expect(successResponse.statusCode).toBe(200);
+    expect(authTestDb.prepare("SELECT COUNT(*) AS count FROM login_attempts").get()).toEqual({ count: 0 });
   });
 
   it("keeps the login throttle active across later requests for the same normalized ip/email key", () => {

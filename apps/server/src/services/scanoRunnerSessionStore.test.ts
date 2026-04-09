@@ -11,6 +11,7 @@ vi.mock("../config/db.js", async () => {
 import { createSqliteScanoRunnerSessionStore } from "./scanoRunnerSessionStore.js";
 
 const TASK_ID = "11111111-1111-4111-8111-111111111111";
+const TASK_ID_2 = "22222222-2222-4222-8222-222222222222";
 
 function createTestDb() {
   const database = new Database(":memory:");
@@ -99,33 +100,57 @@ function createTestDb() {
       '2026-04-10T08:00:00.000Z', 'in_progress', 2, '2026-04-10T08:00:00.000Z', '2026-04-10T08:00:00.000Z'
     )
   `).run(TASK_ID);
+  database.prepare(`
+    INSERT INTO scano_tasks (
+      id, chainId, chainName, branchId, branchGlobalId, branchName, globalEntityId, countryCode, additionalRemoteId,
+      scheduledAt, status, createdByUserId, createdAt, updatedAt
+    ) VALUES (
+      ?, 1038, 'Carrefour', 4595, 'branch-4595', 'Maadi', 'TB_EG', 'EG', 'branch-4595',
+      '2026-04-10T09:00:00.000Z', 'in_progress', 2, '2026-04-10T09:00:00.000Z', '2026-04-10T09:00:00.000Z'
+    )
+  `).run(TASK_ID_2);
 
   return database;
 }
 
 describe("scanoRunnerSessionStore", () => {
-  it("persists runner sessions across store instances backed by the same database", () => {
+  it("persists newly created runner sessions to sqlite", () => {
     const database = createTestDb();
-    let nowMs = Date.parse("2026-04-10T08:00:00.000Z");
+    const store = createSqliteScanoRunnerSessionStore(database);
 
-    const firstStore = createSqliteScanoRunnerSessionStore(database, {
-      now: () => nowMs,
-    });
-    const session = firstStore.createSession({
+    const session = store.createRunnerSession({
       taskId: TASK_ID,
       actorUserId: 2,
       teamMemberId: 11,
       chainId: 1037,
       vendorId: 4594,
       globalEntityId: "TB_EG",
-    });
+    }, Date.parse("2026-04-10T08:00:00.000Z"));
 
-    nowMs += 1_000;
-
-    const restartedStore = createSqliteScanoRunnerSessionStore(database, {
-      now: () => nowMs,
+    expect(
+      database.prepare("SELECT token, taskId, actorUserId, teamMemberId FROM scano_runner_sessions WHERE token = ?").get(session.token),
+    ).toEqual({
+      token: session.token,
+      taskId: TASK_ID,
+      actorUserId: 2,
+      teamMemberId: 11,
     });
-    const restoredSession = restartedStore.readSession(TASK_ID, 2, session.token);
+    database.close();
+  });
+
+  it("reads a valid persisted runner session", () => {
+    const database = createTestDb();
+    const store = createSqliteScanoRunnerSessionStore(database);
+    const nowMs = Date.parse("2026-04-10T08:00:00.000Z");
+    const session = store.createRunnerSession({
+      taskId: TASK_ID,
+      actorUserId: 2,
+      teamMemberId: 11,
+      chainId: 1037,
+      vendorId: 4594,
+      globalEntityId: "TB_EG",
+    }, nowMs);
+    const restoredSession = store.readRunnerSession(TASK_ID, 2, session.token, nowMs + 1_000);
 
     expect(restoredSession).toMatchObject({
       token: session.token,
@@ -136,43 +161,156 @@ describe("scanoRunnerSessionStore", () => {
       vendorId: 4594,
       globalEntityId: "TB_EG",
     });
-    expect(Date.parse(restoredSession!.expiresAt)).toBeGreaterThan(nowMs);
+    expect(restoredSession!.expiresAt).toBeGreaterThan(nowMs + 1_000);
     database.close();
   });
 
-  it("prunes expired runner sessions during initialization so stale tokens do not survive startup", () => {
+  it("returns null for the wrong token", () => {
     const database = createTestDb();
-    let nowMs = Date.parse("2026-04-10T08:00:00.000Z");
-
-    const firstStore = createSqliteScanoRunnerSessionStore(database, {
-      now: () => nowMs,
-      sessionTtlMs: 1_000,
-    });
-    firstStore.createSession({
+    const store = createSqliteScanoRunnerSessionStore(database);
+    store.createRunnerSession({
       taskId: TASK_ID,
       actorUserId: 2,
       teamMemberId: 11,
       chainId: 1037,
       vendorId: 4594,
       globalEntityId: "TB_EG",
+    }, Date.parse("2026-04-10T08:00:00.000Z"));
+
+    expect(store.readRunnerSession(TASK_ID, 2, "missing-token", Date.parse("2026-04-10T08:01:00.000Z"))).toBeNull();
+    database.close();
+  });
+
+  it("returns null for the wrong actorUserId", () => {
+    const database = createTestDb();
+    const store = createSqliteScanoRunnerSessionStore(database);
+    const session = store.createRunnerSession({
+      taskId: TASK_ID,
+      actorUserId: 2,
+      teamMemberId: 11,
+      chainId: 1037,
+      vendorId: 4594,
+      globalEntityId: "TB_EG",
+    }, Date.parse("2026-04-10T08:00:00.000Z"));
+
+    expect(store.readRunnerSession(TASK_ID, 3, session.token, Date.parse("2026-04-10T08:01:00.000Z"))).toBeNull();
+    database.close();
+  });
+
+  it("returns null for the wrong taskId", () => {
+    const database = createTestDb();
+    const store = createSqliteScanoRunnerSessionStore(database);
+    const session = store.createRunnerSession({
+      taskId: TASK_ID,
+      actorUserId: 2,
+      teamMemberId: 11,
+      chainId: 1037,
+      vendorId: 4594,
+      globalEntityId: "TB_EG",
+    }, Date.parse("2026-04-10T08:00:00.000Z"));
+
+    expect(store.readRunnerSession(TASK_ID_2, 2, session.token, Date.parse("2026-04-10T08:01:00.000Z"))).toBeNull();
+    database.close();
+  });
+
+  it("extends the ttl on successful reads", () => {
+    const database = createTestDb();
+    const store = createSqliteScanoRunnerSessionStore(database, {
+      sessionTtlMs: 30 * 60 * 1000,
     });
+    const createdAtMs = Date.parse("2026-04-10T08:00:00.000Z");
+    const session = store.createRunnerSession({
+      taskId: TASK_ID,
+      actorUserId: 2,
+      teamMemberId: 11,
+      chainId: 1037,
+      vendorId: 4594,
+      globalEntityId: "TB_EG",
+    }, createdAtMs);
 
-    nowMs += 2_000;
+    const refreshedSession = store.readRunnerSession(TASK_ID, 2, session.token, createdAtMs + 60_000);
 
-    const restartedStore = createSqliteScanoRunnerSessionStore(database, {
-      now: () => nowMs,
+    expect(refreshedSession!.expiresAt).toBeGreaterThan(session.expiresAt);
+    expect(
+      database.prepare("SELECT expiresAt FROM scano_runner_sessions WHERE token = ?").get(session.token),
+    ).toEqual({
+      expiresAt: new Date(createdAtMs + 60_000 + (30 * 60 * 1000)).toISOString(),
+    });
+    database.close();
+  });
+
+  it("prunes expired sessions", () => {
+    const database = createTestDb();
+    const store = createSqliteScanoRunnerSessionStore(database, {
       sessionTtlMs: 1_000,
     });
-    restartedStore.initialize();
+    const nowMs = Date.parse("2026-04-10T08:00:00.000Z");
+    store.createRunnerSession({
+      taskId: TASK_ID,
+      actorUserId: 2,
+      teamMemberId: 11,
+      chainId: 1037,
+      vendorId: 4594,
+      globalEntityId: "TB_EG",
+    }, nowMs);
+
+    store.pruneRunnerSessions(nowMs + 2_000);
 
     expect(database.prepare("SELECT COUNT(*) AS count FROM scano_runner_sessions").get()).toEqual({ count: 0 });
     database.close();
   });
 
-  it("rejects persisted sessions when the actor or task does not match", () => {
+  it("clears runner sessions only for the matching task", () => {
     const database = createTestDb();
     const store = createSqliteScanoRunnerSessionStore(database);
-    const session = store.createSession({
+    store.createRunnerSession({
+      taskId: TASK_ID,
+      actorUserId: 2,
+      teamMemberId: 11,
+      chainId: 1037,
+      vendorId: 4594,
+      globalEntityId: "TB_EG",
+    }, Date.parse("2026-04-10T08:00:00.000Z"));
+    const otherSession = store.createRunnerSession({
+      taskId: TASK_ID_2,
+      actorUserId: 2,
+      teamMemberId: 11,
+      chainId: 1038,
+      vendorId: 4595,
+      globalEntityId: "TB_EG",
+    }, Date.parse("2026-04-10T08:01:00.000Z"));
+
+    store.clearRunnerSessionsForTask(TASK_ID);
+
+    expect(database.prepare("SELECT COUNT(*) AS count FROM scano_runner_sessions WHERE taskId = ?").get(TASK_ID)).toEqual({ count: 0 });
+    expect(
+      database.prepare("SELECT token, taskId FROM scano_runner_sessions WHERE token = ?").get(otherSession.token),
+    ).toEqual({
+      token: otherSession.token,
+      taskId: TASK_ID_2,
+    });
+    database.close();
+  });
+
+  it("persists runner sessions across store instances backed by the same database", () => {
+    const database = createTestDb();
+    const nowMs = Date.parse("2026-04-10T08:00:00.000Z");
+
+    const firstStore = createSqliteScanoRunnerSessionStore(database);
+    const session = firstStore.createRunnerSession({
+      taskId: TASK_ID,
+      actorUserId: 2,
+      teamMemberId: 11,
+      chainId: 1037,
+      vendorId: 4594,
+      globalEntityId: "TB_EG",
+    }, nowMs);
+
+    const restartedStore = createSqliteScanoRunnerSessionStore(database);
+    const restoredSession = restartedStore.readRunnerSession(TASK_ID, 2, session.token, nowMs + 1_000);
+
+    expect(restoredSession).toMatchObject({
+      token: session.token,
       taskId: TASK_ID,
       actorUserId: 2,
       teamMemberId: 11,
@@ -180,9 +318,32 @@ describe("scanoRunnerSessionStore", () => {
       vendorId: 4594,
       globalEntityId: "TB_EG",
     });
+    database.close();
+  });
 
-    expect(store.readSession(TASK_ID, 3, session.token)).toBeNull();
-    expect(store.readSession("22222222-2222-4222-8222-222222222222", 2, session.token)).toBeNull();
+  it("prunes expired runner sessions during initialization so stale tokens do not survive startup", () => {
+    const database = createTestDb();
+    const nowMs = Date.parse("2026-04-10T08:00:00.000Z");
+
+    const firstStore = createSqliteScanoRunnerSessionStore(database, {
+      sessionTtlMs: 1_000,
+    });
+    firstStore.createRunnerSession({
+      taskId: TASK_ID,
+      actorUserId: 2,
+      teamMemberId: 11,
+      chainId: 1037,
+      vendorId: 4594,
+      globalEntityId: "TB_EG",
+    }, nowMs);
+
+    const restartedStore = createSqliteScanoRunnerSessionStore(database, {
+      sessionTtlMs: 1_000,
+      now: () => nowMs + 2_000,
+    });
+    restartedStore.initialize();
+
+    expect(database.prepare("SELECT COUNT(*) AS count FROM scano_runner_sessions").get()).toEqual({ count: 0 });
     database.close();
   });
 });

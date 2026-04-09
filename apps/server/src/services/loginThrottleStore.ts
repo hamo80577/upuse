@@ -17,11 +17,11 @@ export interface LoginThrottleAttemptState {
 
 export interface LoginThrottleStore {
   initialize(): void;
-  pruneExpired(): void;
-  getBlockedUntilMs(key: string): number | null;
-  registerFailedAttempt(key: string): LoginThrottleAttemptState;
-  clear(key: string): void;
-  resetForTests(): void;
+  pruneLoginAttempts(nowMs?: number): void;
+  getBlockedUntil(key: string, nowMs?: number): number | null;
+  registerFailedLoginAttempt(key: string, nowMs?: number): LoginThrottleAttemptState;
+  clearLoginAttempts(key: string): void;
+  resetLoginRateLimitStateForTests(): void;
 }
 
 export interface SqliteLoginThrottleStoreOptions {
@@ -68,6 +68,10 @@ export function createSqliteLoginThrottleStore(
     now: options.now ?? (() => Date.now()),
   };
 
+  function resolveNow(nowMs?: number) {
+    return nowMs ?? resolvedOptions.now();
+  }
+
   let statements: LoginThrottleStatements | null = null;
 
   function getStatements(): LoginThrottleStatements {
@@ -113,10 +117,10 @@ export function createSqliteLoginThrottleStore(
     return statements;
   }
 
-  function pruneExpired() {
-    const nowMs = resolvedOptions.now();
-    const nowIso = toIso(nowMs);
-    const oldestWindowIso = toIso(nowMs - resolvedOptions.windowMs);
+  function pruneLoginAttempts(nowMs?: number) {
+    const effectiveNowMs = resolveNow(nowMs);
+    const nowIso = toIso(effectiveNowMs);
+    const oldestWindowIso = toIso(effectiveNowMs - resolvedOptions.windowMs);
     getStatements().deleteExpiredStatement.run(oldestWindowIso, nowIso);
   }
 
@@ -131,13 +135,14 @@ export function createSqliteLoginThrottleStore(
 
   return {
     initialize() {
-      pruneExpired();
+      pruneLoginAttempts();
     },
 
-    pruneExpired,
+    pruneLoginAttempts,
 
-    getBlockedUntilMs(key: string) {
-      pruneExpired();
+    getBlockedUntil(key: string, nowMs?: number) {
+      const effectiveNowMs = resolveNow(nowMs);
+      pruneLoginAttempts(effectiveNowMs);
 
       const { deleteByKeyStatement, selectByKeyStatement, upsertStatement } = getStatements();
       const row = selectByKeyStatement.get(key);
@@ -150,37 +155,39 @@ export function createSqliteLoginThrottleStore(
         return null;
       }
 
-      const nowMs = resolvedOptions.now();
-      if (blockedUntilMs <= nowMs) {
+      if (blockedUntilMs <= effectiveNowMs) {
         deleteByKeyStatement.run(key);
         return null;
       }
 
       upsertStatement.run({
         ...row,
-        updatedAt: toIso(nowMs),
+        updatedAt: toIso(effectiveNowMs),
       });
 
       return blockedUntilMs;
     },
 
-    registerFailedAttempt(key: string) {
-      pruneExpired();
+    registerFailedLoginAttempt(key: string, nowMs?: number) {
+      const effectiveNowMs = resolveNow(nowMs);
+      pruneLoginAttempts(effectiveNowMs);
       const { selectByKeyStatement, upsertStatement } = getStatements();
 
-      return database.transaction((attemptKey: string) => {
-        const nowMs = resolvedOptions.now();
+      return database.transaction((attemptKey: string, transactionNowMs: number) => {
         const existing = selectByKeyStatement.get(attemptKey);
         const existingWindowStartedAtMs = toMs(existing?.windowStartedAt);
-        const withinWindow = existing && existingWindowStartedAtMs !== null && nowMs - existingWindowStartedAtMs <= resolvedOptions.windowMs;
+        const withinWindow =
+          existing &&
+          existingWindowStartedAtMs !== null &&
+          transactionNowMs - existingWindowStartedAtMs <= resolvedOptions.windowMs;
         const count = withinWindow ? existing.count + 1 : 1;
-        const blockedUntilMs = count >= resolvedOptions.maxAttempts ? nowMs + resolvedOptions.blockMs : null;
+        const blockedUntilMs = count >= resolvedOptions.maxAttempts ? transactionNowMs + resolvedOptions.blockMs : null;
         const nextState = {
           key: attemptKey,
           count,
-          windowStartedAt: withinWindow ? existing.windowStartedAt : toIso(nowMs),
+          windowStartedAt: withinWindow ? existing.windowStartedAt : toIso(transactionNowMs),
           blockedUntil: blockedUntilMs === null ? null : toIso(blockedUntilMs),
-          updatedAt: toIso(nowMs),
+          updatedAt: toIso(transactionNowMs),
         };
 
         upsertStatement.run(nextState);
@@ -190,14 +197,14 @@ export function createSqliteLoginThrottleStore(
           count,
           blockedUntilMs,
         } satisfies LoginThrottleAttemptState;
-      })(key);
+      })(key, effectiveNowMs);
     },
 
-    clear(key: string) {
+    clearLoginAttempts(key: string) {
       getStatements().deleteByKeyStatement.run(key);
     },
 
-    resetForTests() {
+    resetLoginRateLimitStateForTests() {
       getStatements().deleteAllStatement.run();
     },
   };

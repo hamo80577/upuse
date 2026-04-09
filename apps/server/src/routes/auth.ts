@@ -102,13 +102,13 @@ function buildLoginThrottleMessage(blockedUntilMs: number) {
 }
 
 export function resetLoginRateLimitStateForTests() {
-  loginThrottleStore.resetForTests();
+  loginThrottleStore.resetLoginRateLimitStateForTests();
 }
 
 export function loginRoute(req: Request, res: Response) {
   const input = LoginBody.parse(req.body);
   const attemptKey = getLoginAttemptKey(req, input.email);
-  const blockedUntilMs = loginThrottleStore.getBlockedUntilMs(attemptKey);
+  const blockedUntilMs = loginThrottleStore.getBlockedUntil(attemptKey);
 
   if (blockedUntilMs) {
     return res.status(429).json({
@@ -119,7 +119,7 @@ export function loginRoute(req: Request, res: Response) {
 
   const user = verifyUserCredentials(input.email, input.password);
   if (!user) {
-    const nextAttemptState = loginThrottleStore.registerFailedAttempt(attemptKey);
+    const nextAttemptState = loginThrottleStore.registerFailedLoginAttempt(attemptKey);
     const statusCode = nextAttemptState.blockedUntilMs ? 429 : 401;
     return res.status(statusCode).json({
       ok: false,
@@ -129,7 +129,7 @@ export function loginRoute(req: Request, res: Response) {
     });
   }
 
-  loginThrottleStore.clear(attemptKey);
+  loginThrottleStore.clearLoginAttempts(attemptKey);
   const session = createAuthSession(user.id);
   setAuthSessionCookie(res, session.token, session.expiresAt);
   const body: LoginResponse = {

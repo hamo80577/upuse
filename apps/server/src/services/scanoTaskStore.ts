@@ -248,25 +248,6 @@ function dedupeStrings(values: string[]) {
   return result;
 }
 
-function createRunnerSession(task: ScanoTaskRow, actorUserId: number, teamMemberId: number) {
-  return scanoRunnerSessionStore.createSession({
-    taskId: task.id,
-    actorUserId,
-    teamMemberId,
-    chainId: task.chainId,
-    vendorId: task.branchId,
-    globalEntityId: task.globalEntityId,
-  });
-}
-
-function readRunnerSession(taskId: ScanoTaskId, actorUserId: number, token: string) {
-  const session = scanoRunnerSessionStore.readSession(taskId, actorUserId, token);
-  if (!session) {
-    throw new ScanoTaskStoreError("Runner session is invalid. Reload the task runner.", 401, "SCANO_RUNNER_SESSION_INVALID");
-  }
-  return session;
-}
-
 function isExternalBarcodeExactMatch(item: ScanoExternalProductSearchResult, barcode: string) {
   const normalizedBarcode = barcode.trim().toLowerCase();
   if (!normalizedBarcode) return false;
@@ -1616,10 +1597,6 @@ function getTaskExportFilePaths(taskId: ScanoTaskId) {
   return rows.map((row) => row.filePath);
 }
 
-function clearRunnerSessionsForTask(taskId: ScanoTaskId) {
-  scanoRunnerSessionStore.deleteSessionsForTask(taskId);
-}
-
 function renameStoredLocalImages(taskId: ScanoTaskId, productId: string, sku: string, images: StoredTaskProductImage[]) {
   if (!images.length) {
     return images;
@@ -2096,7 +2073,14 @@ export function getScanoRunnerBootstrap(
     throw new ScanoTaskStoreError("Resume the task before scanning more products.", 409, "SCANO_TASK_RUNNER_RESUME_REQUIRED");
   }
 
-  const runnerSession = createRunnerSession(task, actorUserId, teamMemberId);
+  const runnerSession = scanoRunnerSessionStore.createRunnerSession({
+    taskId: task.id,
+    actorUserId,
+    teamMemberId,
+    chainId: task.chainId,
+    vendorId: task.branchId,
+    globalEntityId: task.globalEntityId,
+  });
   const confirmedProducts = getTaskProductsFromRows(taskId, actorUserId, task.status);
 
   return {
@@ -2116,7 +2100,10 @@ export async function searchScanoRunnerExternalProducts(
     barcode: input.barcode,
     source: "manual",
   }).barcode;
-  const runnerSession = readRunnerSession(taskId, actorUserId, input.runnerToken);
+  const runnerSession = scanoRunnerSessionStore.readRunnerSession(taskId, actorUserId, input.runnerToken);
+  if (!runnerSession) {
+    throw new ScanoTaskStoreError("Runner session is invalid. Reload the task runner.", 401, "SCANO_RUNNER_SESSION_INVALID");
+  }
   const items = await searchScanoProductsByBarcode({
     barcode: normalizedBarcode,
     globalEntityId: runnerSession.globalEntityId,
@@ -2147,7 +2134,10 @@ export async function hydrateScanoRunnerExternalProduct(
   input: ScanoRunnerHydrateInput,
   actorUserId: number,
 ): Promise<ScanoRunnerAssignmentResponse> {
-  const runnerSession = readRunnerSession(taskId, actorUserId, input.runnerToken);
+  const runnerSession = scanoRunnerSessionStore.readRunnerSession(taskId, actorUserId, input.runnerToken);
+  if (!runnerSession) {
+    throw new ScanoTaskStoreError("Runner session is invalid. Reload the task runner.", 401, "SCANO_RUNNER_SESSION_INVALID");
+  }
   const productId = trimToNull(input.productId);
   if (!productId) {
     throw new ScanoTaskStoreError("Product id is required.", 400, "SCANO_RUNNER_PRODUCT_ID_REQUIRED");
@@ -2969,7 +2959,7 @@ export function deleteScanoTask(taskId: ScanoTaskId, actorUserId: number, canDel
   });
 
   deleteTaskRow();
-  clearRunnerSessionsForTask(taskId);
+  scanoRunnerSessionStore.clearRunnerSessionsForTask(taskId);
   for (const filePath of [...localImagePaths, ...exportFilePaths]) {
     removeScanoFileIfExists(filePath);
   }
@@ -2992,7 +2982,7 @@ export function purgeScanoTaskData() {
     db.prepare(`DELETE FROM scano_tasks`).run();
   })();
 
-  scanoRunnerSessionStore.clearAllSessions();
+  scanoRunnerSessionStore.resetRunnerSessionStateForTests();
   removeScanoDirIfExists(SCANO_PRODUCT_IMAGES_DIR);
   removeScanoDirIfExists(SCANO_EXPORTS_DIR);
   ensureScanoStorageDir();

@@ -2647,6 +2647,14 @@ describe("scano routes", () => {
     });
     const bootstrapBody = await bootstrapResponse.json();
     const runnerToken = bootstrapBody.item.runnerToken as string;
+    expect(
+      testDb.prepare("SELECT token, taskId, actorUserId, teamMemberId FROM scano_runner_sessions WHERE token = ?").get(runnerToken),
+    ).toEqual({
+      token: runnerToken,
+      taskId: TASK_1,
+      actorUserId: 2,
+      teamMemberId: 11,
+    });
 
     const searchResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/runner/search`, {
       method: "POST",
@@ -2696,7 +2704,14 @@ describe("scano routes", () => {
         barcode: "99887766",
       }),
     });
+    const invalidTokenBody = await invalidTokenResponse.json();
     expect(invalidTokenResponse.status).toBe(401);
+    expect(invalidTokenBody).toMatchObject({
+      ok: false,
+      code: "SCANO_RUNNER_SESSION_INVALID",
+      message: "Runner session is invalid. Reload the task runner.",
+      errorOrigin: "session",
+    });
   });
 
   it("returns multiple runner matches for non-exact search results and hydrates assignments by runner session", async () => {

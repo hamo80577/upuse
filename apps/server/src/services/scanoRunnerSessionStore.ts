@@ -3,7 +3,7 @@ import type BetterSqlite3 from "better-sqlite3";
 import { db } from "../config/db.js";
 import type { ScanoTaskId } from "../types/models.js";
 
-export interface ScanoRunnerSessionRecord {
+interface ScanoRunnerSessionRow {
   token: string;
   taskId: ScanoTaskId;
   actorUserId: number;
@@ -14,6 +14,17 @@ export interface ScanoRunnerSessionRecord {
   expiresAt: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ScanoRunnerSession {
+  token: string;
+  taskId: ScanoTaskId;
+  actorUserId: number;
+  teamMemberId: number;
+  chainId: number;
+  vendorId: number;
+  globalEntityId: string;
+  expiresAt: number;
 }
 
 export interface CreateScanoRunnerSessionInput {
@@ -27,11 +38,11 @@ export interface CreateScanoRunnerSessionInput {
 
 export interface ScanoRunnerSessionStore {
   initialize(): void;
-  pruneExpiredSessions(): void;
-  createSession(input: CreateScanoRunnerSessionInput): ScanoRunnerSessionRecord;
-  readSession(taskId: ScanoTaskId, actorUserId: number, token: string): ScanoRunnerSessionRecord | null;
-  deleteSessionsForTask(taskId: ScanoTaskId): void;
-  clearAllSessions(): void;
+  pruneRunnerSessions(nowMs?: number): void;
+  createRunnerSession(input: CreateScanoRunnerSessionInput, nowMs?: number): ScanoRunnerSession;
+  readRunnerSession(taskId: ScanoTaskId, actorUserId: number, token: string, nowMs?: number): ScanoRunnerSession | null;
+  clearRunnerSessionsForTask(taskId: ScanoTaskId): void;
+  resetRunnerSessionStateForTests(): void;
 }
 
 export interface SqliteScanoRunnerSessionStoreOptions {
@@ -41,7 +52,7 @@ export interface SqliteScanoRunnerSessionStoreOptions {
 
 interface ScanoRunnerSessionStatements {
   insertStatement: BetterSqlite3.Statement;
-  selectByTokenStatement: BetterSqlite3.Statement<[string], ScanoRunnerSessionRecord>;
+  selectByTokenStatement: BetterSqlite3.Statement<[string], ScanoRunnerSessionRow>;
   updateExpiryStatement: BetterSqlite3.Statement<[string, string, string]>;
   deleteByTokenStatement: BetterSqlite3.Statement<[string]>;
   deleteExpiredStatement: BetterSqlite3.Statement<[string]>;
@@ -69,6 +80,23 @@ export function createSqliteScanoRunnerSessionStore(
     sessionTtlMs: options.sessionTtlMs ?? DEFAULT_SCANO_RUNNER_SESSION_TTL_MS,
     now: options.now ?? (() => Date.now()),
   };
+
+  function resolveNow(nowMs?: number) {
+    return nowMs ?? resolvedOptions.now();
+  }
+
+  function toPublicSession(row: ScanoRunnerSessionRow): ScanoRunnerSession {
+    return {
+      token: row.token,
+      taskId: row.taskId,
+      actorUserId: row.actorUserId,
+      teamMemberId: row.teamMemberId,
+      chainId: row.chainId,
+      vendorId: row.vendorId,
+      globalEntityId: row.globalEntityId,
+      expiresAt: toMs(row.expiresAt) ?? 0,
+    };
+  }
 
   let statements: ScanoRunnerSessionStatements | null = null;
 
@@ -103,7 +131,7 @@ export function createSqliteScanoRunnerSessionStore(
           @updatedAt
         )
       `),
-      selectByTokenStatement: database.prepare<[string], ScanoRunnerSessionRecord>(`
+      selectByTokenStatement: database.prepare<[string], ScanoRunnerSessionRow>(`
         SELECT
           token,
           taskId,
@@ -138,24 +166,24 @@ export function createSqliteScanoRunnerSessionStore(
     return statements;
   }
 
-  function pruneExpiredSessions() {
-    getStatements().deleteExpiredStatement.run(toIso(resolvedOptions.now()));
+  function pruneRunnerSessions(nowMs?: number) {
+    getStatements().deleteExpiredStatement.run(toIso(resolveNow(nowMs)));
   }
 
   return {
     initialize() {
-      pruneExpiredSessions();
+      pruneRunnerSessions();
     },
 
-    pruneExpiredSessions,
+    pruneRunnerSessions,
 
-    createSession(input) {
-      pruneExpiredSessions();
+    createRunnerSession(input, nowMs?: number) {
+      const effectiveNowMs = resolveNow(nowMs);
+      pruneRunnerSessions(effectiveNowMs);
 
       const { insertStatement } = getStatements();
-      const nowMs = resolvedOptions.now();
-      const createdAt = toIso(nowMs);
-      const session: ScanoRunnerSessionRecord = {
+      const createdAt = toIso(effectiveNowMs);
+      const session: ScanoRunnerSessionRow = {
         token: randomUUID(),
         taskId: input.taskId,
         actorUserId: input.actorUserId,
@@ -163,17 +191,18 @@ export function createSqliteScanoRunnerSessionStore(
         chainId: input.chainId,
         vendorId: input.vendorId,
         globalEntityId: input.globalEntityId,
-        expiresAt: toIso(nowMs + resolvedOptions.sessionTtlMs),
+        expiresAt: toIso(effectiveNowMs + resolvedOptions.sessionTtlMs),
         createdAt,
         updatedAt: createdAt,
       };
 
       insertStatement.run(session);
-      return session;
+      return toPublicSession(session);
     },
 
-    readSession(taskId, actorUserId, token) {
-      pruneExpiredSessions();
+    readRunnerSession(taskId, actorUserId, token, nowMs?: number) {
+      const effectiveNowMs = resolveNow(nowMs);
+      pruneRunnerSessions(effectiveNowMs);
 
       const normalizedToken = token.trim();
       if (!normalizedToken) {
@@ -187,28 +216,27 @@ export function createSqliteScanoRunnerSessionStore(
       }
 
       const expiresAtMs = toMs(session.expiresAt);
-      const nowMs = resolvedOptions.now();
-      if (expiresAtMs === null || expiresAtMs <= nowMs) {
+      if (expiresAtMs === null || expiresAtMs <= effectiveNowMs) {
         deleteByTokenStatement.run(session.token);
         return null;
       }
 
-      const refreshedExpiresAt = toIso(nowMs + resolvedOptions.sessionTtlMs);
-      const refreshedUpdatedAt = toIso(nowMs);
+      const refreshedExpiresAt = toIso(effectiveNowMs + resolvedOptions.sessionTtlMs);
+      const refreshedUpdatedAt = toIso(effectiveNowMs);
       updateExpiryStatement.run(refreshedExpiresAt, refreshedUpdatedAt, session.token);
 
-      return {
+      return toPublicSession({
         ...session,
         expiresAt: refreshedExpiresAt,
         updatedAt: refreshedUpdatedAt,
-      };
+      });
     },
 
-    deleteSessionsForTask(taskId) {
+    clearRunnerSessionsForTask(taskId) {
       getStatements().deleteByTaskStatement.run(taskId);
     },
 
-    clearAllSessions() {
+    resetRunnerSessionStateForTests() {
       getStatements().deleteAllStatement.run();
     },
   };
