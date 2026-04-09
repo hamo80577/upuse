@@ -496,6 +496,28 @@ function buildCurrentScanoTaskDomainSchemaSql() {
 
     CREATE INDEX IF NOT EXISTS idx_scano_task_exports_task_created
       ON scano_task_exports(taskId, createdAt DESC, id DESC);
+
+    CREATE TABLE scano_runner_sessions (
+      token TEXT PRIMARY KEY,
+      taskId TEXT NOT NULL,
+      actorUserId INTEGER NOT NULL,
+      teamMemberId INTEGER NOT NULL,
+      chainId INTEGER NOT NULL,
+      vendorId INTEGER NOT NULL,
+      globalEntityId TEXT NOT NULL,
+      expiresAt TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (taskId) REFERENCES scano_tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (actorUserId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (teamMemberId) REFERENCES scano_team_members(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_runner_sessions_expires
+      ON scano_runner_sessions(expiresAt);
+
+    CREATE INDEX IF NOT EXISTS idx_scano_runner_sessions_task
+      ON scano_runner_sessions(taskId, updatedAt DESC, token);
   `;
 }
 
@@ -535,6 +557,7 @@ function resetLegacyScanoTaskData() {
 
   const runReset = db.transaction(() => {
     db.exec(`
+      DROP TABLE IF EXISTS scano_runner_sessions;
       DROP TABLE IF EXISTS scano_task_exports;
       DROP TABLE IF EXISTS scano_task_product_edits;
       DROP TABLE IF EXISTS scano_task_product_images;
@@ -809,6 +832,17 @@ export function migrate() {
 
     CREATE INDEX IF NOT EXISTS idx_sessions_expiresAt ON sessions(expiresAt);
 
+    CREATE TABLE IF NOT EXISTS login_attempts (
+      key TEXT PRIMARY KEY,
+      count INTEGER NOT NULL,
+      windowStartedAt TEXT NOT NULL,
+      blockedUntil TEXT,
+      updatedAt TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_login_attempts_updated
+      ON login_attempts(updatedAt, key);
+
     CREATE TABLE IF NOT EXISTS performance_user_state (
       userId INTEGER PRIMARY KEY,
       stateJson TEXT NOT NULL,
@@ -1028,6 +1062,28 @@ export function migrate() {
 
     CREATE INDEX IF NOT EXISTS idx_scano_task_exports_task_created
       ON scano_task_exports(taskId, createdAt DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS scano_runner_sessions (
+      token TEXT PRIMARY KEY,
+      taskId TEXT NOT NULL,
+      actorUserId INTEGER NOT NULL,
+      teamMemberId INTEGER NOT NULL,
+      chainId INTEGER NOT NULL,
+      vendorId INTEGER NOT NULL,
+      globalEntityId TEXT NOT NULL,
+      expiresAt TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (taskId) REFERENCES scano_tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (actorUserId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (teamMemberId) REFERENCES scano_team_members(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_runner_sessions_expires
+      ON scano_runner_sessions(expiresAt);
+
+    CREATE INDEX IF NOT EXISTS idx_scano_runner_sessions_task
+      ON scano_runner_sessions(taskId, updatedAt DESC, token);
 
     CREATE TABLE IF NOT EXISTS scano_settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),

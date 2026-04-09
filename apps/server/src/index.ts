@@ -14,7 +14,9 @@ import { resolveWebDistDir } from "./config/paths.js";
 import { resolveSecurityConfig } from "./config/security.js";
 import { resolveStartupConfig } from "./config/startup.js";
 import { getSettings } from "./services/settingsStore.js";
+import { initializeLoginThrottleStore } from "./services/loginThrottleStore.js";
 import { startOrdersMirrorRuntime } from "./services/ordersMirrorStore.js";
+import { initializeScanoRunnerSessionStore } from "./services/scanoRunnerSessionStore.js";
 import { attachDashboardWebSocketServer } from "./http/dashboardWebSocket.js";
 import { attachPerformanceWebSocketServer } from "./http/performanceWebSocket.js";
 import {
@@ -91,6 +93,8 @@ import { startMonitorRoute, stopMonitorRoute, monitorStatusRoute, refreshOrdersN
 import { syncVendorCatalogFromCsv } from "./services/vendorCatalogStore.js";
 
 migrate();
+initializeLoginThrottleStore();
+initializeScanoRunnerSessionStore();
 const startupConfig = resolveStartupConfig();
 if (startupConfig.syncVendorCatalogOnStartup && startupConfig.vendorCatalogCsvPath) {
   syncVendorCatalogFromCsv(startupConfig.vendorCatalogCsvPath);

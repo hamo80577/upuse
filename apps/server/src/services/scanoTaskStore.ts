@@ -7,6 +7,7 @@ import { db } from "../config/db.js";
 import { resolveDataDir } from "../config/paths.js";
 import { searchScanoProductsByBarcode, getScanoProductAssignmentCheck, getScanoProductDetail } from "./scanoCatalogClient.js";
 import { findScanoMasterProductMatch, listScanoMasterProductIndex } from "./scanoMasterProductStore.js";
+import { scanoRunnerSessionStore } from "./scanoRunnerSessionStore.js";
 import type {
   CreateScanoTaskInput,
   ResolveScanoTaskScanInput,
@@ -193,24 +194,11 @@ interface StoredTaskExportState {
   imagesPurgedAt: string | null;
 }
 
-interface ScanoRunnerSession {
-  token: string;
-  taskId: ScanoTaskId;
-  actorUserId: number;
-  teamMemberId: number;
-  chainId: number;
-  vendorId: number;
-  globalEntityId: string;
-  expiresAt: number;
-}
-
 type ExcelImageExtension = "png" | "gif" | "jpeg";
 
 const SCANO_STORAGE_DIR = path.join(resolveDataDir(), "scano");
 const SCANO_PRODUCT_IMAGES_DIR = path.join(SCANO_STORAGE_DIR, "product-images");
 const SCANO_EXPORTS_DIR = path.join(SCANO_STORAGE_DIR, "exports");
-const SCANO_RUNNER_SESSION_TTL_MS = 30 * 60 * 1000;
-const scanoRunnerSessions = new Map<string, ScanoRunnerSession>();
 
 export class ScanoTaskStoreError extends Error {
   status: number;
@@ -260,40 +248,22 @@ function dedupeStrings(values: string[]) {
   return result;
 }
 
-function pruneRunnerSessions() {
-  const now = Date.now();
-  for (const [token, session] of scanoRunnerSessions.entries()) {
-    if (session.expiresAt <= now) {
-      scanoRunnerSessions.delete(token);
-    }
-  }
-}
-
 function createRunnerSession(task: ScanoTaskRow, actorUserId: number, teamMemberId: number) {
-  pruneRunnerSessions();
-  const token = randomUUID();
-  const session: ScanoRunnerSession = {
-    token,
+  return scanoRunnerSessionStore.createSession({
     taskId: task.id,
     actorUserId,
     teamMemberId,
     chainId: task.chainId,
     vendorId: task.branchId,
     globalEntityId: task.globalEntityId,
-    expiresAt: Date.now() + SCANO_RUNNER_SESSION_TTL_MS,
-  };
-  scanoRunnerSessions.set(token, session);
-  return session;
+  });
 }
 
 function readRunnerSession(taskId: ScanoTaskId, actorUserId: number, token: string) {
-  pruneRunnerSessions();
-  const session = scanoRunnerSessions.get(token.trim());
-  if (!session || session.taskId !== taskId || session.actorUserId !== actorUserId) {
+  const session = scanoRunnerSessionStore.readSession(taskId, actorUserId, token);
+  if (!session) {
     throw new ScanoTaskStoreError("Runner session is invalid. Reload the task runner.", 401, "SCANO_RUNNER_SESSION_INVALID");
   }
-  session.expiresAt = Date.now() + SCANO_RUNNER_SESSION_TTL_MS;
-  scanoRunnerSessions.set(session.token, session);
   return session;
 }
 
@@ -1647,11 +1617,7 @@ function getTaskExportFilePaths(taskId: ScanoTaskId) {
 }
 
 function clearRunnerSessionsForTask(taskId: ScanoTaskId) {
-  for (const [token, session] of scanoRunnerSessions.entries()) {
-    if (session.taskId === taskId) {
-      scanoRunnerSessions.delete(token);
-    }
-  }
+  scanoRunnerSessionStore.deleteSessionsForTask(taskId);
 }
 
 function renameStoredLocalImages(taskId: ScanoTaskId, productId: string, sku: string, images: StoredTaskProductImage[]) {
@@ -3026,7 +2992,7 @@ export function purgeScanoTaskData() {
     db.prepare(`DELETE FROM scano_tasks`).run();
   })();
 
-  scanoRunnerSessions.clear();
+  scanoRunnerSessionStore.clearAllSessions();
   removeScanoDirIfExists(SCANO_PRODUCT_IMAGES_DIR);
   removeScanoDirIfExists(SCANO_EXPORTS_DIR);
   ensureScanoStorageDir();

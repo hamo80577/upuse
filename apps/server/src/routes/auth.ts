@@ -1,9 +1,9 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { resolveSecurityConfig } from "../config/security.js";
 import { createAuthSession, createUser, deleteAuthSession, deleteUserById, listUsers, updateUser, verifyUserCredentials } from "../services/authStore.js";
 import { clearAuthSessionCookie, setAuthSessionCookie } from "../http/sessionCookie.js";
 import { normalizeEmail } from "../services/auth/passwords.js";
+import { loginThrottleStore } from "../services/loginThrottleStore.js";
 import type { AppUserRole, AuthMeResponse, AuthUsersResponse, LoginResponse, ScanoRole } from "../types/models.js";
 
 const AppUserRoleSchema = z.enum(["admin", "user"] satisfies [AppUserRole, AppUserRole]);
@@ -92,87 +92,8 @@ function isUniqueEmailError(error: unknown) {
   return /unique constraint failed/i.test(message) && message.includes("users.email");
 }
 
-const MAX_LOGIN_ATTEMPTS = 5;
-const LOGIN_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
-const LOGIN_ATTEMPT_BLOCK_MS = 15 * 60 * 1000;
-const { loginRateLimitMaxKeys: MAX_LOGIN_ATTEMPT_KEYS } = resolveSecurityConfig();
-
-interface LoginAttemptState {
-  count: number;
-  windowStartedAtMs: number;
-  blockedUntilMs: number | null;
-}
-
-const loginAttempts = new Map<string, LoginAttemptState>();
-
-function touchLoginAttempt(key: string, state: LoginAttemptState) {
-  loginAttempts.delete(key);
-  loginAttempts.set(key, state);
-}
-
-function enforceLoginAttemptCapacity() {
-  while (loginAttempts.size > MAX_LOGIN_ATTEMPT_KEYS) {
-    const oldestKey = loginAttempts.keys().next().value;
-    if (!oldestKey) return;
-    loginAttempts.delete(oldestKey);
-  }
-}
-
 function getLoginAttemptKey(req: Request, email: string) {
   return `${req.ip || "unknown"}:${normalizeEmail(email)}`;
-}
-
-function pruneLoginAttempts(nowMs = Date.now()) {
-  for (const [key, state] of loginAttempts.entries()) {
-    const windowExpired = nowMs - state.windowStartedAtMs > LOGIN_ATTEMPT_WINDOW_MS;
-    const blockExpired = !state.blockedUntilMs || state.blockedUntilMs <= nowMs;
-
-    if (windowExpired && blockExpired) {
-      loginAttempts.delete(key);
-    }
-  }
-}
-
-function getBlockedUntilMs(key: string, nowMs = Date.now()) {
-  pruneLoginAttempts(nowMs);
-  const state = loginAttempts.get(key);
-  if (!state?.blockedUntilMs || state.blockedUntilMs <= nowMs) {
-    if (state?.blockedUntilMs && state.blockedUntilMs <= nowMs) {
-      loginAttempts.delete(key);
-    }
-    return null;
-  }
-  touchLoginAttempt(key, state);
-  return state.blockedUntilMs;
-}
-
-function registerFailedLoginAttempt(key: string, nowMs = Date.now()) {
-  const current = loginAttempts.get(key);
-  const withinWindow = current && nowMs - current.windowStartedAtMs <= LOGIN_ATTEMPT_WINDOW_MS;
-
-  const nextState: LoginAttemptState = withinWindow
-    ? {
-        count: current.count + 1,
-        windowStartedAtMs: current.windowStartedAtMs,
-        blockedUntilMs: current.blockedUntilMs,
-      }
-    : {
-        count: 1,
-        windowStartedAtMs: nowMs,
-        blockedUntilMs: null,
-      };
-
-  if (nextState.count >= MAX_LOGIN_ATTEMPTS) {
-    nextState.blockedUntilMs = nowMs + LOGIN_ATTEMPT_BLOCK_MS;
-  }
-
-  touchLoginAttempt(key, nextState);
-  enforceLoginAttemptCapacity();
-  return nextState;
-}
-
-function clearLoginAttempts(key: string) {
-  loginAttempts.delete(key);
 }
 
 function buildLoginThrottleMessage(blockedUntilMs: number) {
@@ -181,13 +102,13 @@ function buildLoginThrottleMessage(blockedUntilMs: number) {
 }
 
 export function resetLoginRateLimitStateForTests() {
-  loginAttempts.clear();
+  loginThrottleStore.resetForTests();
 }
 
 export function loginRoute(req: Request, res: Response) {
   const input = LoginBody.parse(req.body);
   const attemptKey = getLoginAttemptKey(req, input.email);
-  const blockedUntilMs = getBlockedUntilMs(attemptKey);
+  const blockedUntilMs = loginThrottleStore.getBlockedUntilMs(attemptKey);
 
   if (blockedUntilMs) {
     return res.status(429).json({
@@ -198,7 +119,7 @@ export function loginRoute(req: Request, res: Response) {
 
   const user = verifyUserCredentials(input.email, input.password);
   if (!user) {
-    const nextAttemptState = registerFailedLoginAttempt(attemptKey);
+    const nextAttemptState = loginThrottleStore.registerFailedAttempt(attemptKey);
     const statusCode = nextAttemptState.blockedUntilMs ? 429 : 401;
     return res.status(statusCode).json({
       ok: false,
@@ -208,7 +129,7 @@ export function loginRoute(req: Request, res: Response) {
     });
   }
 
-  clearLoginAttempts(attemptKey);
+  loginThrottleStore.clear(attemptKey);
   const session = createAuthSession(user.id);
   setAuthSessionCookie(res, session.token, session.expiresAt);
   const body: LoginResponse = {

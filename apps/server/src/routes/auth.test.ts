@@ -1,14 +1,99 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AUTH_SESSION_COOKIE_NAME } from "../http/sessionCookie.js";
 
-const { mockCreateAuthSession, mockCreateUser, mockDeleteAuthSession, mockDeleteUserById, mockUpdateUser, mockVerifyUserCredentials } = vi.hoisted(() => ({
-  mockCreateAuthSession: vi.fn(),
-  mockCreateUser: vi.fn(),
-  mockDeleteAuthSession: vi.fn(),
-  mockDeleteUserById: vi.fn(),
-  mockUpdateUser: vi.fn(),
-  mockVerifyUserCredentials: vi.fn(),
-}));
+const {
+  mockCreateAuthSession,
+  mockCreateUser,
+  mockDeleteAuthSession,
+  mockDeleteUserById,
+  mockUpdateUser,
+  mockVerifyUserCredentials,
+  mockResetLoginThrottleStoreForTests,
+  mockLoginThrottleStore,
+} = vi.hoisted(() => {
+  const attempts = new Map<string, {
+    count: number;
+    windowStartedAtMs: number;
+    blockedUntilMs: number | null;
+  }>();
+  const MAX_LOGIN_ATTEMPTS = 5;
+  const LOGIN_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
+  const LOGIN_ATTEMPT_BLOCK_MS = 15 * 60 * 1000;
+
+  function prune(nowMs = Date.now()) {
+    for (const [key, state] of attempts.entries()) {
+      const windowExpired = nowMs - state.windowStartedAtMs > LOGIN_ATTEMPT_WINDOW_MS;
+      const blockExpired = !state.blockedUntilMs || state.blockedUntilMs <= nowMs;
+      if (windowExpired && blockExpired) {
+        attempts.delete(key);
+      }
+    }
+  }
+
+  return {
+    mockCreateAuthSession: vi.fn(),
+    mockCreateUser: vi.fn(),
+    mockDeleteAuthSession: vi.fn(),
+    mockDeleteUserById: vi.fn(),
+    mockUpdateUser: vi.fn(),
+    mockVerifyUserCredentials: vi.fn(),
+    mockResetLoginThrottleStoreForTests: vi.fn(() => {
+      attempts.clear();
+    }),
+    mockLoginThrottleStore: {
+      initialize: vi.fn(),
+      pruneExpired: vi.fn(() => {
+        prune();
+      }),
+      getBlockedUntilMs: vi.fn((key: string) => {
+        prune();
+        const state = attempts.get(key);
+        if (!state?.blockedUntilMs || state.blockedUntilMs <= Date.now()) {
+          if (state?.blockedUntilMs && state.blockedUntilMs <= Date.now()) {
+            attempts.delete(key);
+          }
+          return null;
+        }
+        attempts.delete(key);
+        attempts.set(key, state);
+        return state.blockedUntilMs;
+      }),
+      registerFailedAttempt: vi.fn((key: string) => {
+        const nowMs = Date.now();
+        const current = attempts.get(key);
+        const withinWindow = current && nowMs - current.windowStartedAtMs <= LOGIN_ATTEMPT_WINDOW_MS;
+        const nextState = withinWindow
+          ? {
+              count: current.count + 1,
+              windowStartedAtMs: current.windowStartedAtMs,
+              blockedUntilMs: current.blockedUntilMs,
+            }
+          : {
+              count: 1,
+              windowStartedAtMs: nowMs,
+              blockedUntilMs: null,
+            };
+
+        if (nextState.count >= MAX_LOGIN_ATTEMPTS) {
+          nextState.blockedUntilMs = nowMs + LOGIN_ATTEMPT_BLOCK_MS;
+        }
+
+        attempts.delete(key);
+        attempts.set(key, nextState);
+        return {
+          count: nextState.count,
+          blockedUntilMs: nextState.blockedUntilMs,
+        };
+      }),
+      clear: vi.fn((key: string) => {
+        attempts.delete(key);
+      }),
+      resetForTests: vi.fn(() => {
+        attempts.clear();
+      }),
+    },
+  };
+});
 
 vi.mock("../services/authStore.js", () => ({
   createAuthSession: mockCreateAuthSession,
@@ -18,6 +103,10 @@ vi.mock("../services/authStore.js", () => ({
   listUsers: vi.fn(() => []),
   updateUser: mockUpdateUser,
   verifyUserCredentials: mockVerifyUserCredentials,
+}));
+
+vi.mock("../services/loginThrottleStore.js", () => ({
+  loginThrottleStore: mockLoginThrottleStore,
 }));
 
 import { createUserRoute, deleteUserRoute, loginRoute, logoutRoute, meRoute, resetLoginRateLimitStateForTests, updateUserRoute } from "./auth.js";
@@ -46,12 +135,17 @@ function createMockResponse() {
 describe("auth.logoutRoute", () => {
   beforeEach(() => {
     resetLoginRateLimitStateForTests();
+    mockResetLoginThrottleStoreForTests.mockClear();
     mockCreateAuthSession.mockReset();
     mockCreateUser.mockReset();
     mockDeleteAuthSession.mockReset();
     mockDeleteUserById.mockReset();
     mockUpdateUser.mockReset();
     mockVerifyUserCredentials.mockReset();
+    mockLoginThrottleStore.getBlockedUntilMs.mockClear();
+    mockLoginThrottleStore.registerFailedAttempt.mockClear();
+    mockLoginThrottleStore.clear.mockClear();
+    mockLoginThrottleStore.resetForTests.mockClear();
   });
 
   it("sets the auth cookie and returns the authenticated user without exposing the session token", () => {

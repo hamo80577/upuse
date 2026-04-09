@@ -278,6 +278,7 @@ function resetDb() {
   fs.rmSync(TEST_SCANO_STORAGE_DIR, { recursive: true, force: true });
   testDb.exec(`
     PRAGMA foreign_keys = OFF;
+    DROP TABLE IF EXISTS scano_runner_sessions;
     DROP TABLE IF EXISTS scano_task_scans;
     DROP TABLE IF EXISTS scano_task_exports;
     DROP TABLE IF EXISTS scano_task_product_edits;
@@ -473,6 +474,22 @@ function resetDb() {
       confirmedDownloadAt TEXT,
       imagesPurgedAt TEXT,
       FOREIGN KEY (taskId) REFERENCES scano_tasks(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE scano_runner_sessions (
+      token TEXT PRIMARY KEY,
+      taskId TEXT NOT NULL,
+      actorUserId INTEGER NOT NULL,
+      teamMemberId INTEGER NOT NULL,
+      chainId INTEGER NOT NULL,
+      vendorId INTEGER NOT NULL,
+      globalEntityId TEXT NOT NULL,
+      expiresAt TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (taskId) REFERENCES scano_tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (actorUserId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (teamMemberId) REFERENCES scano_team_members(id) ON DELETE CASCADE
     );
 
     PRAGMA foreign_keys = ON;
