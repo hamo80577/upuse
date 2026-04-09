@@ -45,6 +45,13 @@ vi.mock("../services/scanoCatalogClient.js", () => ({
   getScanoProductDetail: mockGetScanoProductDetail,
   getScanoProductAssignmentCheck: mockGetScanoProductAssignmentCheck,
   testScanoCatalogConnection: mockTestScanoCatalogConnection,
+  normalizeBarcodeForExternalLookup: (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed || !/^\d+$/.test(trimmed)) {
+      return trimmed;
+    }
+    return trimmed.length >= 14 ? trimmed : trimmed.padStart(14, "0");
+  },
   ScanoCatalogClientError: class ScanoCatalogClientError extends Error {
     status: number;
     code?: string;
@@ -1811,7 +1818,8 @@ describe("scano routes", () => {
     expect(dataRows[0]?.getCell(2).text).toBe("sku-duplicate");
     expect(dataRows[0]?.getCell(3).text).toBe("25");
     expect(dataRows[0]?.getCell(4).text).toBe("2222222222222");
-    expect(dataRows[0]?.getCell(5).text).toBe("Latest Export Name");
+    expect(dataRows[0]?.getCell(5).text).toBe("2222222222222");
+    expect(dataRows[0]?.getCell(6).text).toBe("Latest Export Name");
   });
 
   it("lets task managers update assignees during active tasks but blocks removing scanners who already started", async () => {
@@ -2076,6 +2084,57 @@ describe("scano routes", () => {
     });
   });
 
+  it("uses catalog barcodes in external drafts instead of the scanned lookup value", async () => {
+    insertTeamMember({ id: 11, name: "Ali", linkedUserId: 2 });
+    insertTask({ id: TASK_1, scheduledAt: "2026-04-10T08:00:00.000Z", status: "in_progress", startedByUserId: 2, startedByTeamMemberId: 11 });
+    assignTask(TASK_1, 11);
+    insertParticipant({ taskId: TASK_1, teamMemberId: 11 });
+
+    mockSearchScanoProductsByBarcode.mockResolvedValue([
+      {
+        id: "QAR4F19C",
+        barcode: "06223001363019",
+        barcodes: ["06223001363019", "998877660001"],
+        itemNameEn: "Imported Product",
+        itemNameAr: "منتج مستورد",
+        image: "https://images.example.com/product.jpg",
+      },
+    ]);
+    mockGetScanoProductDetail.mockResolvedValue({
+      id: "QAR4F19C",
+      sku: "SKU-1",
+      price: "100",
+      barcode: "06223001363019",
+      barcodes: ["06223001363019", "998877660001"],
+      itemNameEn: "Imported Product",
+      itemNameAr: "منتج مستورد",
+      images: ["https://images.example.com/product-1.jpg"],
+    });
+
+    const response = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/scans/resolve`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-role": "user",
+        "x-user-id": "2",
+        "x-scano-role": "scanner",
+      },
+      body: JSON.stringify({
+        barcode: "6223001363019",
+        source: "manual",
+      }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.kind).toBe("draft");
+    expect(body.draft).toMatchObject({
+      externalProductId: "QAR4F19C",
+      barcode: "06223001363019",
+      barcodes: ["06223001363019", "998877660001"],
+    });
+  });
+
   it("falls back to the search preview when external detail image hydration fails", async () => {
     insertTeamMember({ id: 11, name: "Ali", linkedUserId: 2 });
     insertTask({ id: TASK_1, scheduledAt: "2026-04-10T08:00:00.000Z", status: "in_progress", startedByUserId: 2, startedByTeamMemberId: 11 });
@@ -2213,6 +2272,73 @@ describe("scano routes", () => {
         }),
       }),
     ]));
+  });
+
+  it("blocks duplicate scans when the stored product barcode is the zero-padded 14-digit variant", async () => {
+    insertTeamMember({ id: 11, name: "Ali", linkedUserId: 2 });
+    insertTeamMember({ id: 12, name: "Mona", linkedUserId: 3 });
+    insertTask({ id: TASK_1, scheduledAt: "2026-04-10T08:00:00.000Z", status: "in_progress", startedByUserId: 2, startedByTeamMemberId: 11 });
+    assignTask(TASK_1, 11);
+    assignTask(TASK_1, 12);
+    insertParticipant({ taskId: TASK_1, teamMemberId: 11 });
+    insertParticipant({ taskId: TASK_1, teamMemberId: 12 });
+
+    const createResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/products`, {
+      method: "POST",
+      headers: {
+        "x-role": "user",
+        "x-user-id": "2",
+        "x-scano-role": "scanner",
+      },
+      body: createProductFormData({
+        externalProductId: "QAR4F19C",
+        barcode: "06223001363019",
+        barcodes: ["06223001363019"],
+        sku: "SKU-1",
+        price: "100",
+        itemNameEn: "Imported Product",
+        itemNameAr: null,
+        sourceMeta: {
+          sourceType: "vendor",
+          chain: "yes",
+          vendor: "yes",
+          masterfile: "no",
+          new: "no",
+        },
+        imageUrls: ["https://images.example.com/product.jpg"],
+      }),
+    });
+    const createBody = await createResponse.json();
+    expect(createResponse.status).toBe(201);
+
+    const duplicateResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/scans/resolve`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-role": "user",
+        "x-user-id": "3",
+        "x-scano-role": "scanner",
+      },
+      body: JSON.stringify({
+        barcode: "6223001363019",
+        source: "manual",
+      }),
+    });
+    const duplicateBody = await duplicateResponse.json();
+
+    expect(duplicateResponse.status).toBe(200);
+    expect(duplicateBody).toMatchObject({
+      kind: "duplicate",
+      existingProduct: {
+        id: createBody.item.id,
+        barcode: "06223001363019",
+      },
+      rawScan: {
+        outcome: "duplicate_blocked",
+        barcode: "6223001363019",
+        taskProductId: createBody.item.id,
+      },
+    });
   });
 
   it("lets any assigned scanner edit in-progress products, reports canEdit consistently, and records the actual editor", async () => {
@@ -2929,8 +3055,9 @@ describe("scano routes", () => {
     expect(dataRows).toHaveLength(1);
     expect(dataRows[0]?.getCell(2).text).toBe("SKU-CANON");
     expect(dataRows[0]?.getCell(3).text).toBe("25");
-    expect(dataRows[0]?.getCell(4).text).toBe("111111, 222222");
-    expect(dataRows[0]?.getCell(5).text).toBe("Canonical Export Name");
+    expect(dataRows[0]?.getCell(4).text).toBe("111111");
+    expect(dataRows[0]?.getCell(5).text).toBe("111111, 222222");
+    expect(dataRows[0]?.getCell(6).text).toBe("Canonical Export Name");
   });
 
   it("stores previewImageUrl metadata for external-style saves without persisting external image rows", async () => {
@@ -3062,6 +3189,58 @@ describe("scano routes", () => {
       code: "SCANO_RUNNER_SESSION_INVALID",
       message: "Runner session is invalid. Reload the task runner.",
       errorOrigin: "session",
+    });
+  });
+
+  it("treats zero-padded runner results as an exact match for the scanned barcode", async () => {
+    insertTeamMember({ id: 11, name: "Ali", linkedUserId: 2 });
+    insertTask({ id: TASK_1, scheduledAt: "2026-04-10T08:00:00.000Z", status: "in_progress", startedByUserId: 2, startedByTeamMemberId: 11 });
+    assignTask(TASK_1, 11);
+    insertParticipant({ taskId: TASK_1, teamMemberId: 11 });
+
+    mockSearchScanoProductsByBarcode.mockResolvedValue([
+      {
+        id: "QAR4F19C",
+        barcode: "06223001363019",
+        barcodes: ["06223001363019"],
+        itemNameEn: "Imported Product",
+        itemNameAr: null,
+        image: "https://images.example.com/product.jpg",
+      },
+    ]);
+
+    const bootstrapResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/runner/bootstrap`, {
+      headers: {
+        "x-role": "user",
+        "x-user-id": "2",
+        "x-scano-role": "scanner",
+      },
+    });
+    const bootstrapBody = await bootstrapResponse.json();
+    const runnerToken = bootstrapBody.item.runnerToken as string;
+
+    const searchResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/runner/search`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-role": "user",
+        "x-user-id": "2",
+        "x-scano-role": "scanner",
+      },
+      body: JSON.stringify({
+        runnerToken,
+        barcode: "6223001363019",
+      }),
+    });
+    const searchBody = await searchResponse.json();
+
+    expect(searchResponse.status).toBe(200);
+    expect(searchBody).toMatchObject({
+      kind: "match",
+      item: {
+        id: "QAR4F19C",
+        barcode: "06223001363019",
+      },
     });
   });
 

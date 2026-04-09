@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAxiosGet = vi.hoisted(() => vi.fn());
+const mockAxiosPost = vi.hoisted(() => vi.fn());
 const mockGetScanoCatalogRuntimeConfig = vi.hoisted(() => vi.fn());
 const mockResolveScanoCatalogRuntimeConfig = vi.hoisted(() => vi.fn());
 
 vi.mock("axios", () => ({
   default: {
     get: mockAxiosGet,
+    post: mockAxiosPost,
   },
 }));
 
@@ -15,11 +17,18 @@ vi.mock("./scanoSettingsStore.js", () => ({
   resolveScanoCatalogRuntimeConfig: mockResolveScanoCatalogRuntimeConfig,
 }));
 
-import { getScanoProductAssignmentCheck, searchScanoBranches, searchScanoChains, testScanoCatalogConnection } from "./scanoCatalogClient.js";
+import {
+  getScanoProductAssignmentCheck,
+  searchScanoBranches,
+  searchScanoChains,
+  searchScanoProductsByBarcode,
+  testScanoCatalogConnection,
+} from "./scanoCatalogClient.js";
 
 describe("scanoCatalogClient", () => {
   beforeEach(() => {
     mockAxiosGet.mockReset();
+    mockAxiosPost.mockReset();
     mockGetScanoCatalogRuntimeConfig.mockReset();
     mockResolveScanoCatalogRuntimeConfig.mockReset();
     mockGetScanoCatalogRuntimeConfig.mockReturnValue({
@@ -224,5 +233,72 @@ describe("scanoCatalogClient", () => {
     });
     expect(second).toEqual(first);
     expect(mockAxiosGet).toHaveBeenCalledTimes(1);
+  });
+
+  it("pads numeric barcode searches to 14 digits before calling the external catalog", async () => {
+    mockAxiosPost.mockResolvedValue({
+      data: {
+        data: {
+          masterProducts: {
+            masterProducts: [
+              {
+                id: "QAR4F19C",
+                names: [
+                  { locale: "en_EG", value: "Imported Product" },
+                ],
+                barcodes: ["06223001363019", "6223001363019"],
+                images: ["https://images.example.com/product.jpg"],
+              },
+            ],
+            totalCount: 1,
+          },
+        },
+      },
+    });
+
+    const result = await searchScanoProductsByBarcode({
+      barcode: "6223001363019",
+      globalEntityId: "TB_EG",
+    });
+
+    expect(mockAxiosPost).toHaveBeenCalledWith(
+      "https://qc-internal-supergraph-me.deliveryhero.io/graphql",
+      expect.objectContaining({
+        variables: {
+          filter: {
+            search: {
+              locale: "en_EG",
+              term: "06223001363019",
+            },
+          },
+          pagination: {
+            mode: "OFFSET_BASED",
+            offsetPagination: {
+              offset: 0,
+              limit: 10,
+            },
+          },
+        },
+      }),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer test-token",
+          "x-global-entity-id": "TB_EG",
+        }),
+        timeout: 12000,
+        httpAgent: expect.anything(),
+        httpsAgent: expect.anything(),
+      }),
+    );
+    expect(result).toEqual([
+      {
+        id: "QAR4F19C",
+        barcode: "06223001363019",
+        barcodes: ["06223001363019", "6223001363019"],
+        itemNameEn: "Imported Product",
+        itemNameAr: "Imported Product",
+        image: "https://images.example.com/product.jpg",
+      },
+    ]);
   });
 });

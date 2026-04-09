@@ -113,6 +113,7 @@ interface CacheEntry<T> {
 
 const SCANO_LOOKUP_CACHE_TTL_MS = 10 * 60 * 1000;
 const SCANO_LOOKUP_CACHE_LIMIT = 300;
+const EXTERNAL_BARCODE_LOOKUP_LENGTH = 14;
 const keepAliveHttpAgent = new HttpAgent({ keepAlive: true });
 const keepAliveHttpsAgent = new HttpsAgent({ keepAlive: true });
 const barcodeSearchCache = new Map<string, CacheEntry<ScanoExternalProductSearchResult[]>>();
@@ -150,6 +151,19 @@ function normalizeStringArray(values: unknown): string[] {
   return values
     .map((value) => (typeof value === "string" ? value.trim() : ""))
     .filter((value) => value.length > 0);
+}
+
+export function normalizeBarcodeForExternalLookup(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (!/^\d+$/.test(trimmed)) {
+    return trimmed;
+  }
+  return trimmed.length >= EXTERNAL_BARCODE_LOOKUP_LENGTH
+    ? trimmed
+    : trimmed.padStart(EXTERNAL_BARCODE_LOOKUP_LENGTH, "0");
 }
 
 function selectLocaleValue(values: RawLocaleValue[] | undefined, preferredLocalePrefix: string) {
@@ -508,8 +522,9 @@ export async function searchScanoProductsByBarcode(params: {
 }): Promise<ScanoExternalProductSearchResult[]> {
   const config = getConfig();
   const trimmedBarcode = params.barcode.trim();
+  const lookupBarcode = normalizeBarcodeForExternalLookup(trimmedBarcode);
   const trimmedGlobalEntityId = params.globalEntityId.trim();
-  const cacheKey = buildLookupCacheKey(["search", config.baseUrl, trimmedGlobalEntityId, trimmedBarcode.toLowerCase()]);
+  const cacheKey = buildLookupCacheKey(["search", config.baseUrl, trimmedGlobalEntityId, lookupBarcode.toLowerCase()]);
 
   return getCachedAsync({
     key: cacheKey,
@@ -525,7 +540,7 @@ export async function searchScanoProductsByBarcode(params: {
               filter: {
                 search: {
                   locale: "en_EG",
-                  term: trimmedBarcode,
+                  term: lookupBarcode,
                 },
               },
               pagination: {

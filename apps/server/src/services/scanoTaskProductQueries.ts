@@ -9,6 +9,7 @@ import type {
   ScanoTaskProductSource,
   ScanoYesNoFlag,
 } from "../types/models.js";
+import { normalizeBarcodeForExternalLookup } from "./scanoCatalogClient.js";
 
 interface ScanoTaskProductRow {
   id: string;
@@ -547,11 +548,12 @@ export function findDuplicateTaskProduct(
   },
 ) {
   const normalizedBarcode = params.barcode.trim();
+  const lookupBarcode = normalizeBarcodeForExternalLookup(normalizedBarcode);
   if (!normalizedBarcode) {
     return null;
   }
 
-  const row = database.prepare<[ScanoTaskId, string | null, string | null, string, string], ScanoTaskProductRow>(`
+  const row = database.prepare<[ScanoTaskId, string | null, string | null, string, string, string, string], ScanoTaskProductRow>(`
     SELECT
       p.id,
       p.taskId,
@@ -579,16 +581,28 @@ export function findDuplicateTaskProduct(
       AND (? IS NULL OR p.id <> ?)
       AND (
         p.barcode = ? COLLATE NOCASE
+        OR p.barcode = ? COLLATE NOCASE
         OR EXISTS (
           SELECT 1
           FROM scano_task_product_barcodes pb
           WHERE pb.productId = p.id
-            AND pb.barcode = ? COLLATE NOCASE
+            AND (
+              pb.barcode = ? COLLATE NOCASE
+              OR pb.barcode = ? COLLATE NOCASE
+            )
         )
       )
     ORDER BY datetime(p.updatedAt) DESC, datetime(p.confirmedAt) DESC, p.id DESC
     LIMIT 1
-  `).get(params.taskId, params.excludeProductId ?? null, params.excludeProductId ?? null, normalizedBarcode, normalizedBarcode);
+  `).get(
+    params.taskId,
+    params.excludeProductId ?? null,
+    params.excludeProductId ?? null,
+    normalizedBarcode,
+    lookupBarcode,
+    normalizedBarcode,
+    lookupBarcode,
+  );
 
   if (!row) {
     return null;

@@ -5,7 +5,12 @@ import path from "node:path";
 import ExcelJS from "exceljs";
 import { db } from "../config/db.js";
 import { resolveDataDir } from "../config/paths.js";
-import { searchScanoProductsByBarcode, getScanoProductAssignmentCheck, getScanoProductDetail } from "./scanoCatalogClient.js";
+import {
+  getScanoProductAssignmentCheck,
+  getScanoProductDetail,
+  normalizeBarcodeForExternalLookup,
+  searchScanoProductsByBarcode,
+} from "./scanoCatalogClient.js";
 import { findScanoMasterProductMatch, listScanoMasterProductIndex } from "./scanoMasterProductStore.js";
 import {
   scanoTaskProductRepository,
@@ -195,9 +200,10 @@ function dedupeStrings(values: string[]) {
 }
 
 function isExternalBarcodeExactMatch(item: ScanoExternalProductSearchResult, barcode: string) {
-  const normalizedBarcode = barcode.trim().toLowerCase();
-  if (!normalizedBarcode) return false;
-  return dedupeStrings([item.barcode, ...(item.barcodes ?? [])]).some((value) => value.toLowerCase() === normalizedBarcode);
+  const lookupBarcode = normalizeBarcodeForExternalLookup(barcode).toLowerCase();
+  if (!lookupBarcode) return false;
+  return dedupeStrings([item.barcode, ...(item.barcodes ?? [])])
+    .some((value) => normalizeBarcodeForExternalLookup(value).toLowerCase() === lookupBarcode);
 }
 
 function normalizePagination(page: number | undefined, pageSize: number | undefined, defaultPageSize = 10) {
@@ -1260,6 +1266,8 @@ async function buildResolveDraft(task: ScanoTaskRow, barcode: string, selectedEx
     if (!selected) {
       throw new ScanoTaskStoreError("Selected Scano product was not found.", 400, "SCANO_TASK_PRODUCT_SELECTION_INVALID");
     }
+    const externalBarcodes = dedupeStrings([selected.barcode, ...(selected.barcodes ?? [])]);
+    const primaryExternalBarcode = externalBarcodes[0] ?? barcode;
 
     const [{ images, previewImageUrl }, assignment] = await Promise.all([
       getExternalDraftImages(task, selected),
@@ -1276,8 +1284,8 @@ async function buildResolveDraft(task: ScanoTaskRow, barcode: string, selectedEx
       draft: {
         externalProductId: selected.id,
         previewImageUrl,
-        barcode,
-        barcodes: dedupeStrings([barcode, ...(selected.barcodes ?? [])]),
+        barcode: primaryExternalBarcode,
+        barcodes: externalBarcodes.length ? externalBarcodes : [barcode],
         sku: assignment.sku,
         price: assignment.price,
         itemNameEn: selected.itemNameEn,
@@ -2193,6 +2201,7 @@ export async function createScanoTaskExport(taskId: ScanoTaskId, actorUserId: nu
     { header: "SKU", key: "sku", width: 18 },
     { header: "Price", key: "price", width: 12 },
     { header: "Barcode", key: "barcode", width: 22 },
+    { header: "All Barcodes", key: "allBarcodes", width: 34 },
     { header: "Item Name EN", key: "itemNameEn", width: 32 },
     { header: "Item Name AR", key: "itemNameAr", width: 28 },
     { header: "Source", key: "sourceType", width: 14 },
@@ -2208,7 +2217,8 @@ export async function createScanoTaskExport(taskId: ScanoTaskId, actorUserId: nu
       id: product.externalProductId ?? product.id,
       sku: product.sku,
       price: product.price ?? "",
-      barcode: product.barcodes.join(", "),
+      barcode: product.barcode,
+      allBarcodes: product.barcodes.join(", "),
       itemNameEn: product.itemNameEn,
       itemNameAr: product.itemNameAr ?? "",
       sourceType: product.sourceType,
@@ -2228,7 +2238,7 @@ export async function createScanoTaskExport(taskId: ScanoTaskId, actorUserId: nu
         extension: imageAsset.extension,
       } as never);
       worksheet.addImage(imageId, {
-        tl: { col: 11, row: row.number - 1 + 0.1 },
+        tl: { col: 12, row: row.number - 1 + 0.1 },
         ext: { width: 74, height: 74 },
       });
     } catch {}
