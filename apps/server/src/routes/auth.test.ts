@@ -124,6 +124,47 @@ describe("auth.logoutRoute", () => {
     expect(mockVerifyUserCredentials).toHaveBeenCalledTimes(5);
   });
 
+  it("keeps the login throttle active across later requests for the same normalized ip/email key", () => {
+    mockVerifyUserCredentials.mockReturnValue(null);
+
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      const res = createMockResponse();
+      loginRoute({
+        ip: "127.0.0.1",
+        body: {
+          email: "admin@example.com",
+          password: "wrong-password",
+        },
+      } as any, res as any);
+    }
+
+    mockVerifyUserCredentials.mockReturnValue({
+      id: 1,
+      email: "admin@example.com",
+      name: "Admin",
+      role: "admin",
+      active: true,
+      createdAt: "2026-03-07T10:00:00.000Z",
+    });
+
+    const blockedRes = createMockResponse();
+    loginRoute({
+      ip: "127.0.0.1",
+      body: {
+        email: "ADMIN@example.com",
+        password: "correct horse battery staple",
+      },
+    } as any, blockedRes as any);
+
+    expect(blockedRes.statusCode).toBe(429);
+    expect(blockedRes.payload).toEqual({
+      ok: false,
+      message: expect.stringContaining("Too many failed sign-in attempts."),
+    });
+    expect(mockVerifyUserCredentials).toHaveBeenCalledTimes(5);
+    expect(mockCreateAuthSession).not.toHaveBeenCalled();
+  });
+
   it("deletes the current session without touching the monitor lifecycle", () => {
     const req = {
       authSessionToken: "session-123",

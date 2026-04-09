@@ -1,5 +1,7 @@
 import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
+import ExpandLessRoundedIcon from "@mui/icons-material/ExpandLessRounded";
+import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import QrCode2RoundedIcon from "@mui/icons-material/QrCode2Rounded";
 import QrCodeScannerRoundedIcon from "@mui/icons-material/QrCodeScannerRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
@@ -24,9 +26,10 @@ import {
   ListItemText,
   Stack,
   TextField,
-  Tooltip,
   Typography,
   Zoom,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -87,6 +90,58 @@ const EMPTY_SCANS_PAGE: ScanoTaskScansPageResponse = {
   total: 0,
   totalPages: 1,
 };
+const CAMERA_SCAN_FRAME = {
+  widthRatio: 0.84,
+  heightRatio: 0.28,
+};
+const CAMERA_SCAN_INTERVAL_MS = 150;
+
+function getCameraScanRegion(frameWidth: number, frameHeight: number) {
+  const width = Math.max(1, Math.round(frameWidth * CAMERA_SCAN_FRAME.widthRatio));
+  const height = Math.max(1, Math.round(frameHeight * CAMERA_SCAN_FRAME.heightRatio));
+  return {
+    width,
+    height,
+    left: Math.max(0, Math.round((frameWidth - width) / 2)),
+    top: Math.max(0, Math.round((frameHeight - height) / 2)),
+  };
+}
+
+function getCameraAvailabilityError() {
+  if (typeof window !== "undefined" && window.isSecureContext === false) {
+    return "Camera access requires HTTPS or localhost on mobile browsers.";
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return "Camera scanning is not supported on this device.";
+  }
+  return "";
+}
+
+function describeCameraError(error: unknown) {
+  if (typeof window !== "undefined" && window.isSecureContext === false) {
+    return "Camera access requires HTTPS or localhost on mobile browsers.";
+  }
+
+  const name = typeof error === "object" && error !== null && "name" in error
+    ? String((error as { name?: unknown }).name)
+    : "";
+
+  switch (name) {
+    case "NotAllowedError":
+    case "SecurityError":
+      return "Camera access was denied. Allow camera permission and try again.";
+    case "NotFoundError":
+    case "DevicesNotFoundError":
+      return "No camera was found on this device.";
+    case "NotReadableError":
+    case "TrackStartError":
+      return "The camera is busy in another app. Close it there and try again.";
+    case "AbortError":
+      return "Camera startup was interrupted. Try opening it again.";
+    default:
+      return describeApiError(error, "Failed to open the camera.");
+  }
+}
 
 function ProductCounterCard(props: { label: string; total: number; edited?: number }) {
   return (
@@ -329,7 +384,9 @@ export function ScanoTaskRunnerPage() {
   const navigate = useNavigate();
   const params = useParams<{ id: string }>();
   const taskId = params.id?.trim() ?? "";
-  const { canManageScanoTasks } = useAuth();
+  const { canManageScanoTasks, user } = useAuth();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const fallbackPath = canManageScanoTasks ? "/scano/assign-task" : "/scano/my-tasks";
 
   const [task, setTask] = useState<ScanoTaskDetail | null>(null);
@@ -352,6 +409,7 @@ export function ScanoTaskRunnerPage() {
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraLoading, setCameraLoading] = useState(false);
   const [cameraError, setCameraError] = useState("");
+  const [taskSummaryExpanded, setTaskSummaryExpanded] = useState(false);
   const [endDialogState, setEndDialogState] = useState<EndDialogState>("closed");
   const [selectionItems, setSelectionItems] = useState<ScanoExternalProductSearchResult[]>([]);
   const [pendingSelection, setPendingSelection] = useState<PendingSelectionState | null>(null);
@@ -362,6 +420,8 @@ export function ScanoTaskRunnerPage() {
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerControlsRef = useRef<ScannerControlsLike | null>(null);
+  const cameraScanTimerRef = useRef<number | null>(null);
+  const cameraSessionRef = useRef(0);
   const lastDecodedBarcodeRef = useRef("");
   const endSuccessTimerRef = useRef<number | null>(null);
   const lookupGenerationRef = useRef(0);
@@ -411,6 +471,10 @@ export function ScanoTaskRunnerPage() {
   }, [runnerBootstrap]);
 
   const latestConfirmedProduct = runnerBootstrap?.confirmedProducts[0] ?? productsPage.items[0] ?? null;
+  const myConfirmedCount = useMemo(() => {
+    if (!user?.id) return 0;
+    return (runnerBootstrap?.confirmedProducts ?? []).filter((product) => product.createdBy.linkedUserId === user.id).length;
+  }, [runnerBootstrap, user?.id]);
 
   const loadTask = useCallback(async (signal?: AbortSignal) => {
     if (!taskId) {
@@ -514,8 +578,16 @@ export function ScanoTaskRunnerPage() {
   }
 
   const stopCamera = useCallback(() => {
+    cameraSessionRef.current += 1;
+
+    if (cameraScanTimerRef.current != null) {
+      window.clearTimeout(cameraScanTimerRef.current);
+      cameraScanTimerRef.current = null;
+    }
+
     scannerControlsRef.current?.stop();
     scannerControlsRef.current = null;
+    lastDecodedBarcodeRef.current = "";
 
     const mediaStream = videoRef.current?.srcObject;
     const canStopTracks = typeof mediaStream === "object"
@@ -528,6 +600,7 @@ export function ScanoTaskRunnerPage() {
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+    setCameraLoading(false);
     setCameraOpen(false);
   }, []);
 
@@ -565,8 +638,10 @@ export function ScanoTaskRunnerPage() {
     return () => controller.abort();
   }, [loadScanHistory, scanHistoryLoaded, scanHistoryOpen]);
 
+  const canUseRunnerBootstrap = !!task && task.status === "in_progress" && task.viewerState.canEnter;
+
   useEffect(() => {
-    if (!task || task.status !== "in_progress" || !task.viewerState.canEnter) {
+    if (!canUseRunnerBootstrap) {
       setRunnerBootstrap(null);
       setRunnerBootstrapError("");
       setRunnerBootstrapLoading(false);
@@ -576,7 +651,11 @@ export function ScanoTaskRunnerPage() {
     const controller = new AbortController();
     void loadRunnerBootstrap(controller.signal);
     return () => controller.abort();
-  }, [loadRunnerBootstrap, task]);
+  }, [canUseRunnerBootstrap, loadRunnerBootstrap]);
+
+  useEffect(() => {
+    setTaskSummaryExpanded(false);
+  }, [taskId]);
 
   function closeProductDialog() {
     if (savingProduct) return;
@@ -906,44 +985,124 @@ export function ScanoTaskRunnerPage() {
       return;
     }
 
-    if (!navigator.mediaDevices?.getUserMedia || !videoRef.current) {
-      setCameraError("Camera scanning is not supported on this device.");
+    const availabilityError = getCameraAvailabilityError();
+    if (availabilityError) {
+      setCameraError(availabilityError);
       return;
     }
 
+    const videoElement = videoRef.current;
+    if (!videoElement) {
+      setCameraError("Camera preview is still loading. Try again.");
+      return;
+    }
+
+    const sessionId = cameraSessionRef.current + 1;
+    cameraSessionRef.current = sessionId;
+
     try {
+      setCameraOpen(true);
       setCameraLoading(true);
       setCameraError("");
-      const { BrowserMultiFormatReader } = await import("@zxing/browser");
-      const reader = new BrowserMultiFormatReader();
-      const controls = await reader.decodeFromConstraints(
-        {
+      lastDecodedBarcodeRef.current = "";
+
+      const [{ BrowserMultiFormatOneDReader }, mediaStream] = await Promise.all([
+        import("@zxing/browser"),
+        navigator.mediaDevices.getUserMedia({
           audio: false,
           video: {
             facingMode: { ideal: "environment" },
+            width: { ideal: isMobile ? 1920 : 1280 },
+            height: { ideal: isMobile ? 1080 : 720 },
           },
-        },
-        videoRef.current,
-        (result) => {
+        }),
+      ]);
+
+      if (cameraSessionRef.current !== sessionId) {
+        mediaStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      videoElement.srcObject = mediaStream;
+      await videoElement.play();
+
+      if (cameraSessionRef.current !== sessionId) {
+        mediaStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      const reader = new BrowserMultiFormatOneDReader();
+      const scanCanvas = document.createElement("canvas");
+      const scanContext = scanCanvas.getContext("2d", { willReadFrequently: true });
+
+      if (!scanContext) {
+        throw new Error("Could not prepare the camera scanner.");
+      }
+
+      const stopScanLoop = () => {
+        if (cameraScanTimerRef.current != null) {
+          window.clearTimeout(cameraScanTimerRef.current);
+          cameraScanTimerRef.current = null;
+        }
+      };
+
+      scannerControlsRef.current = {
+        stop: stopScanLoop,
+      };
+
+      const scanFrame = () => {
+        if (cameraSessionRef.current !== sessionId) {
+          return;
+        }
+
+        if (videoElement.readyState < 2 || videoElement.videoWidth < 1 || videoElement.videoHeight < 1) {
+          cameraScanTimerRef.current = window.setTimeout(scanFrame, CAMERA_SCAN_INTERVAL_MS);
+          return;
+        }
+
+        const region = getCameraScanRegion(videoElement.videoWidth, videoElement.videoHeight);
+        scanCanvas.width = region.width;
+        scanCanvas.height = region.height;
+
+        scanContext.drawImage(
+          videoElement,
+          region.left,
+          region.top,
+          region.width,
+          region.height,
+          0,
+          0,
+          region.width,
+          region.height,
+        );
+
+        try {
+          const result = reader.decodeFromCanvas(scanCanvas);
           const barcode = result?.getText()?.trim() ?? "";
           if (!barcode || barcode === lastDecodedBarcodeRef.current) {
+            cameraScanTimerRef.current = window.setTimeout(scanFrame, CAMERA_SCAN_INTERVAL_MS);
             return;
           }
 
           lastDecodedBarcodeRef.current = barcode;
           setBarcodeInput(barcode);
-          void handleSubmitBarcode({ barcode, source: "camera" });
           stopCamera();
-        },
-      );
+          void handleSubmitBarcode({ barcode, source: "camera" });
+          return;
+        } catch {
+          cameraScanTimerRef.current = window.setTimeout(scanFrame, CAMERA_SCAN_INTERVAL_MS);
+          return;
+        }
+      };
 
-      scannerControlsRef.current = controls;
-      setCameraOpen(true);
+      scanFrame();
     } catch (error) {
       stopCamera();
-      setCameraError(describeApiError(error, "Camera access was denied"));
+      setCameraError(describeCameraError(error));
     } finally {
-      setCameraLoading(false);
+      if (cameraSessionRef.current === sessionId) {
+        setCameraLoading(false);
+      }
     }
   }
 
@@ -986,6 +1145,17 @@ export function ScanoTaskRunnerPage() {
     || runnerBootstrapLoading
     || !!runnerBootstrapError
     || !runnerBootstrap;
+  const cameraPreviewVisible = cameraOpen || cameraLoading;
+  const cameraActionDisabled = resolvingScan || runnerBootstrapLoading || !!runnerBootstrapError || !runnerBootstrap;
+  const cameraToggleLabel = cameraLoading
+    ? "Opening Camera..."
+    : cameraOpen
+      ? "Stop Camera"
+      : "Open Camera Scanner";
+  const taskSummaryTitle = task.branchName || task.chainName;
+  const taskSummarySubtitle = task.branchName && task.branchName !== task.chainName ? task.chainName : null;
+  const taskTotalLabel = `Task Total: ${counters.scannedProductsCount}`;
+  const myConfirmedLabel = `My Confirmed: ${myConfirmedCount}`;
 
   return (
     <Box
@@ -997,7 +1167,7 @@ export function ScanoTaskRunnerPage() {
       }}
     >
       <TopBar />
-      <Container maxWidth="md" sx={{ py: { xs: 2, md: 3 } }}>
+      <Container maxWidth="lg" sx={{ py: { xs: 1.5, md: 3 } }}>
         <Stack spacing={2}>
           <Stack direction="row" spacing={1} alignItems="center">
             <Button startIcon={<ArrowBackRoundedIcon />} onClick={() => navigate(`/scano/tasks/${task.id}`)}>
@@ -1006,9 +1176,17 @@ export function ScanoTaskRunnerPage() {
           </Stack>
 
           {showSearchCard ? (
-            <Card sx={{ borderRadius: 4, overflow: "hidden" }}>
-              <CardContent sx={{ p: { xs: 1.5, sm: 1.8 } }}>
-                <Stack spacing={1.2}>
+            <Card
+              sx={{
+                borderRadius: 2.4,
+                overflow: "hidden",
+                border: "1px solid rgba(186,230,253,0.96)",
+                bgcolor: "rgba(255,255,255,0.95)",
+                boxShadow: "0 22px 42px rgba(125,211,252,0.18)",
+              }}
+            >
+              <CardContent sx={{ p: { xs: 1.1, sm: 1.5 } }}>
+                <Stack spacing={1.1}>
                   {runnerBootstrapLoading ? (
                     <Alert severity="info" variant="outlined">
                       Preparing fast barcode lookup...
@@ -1023,132 +1201,247 @@ export function ScanoTaskRunnerPage() {
 
                   <Stack
                     component="form"
-                    spacing={1.15}
+                    spacing={1.2}
                     onSubmit={(event) => {
                       event.preventDefault();
                       void handleSubmitBarcode({ barcode: barcodeInput, source: "manual" });
                     }}
                     sx={{
-                      p: { xs: 1.05, sm: 1.2 },
-                      borderRadius: 3.6,
-                      bgcolor: "rgba(255,255,255,0.82)",
-                      border: "1px solid rgba(148,163,184,0.14)",
-                      boxShadow: "0 18px 36px rgba(15,23,42,0.05)",
+                      p: { xs: 1.15, sm: 1.25 },
+                      borderRadius: 2.1,
+                      bgcolor: "rgba(248,252,255,0.98)",
+                      border: "1px solid rgba(186,230,253,0.94)",
+                      boxShadow: "0 16px 30px rgba(186,230,253,0.2)",
                       backdropFilter: "blur(16px)",
                     }}
                   >
-                    <TextField
-                      fullWidth
-                      value={barcodeInput}
-                      onChange={(event) => setBarcodeInput(event.target.value)}
-                      label="Barcode"
-                      placeholder="Type or scan barcode here"
-                      disabled={searchDisabled}
+                    <Typography
+                      variant="overline"
                       sx={{
-                        "& .MuiInputLabel-root": {
-                          color: "#64748b",
-                          fontWeight: 700,
-                        },
-                        "& .MuiOutlinedInput-root": {
-                          borderRadius: 3,
-                          bgcolor: "#ffffff",
-                          boxShadow: "0 12px 28px rgba(15,23,42,0.06)",
-                          "& fieldset": {
-                            borderColor: "rgba(148,163,184,0.18)",
-                          },
-                          "&:hover fieldset": {
-                            borderColor: "rgba(14,165,233,0.3)",
-                          },
-                          "&.Mui-focused fieldset": {
-                            borderColor: "rgba(14,165,233,0.55)",
-                            borderWidth: "1px",
-                          },
-                        },
-                        "& .MuiOutlinedInput-input": {
-                          py: 1.2,
-                        },
-                      }}
-                      InputProps={{
-                        startAdornment: <QrCode2RoundedIcon sx={{ mr: 1, color: "text.secondary" }} />,
-                        endAdornment: (
-                          <InputAdornment position="end">
-                            <Tooltip title={cameraOpen ? "Stop scanner" : "Open scanner"}>
-                              <span>
-                                <IconButton
-                                  color={cameraOpen ? "error" : "primary"}
-                                  onClick={() => void toggleCamera()}
-                                  disabled={cameraLoading || runnerBootstrapLoading || !!runnerBootstrapError || !runnerBootstrap}
-                                  aria-label={cameraOpen ? "Stop scanner" : "Open scanner"}
-                                  edge="end"
-                                  sx={{
-                                    width: 40,
-                                    height: 40,
-                                    borderRadius: 2.2,
-                                    bgcolor: cameraOpen ? "rgba(254,226,226,0.92)" : "rgba(240,249,255,0.96)",
-                                    border: cameraOpen
-                                      ? "1px solid rgba(248,113,113,0.22)"
-                                      : "1px solid rgba(14,165,233,0.16)",
-                                    boxShadow: "0 10px 22px rgba(15,23,42,0.06)",
-                                    color: cameraOpen ? "#dc2626" : "#0284c7",
-                                  }}
-                                >
-                                  {cameraLoading ? <CircularProgress size={18} color="inherit" /> : <QrCodeScannerRoundedIcon />}
-                                </IconButton>
-                              </span>
-                            </Tooltip>
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
-
-                    <Button
-                      type="submit"
-                      variant="contained"
-                      disabled={searchDisabled || !barcodeInput.trim()}
-                      startIcon={resolvingScan ? <CircularProgress size={16} color="inherit" /> : <SearchRoundedIcon />}
-                      sx={{
-                        minHeight: 48,
-                        borderRadius: 3,
-                        px: 2.3,
-                        fontWeight: 800,
-                        letterSpacing: "0.01em",
-                        background: "linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%)",
-                        boxShadow: resolvingScan ? "none" : "0 16px 34px rgba(37,99,235,0.18)",
-                        "&:hover": {
-                          background: "linear-gradient(135deg, #0284c7 0%, #1d4ed8 100%)",
-                          boxShadow: "0 18px 36px rgba(37,99,235,0.22)",
-                        },
+                        color: "#7399bf",
+                        fontWeight: 900,
+                        letterSpacing: "0.12em",
+                        lineHeight: 1,
                       }}
                     >
-                      {resolvingScan ? "Searching..." : "Find Product"}
-                    </Button>
-                  </Stack>
+                      Search Focus
+                    </Typography>
 
-                  {cameraOpen ? (
-                    <Card variant="outlined" sx={{ borderRadius: 3 }}>
-                      <CardContent sx={{ p: 1.2 }}>
-                        <Stack spacing={1}>
-                          <Box
-                            component="video"
-                            ref={videoRef}
-                            autoPlay
-                            muted
-                            playsInline
-                            sx={{
-                              width: "100%",
-                              minHeight: 240,
-                              borderRadius: 3,
-                              bgcolor: "#0f172a",
-                              objectFit: "cover",
-                            }}
-                          />
-                          <Button variant="text" color="inherit" startIcon={<StopCircleRoundedIcon />} onClick={stopCamera}>
-                            Stop Scanner
-                          </Button>
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  ) : null}
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1.1}>
+                      <TextField
+                        fullWidth
+                        value={barcodeInput}
+                        onChange={(event) => setBarcodeInput(event.target.value)}
+                        label="Barcode"
+                        placeholder="Type or scan barcode here"
+                        disabled={searchDisabled}
+                        sx={{
+                          flex: "1 1 0",
+                          "& .MuiInputLabel-root": {
+                            color: "#7799bb",
+                            fontWeight: 800,
+                          },
+                          "& .MuiOutlinedInput-root": {
+                            borderRadius: 1.8,
+                            bgcolor: "#fcfeff",
+                            boxShadow: "0 14px 26px rgba(186,230,253,0.18)",
+                            "& fieldset": {
+                              borderColor: "rgba(191,219,254,0.95)",
+                            },
+                            "&:hover fieldset": {
+                              borderColor: "rgba(125,211,252,0.96)",
+                            },
+                            "&.Mui-focused fieldset": {
+                              borderColor: "rgba(125,211,252,1)",
+                              borderWidth: "1.5px",
+                            },
+                          },
+                          "& .MuiOutlinedInput-input": {
+                            py: { xs: 1.95, sm: 1.6 },
+                            fontSize: { xs: 20, sm: 18 },
+                            fontWeight: 800,
+                            color: "#6788a8",
+                          },
+                        }}
+                        InputProps={{
+                          startAdornment: <QrCode2RoundedIcon sx={{ mr: 1.1, color: "#8fb2d5", fontSize: 25 }} />,
+                          endAdornment: (
+                            <InputAdornment position="end">
+                              <IconButton
+                                onClick={() => void toggleCamera()}
+                                disabled={cameraActionDisabled}
+                                aria-label={cameraToggleLabel}
+                                edge="end"
+                                sx={{
+                                  width: { xs: 48, sm: 44 },
+                                  height: { xs: 48, sm: 44 },
+                                  borderRadius: 1.5,
+                                  bgcolor: cameraOpen ? "#fff1f0" : "#eef7ff",
+                                  border: cameraOpen
+                                    ? "1px solid rgba(254,202,202,0.95)"
+                                    : "1px solid rgba(191,219,254,0.98)",
+                                  color: cameraOpen ? "#d68480" : "#6f95bb",
+                                  boxShadow: cameraOpen
+                                    ? "0 10px 22px rgba(254,226,226,0.45)"
+                                    : "0 10px 22px rgba(191,219,254,0.35)",
+                                }}
+                              >
+                                {cameraLoading
+                                  ? <CircularProgress size={18} color="inherit" />
+                                  : cameraOpen
+                                    ? <StopCircleRoundedIcon />
+                                    : <QrCodeScannerRoundedIcon />}
+                              </IconButton>
+                            </InputAdornment>
+                          ),
+                        }}
+                      />
+
+                      <Button
+                        type="submit"
+                        variant="contained"
+                        size="small"
+                        disabled={searchDisabled || !barcodeInput.trim()}
+                        startIcon={resolvingScan ? <CircularProgress size={16} color="inherit" /> : <SearchRoundedIcon />}
+                        sx={{
+                          minHeight: { xs: 48, sm: 46 },
+                          width: { xs: 152, sm: 138 },
+                          alignSelf: { xs: "flex-end", sm: "stretch" },
+                          borderRadius: 1.6,
+                          px: 2,
+                          fontWeight: 900,
+                          fontSize: { xs: 14, sm: 13.5 },
+                          letterSpacing: "0.01em",
+                          bgcolor: "#eef7ff",
+                          color: "#6a9ac5",
+                          border: "1px solid rgba(191,219,254,0.98)",
+                          boxShadow: resolvingScan ? "none" : "0 12px 24px rgba(191,219,254,0.42)",
+                          "&:hover": {
+                            bgcolor: "#e4f2ff",
+                            boxShadow: "0 14px 26px rgba(191,219,254,0.54)",
+                          },
+                        }}
+                      >
+                        {resolvingScan ? "Searching..." : "Find Product"}
+                      </Button>
+                    </Stack>
+
+                    <Box
+                      sx={{
+                        maxHeight: cameraPreviewVisible ? 720 : 0,
+                        opacity: cameraPreviewVisible ? 1 : 0,
+                        overflow: "hidden",
+                        pointerEvents: cameraPreviewVisible ? "auto" : "none",
+                        transition: "max-height 220ms ease, opacity 160ms ease",
+                      }}
+                    >
+                      <Card
+                        variant="outlined"
+                        sx={{
+                          borderRadius: 2,
+                          borderColor: "rgba(191,219,254,0.92)",
+                          bgcolor: "#f7fbff",
+                          boxShadow: "0 18px 34px rgba(191,219,254,0.24)",
+                        }}
+                      >
+                        <CardContent sx={{ p: { xs: 1.2, sm: 1.3 } }}>
+                          <Stack spacing={1.15}>
+                            <Box
+                              sx={{
+                                position: "relative",
+                                borderRadius: 1.7,
+                                overflow: "hidden",
+                                minHeight: { xs: 430, sm: 350 },
+                                border: "1px solid rgba(191,219,254,0.95)",
+                                background: "linear-gradient(180deg, #eff8ff 0%, #dbeafe 100%)",
+                              }}
+                            >
+                              <Box
+                                component="video"
+                                ref={videoRef}
+                                autoPlay
+                                muted
+                                playsInline
+                                sx={{
+                                  width: "100%",
+                                  height: "100%",
+                                  minHeight: { xs: 430, sm: 350 },
+                                  display: "block",
+                                  bgcolor: "#e0f2fe",
+                                  objectFit: "cover",
+                                }}
+                              />
+
+                              <Box
+                                sx={{
+                                  position: "absolute",
+                                  inset: 0,
+                                  display: "grid",
+                                  placeItems: "center",
+                                  pointerEvents: "none",
+                                }}
+                              >
+                                <Box
+                                  sx={{
+                                    width: "89%",
+                                    height: "24%",
+                                    borderRadius: 1.5,
+                                    border: "2px solid rgba(255,255,255,0.95)",
+                                    boxShadow: "0 0 0 9999px rgba(15,23,42,0.18)",
+                                    bgcolor: "transparent",
+                                  }}
+                                />
+                              </Box>
+
+                              <Stack
+                                spacing={0.55}
+                                alignItems="center"
+                                sx={{
+                                  position: "absolute",
+                                  bottom: { xs: 14, sm: 16 },
+                                  left: 16,
+                                  right: 16,
+                                  px: 1.4,
+                                  py: 0.8,
+                                  borderRadius: 999,
+                                  bgcolor: "rgba(255,255,255,0.76)",
+                                  backdropFilter: "blur(10px)",
+                                  color: "#7a9cbb",
+                                  pointerEvents: "none",
+                                }}
+                              >
+                                <Typography sx={{ fontSize: { xs: 13, sm: 12.5 }, fontWeight: 900, lineHeight: 1.1 }}>
+                                  Align the barcode inside the frame
+                                </Typography>
+                                <Typography sx={{ fontSize: 11.5, fontWeight: 700, lineHeight: 1.1 }}>
+                                  The scanner focuses on the center barcode area.
+                                </Typography>
+                              </Stack>
+
+                              {cameraLoading ? (
+                                <Stack
+                                  spacing={1}
+                                  alignItems="center"
+                                  justifyContent="center"
+                                  sx={{
+                                    position: "absolute",
+                                    inset: 0,
+                                    bgcolor: "rgba(239,248,255,0.7)",
+                                    color: "#7aa5c8",
+                                  }}
+                                >
+                                  <CircularProgress size={28} />
+                                  <Typography sx={{ fontWeight: 800 }}>
+                                    Opening camera...
+                                  </Typography>
+                                </Stack>
+                              ) : null}
+                            </Box>
+                          </Stack>
+                        </CardContent>
+                      </Card>
+                    </Box>
+                  </Stack>
 
                   {cameraError ? (
                     <Alert severity="warning" variant="outlined">
@@ -1166,77 +1459,136 @@ export function ScanoTaskRunnerPage() {
             </Alert>
           )}
 
-          <Card sx={{ borderRadius: 4, bgcolor: "rgba(255,255,255,0.88)" }}>
-            <CardContent sx={{ p: 2 }}>
-              <Stack spacing={1.5}>
-                <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1.5}>
-                  <Box>
-                    <Typography variant="h4" sx={{ fontWeight: 950, letterSpacing: "-0.04em" }}>
-                      {task.chainName}
-                    </Typography>
-                    <Typography variant="body1" sx={{ color: "text.secondary" }}>
-                      {task.branchName}
-                    </Typography>
-                  </Box>
-                  <Chip size="small" label={statusMeta.label} sx={{ fontWeight: 800, alignSelf: "flex-start", ...statusMeta.sx }} />
-                </Stack>
-
-                <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-                  <ProductCounterCard label="Products" total={counters.scannedProductsCount} />
-                  <ProductCounterCard label="Vendor" total={counters.vendorCount} edited={counters.vendorEditedCount} />
-                  <ProductCounterCard label="Chain" total={counters.chainCount} edited={counters.chainEditedCount} />
-                  <ProductCounterCard label="Master" total={counters.masterCount} />
-                  <ProductCounterCard label="Manual" total={counters.manualCount} />
-                </Stack>
-
-                <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
-                  <Card variant="outlined" sx={{ borderRadius: 3, flex: "1 1 0" }}>
-                    <CardContent sx={{ p: 1.4 }}>
-                      <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                        Scheduled At
-                      </Typography>
-                      <Typography sx={{ fontWeight: 800 }}>
-                        {formatCairoFullDateTime(task.scheduledAt)}
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                  <Card variant="outlined" sx={{ borderRadius: 3, flex: "1 1 0" }}>
-                    <CardContent sx={{ p: 1.4 }}>
-                      <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                        Assigned Scanners
-                      </Typography>
-                      <Typography sx={{ fontWeight: 800 }}>
-                        {taskAssigneeNames || "-"}
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                </Stack>
-
-                <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-                  {showStartAction ? (
-                    <Button
-                      variant="contained"
-                      color="success"
-                      startIcon={actionLoading ? <CircularProgress size={16} color="inherit" /> : <CheckCircleRoundedIcon />}
-                      onClick={() => void handleStart()}
-                      disabled={actionLoading}
+          <Card
+            sx={{
+              borderRadius: 2.2,
+              bgcolor: "rgba(255,255,255,0.82)",
+              border: "1px solid rgba(226,232,240,0.95)",
+              boxShadow: "0 10px 22px rgba(148,163,184,0.1)",
+            }}
+          >
+            <CardContent sx={{ p: { xs: 1.2, sm: 1.5 } }}>
+              <Stack spacing={1.2}>
+                <Stack
+                  direction={{ xs: "column", md: "row" }}
+                  justifyContent="space-between"
+                  spacing={1.2}
+                  alignItems={{ xs: "stretch", md: "center" }}
+                >
+                  <Stack spacing={0.45} sx={{ minWidth: 0 }}>
+                    <Typography
+                      sx={{
+                        fontSize: { xs: 20, sm: 22 },
+                        fontWeight: 950,
+                        color: "#16324f",
+                        letterSpacing: "-0.03em",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
                     >
-                      Start Task
-                    </Button>
-                  ) : null}
+                      {taskSummaryTitle}
+                    </Typography>
+                    {taskSummarySubtitle ? (
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          color: "#6b85a0",
+                          fontWeight: 700,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {taskSummarySubtitle}
+                      </Typography>
+                    ) : null}
+                  </Stack>
 
-                  {task.viewerState.canEnd ? (
-                    <Button
-                      variant="contained"
-                      color="error"
-                      startIcon={actionLoading ? <CircularProgress size={16} color="inherit" /> : <StopCircleRoundedIcon />}
-                      onClick={() => setEndDialogState("confirm")}
-                      disabled={actionLoading}
-                    >
-                      End Task
-                    </Button>
-                  ) : null}
+                  <Stack direction="row" spacing={0.8} flexWrap="wrap" useFlexGap alignItems="center">
+                    <Chip size="small" label={myConfirmedLabel} sx={{ fontWeight: 900, bgcolor: "#eff6ff", color: "#5f87b0", border: "1px solid rgba(191,219,254,0.98)" }} />
+                    <Chip size="small" label={taskTotalLabel} sx={{ fontWeight: 900, bgcolor: "#f0fdf4", color: "#5b8f74", border: "1px solid rgba(187,247,208,0.98)" }} />
+                    <Chip size="small" label={statusMeta.label} sx={{ fontWeight: 800, ...statusMeta.sx }} />
+                  </Stack>
                 </Stack>
+
+                <Button
+                  variant="text"
+                  color="inherit"
+                  onClick={() => setTaskSummaryExpanded((current) => !current)}
+                  endIcon={taskSummaryExpanded ? <ExpandLessRoundedIcon /> : <ExpandMoreRoundedIcon />}
+                  aria-expanded={taskSummaryExpanded}
+                  sx={{
+                    alignSelf: "flex-start",
+                    px: 0,
+                    minWidth: 0,
+                    color: "#6984a0",
+                    fontWeight: 800,
+                  }}
+                >
+                  {taskSummaryExpanded ? "Hide Task Details" : "Show Task Details"}
+                </Button>
+
+                {taskSummaryExpanded ? (
+                  <Stack spacing={1.3}>
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                      <ProductCounterCard label="Products" total={counters.scannedProductsCount} />
+                      <ProductCounterCard label="Vendor" total={counters.vendorCount} edited={counters.vendorEditedCount} />
+                      <ProductCounterCard label="Chain" total={counters.chainCount} edited={counters.chainEditedCount} />
+                      <ProductCounterCard label="Master" total={counters.masterCount} />
+                      <ProductCounterCard label="Manual" total={counters.manualCount} />
+                    </Stack>
+
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1.1}>
+                      <Card variant="outlined" sx={{ borderRadius: 2, flex: "1 1 0" }}>
+                        <CardContent sx={{ p: 1.3 }}>
+                          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                            Scheduled At
+                          </Typography>
+                          <Typography sx={{ fontWeight: 800 }}>
+                            {formatCairoFullDateTime(task.scheduledAt)}
+                          </Typography>
+                        </CardContent>
+                      </Card>
+                      <Card variant="outlined" sx={{ borderRadius: 2, flex: "1 1 0" }}>
+                        <CardContent sx={{ p: 1.3 }}>
+                          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                            Assigned Scanners
+                          </Typography>
+                          <Typography sx={{ fontWeight: 800 }}>
+                            {taskAssigneeNames || "-"}
+                          </Typography>
+                        </CardContent>
+                      </Card>
+                    </Stack>
+
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                      {showStartAction ? (
+                        <Button
+                          variant="contained"
+                          color="success"
+                          startIcon={actionLoading ? <CircularProgress size={16} color="inherit" /> : <CheckCircleRoundedIcon />}
+                          onClick={() => void handleStart()}
+                          disabled={actionLoading}
+                        >
+                          Start Task
+                        </Button>
+                      ) : null}
+
+                      {task.viewerState.canEnd ? (
+                        <Button
+                          variant="contained"
+                          color="error"
+                          startIcon={actionLoading ? <CircularProgress size={16} color="inherit" /> : <StopCircleRoundedIcon />}
+                          onClick={() => setEndDialogState("confirm")}
+                          disabled={actionLoading}
+                        >
+                          End Task
+                        </Button>
+                      ) : null}
+                    </Stack>
+                  </Stack>
+                ) : null}
               </Stack>
             </CardContent>
           </Card>

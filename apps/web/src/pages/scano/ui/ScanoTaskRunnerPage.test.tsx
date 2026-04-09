@@ -26,6 +26,9 @@ const {
   mockUpdateScanoTaskProduct,
   mockEndScanoTask,
   mockStartScanoTask,
+  mockDecodeFromCanvas,
+  mockBrowserMultiFormatOneDReader,
+  mockGetUserMedia,
 } = vi.hoisted(() => ({
   mockUseAuth: vi.fn(),
   mockNavigate: vi.fn(),
@@ -39,6 +42,9 @@ const {
   mockUpdateScanoTaskProduct: vi.fn(),
   mockEndScanoTask: vi.fn(),
   mockStartScanoTask: vi.fn(),
+  mockDecodeFromCanvas: vi.fn(),
+  mockBrowserMultiFormatOneDReader: vi.fn(),
+  mockGetUserMedia: vi.fn(),
 }));
 
 vi.mock("react-router-dom", async () => {
@@ -74,6 +80,12 @@ vi.mock("../../../api/client", () => ({
     endScanoTask: mockEndScanoTask,
     startScanoTask: mockStartScanoTask,
   },
+}));
+
+vi.mock("@zxing/browser", () => ({
+  BrowserMultiFormatOneDReader: mockBrowserMultiFormatOneDReader.mockImplementation(() => ({
+    decodeFromCanvas: mockDecodeFromCanvas,
+  })),
 }));
 
 function createTaskListItem(overrides?: Partial<ScanoTaskListItem>): ScanoTaskListItem {
@@ -234,10 +246,31 @@ function createExternalSearchResult(overrides?: Partial<ScanoExternalProductSear
 
 describe("ScanoTaskRunnerPage", () => {
   beforeEach(() => {
+    mockGetUserMedia.mockReset();
+    mockGetUserMedia.mockResolvedValue({
+      getTracks: () => [{ stop: vi.fn() }],
+    });
+    mockDecodeFromCanvas.mockReset();
+    mockDecodeFromCanvas.mockImplementation(() => {
+      throw new Error("No barcode found");
+    });
+    mockBrowserMultiFormatOneDReader.mockClear();
     mockNavigate.mockReset();
     mockUseParams.mockReturnValue({ id: TASK_7 });
     mockUseAuth.mockReturnValue({
       canManageScanoTasks: false,
+      user: {
+        id: 2,
+        email: "ali@example.com",
+        name: "Ali",
+        role: "user",
+        active: true,
+        createdAt: "2026-04-01T08:00:00.000Z",
+        updatedAt: "2026-04-01T08:00:00.000Z",
+        isPrimaryAdmin: false,
+        scanoRole: "scanner",
+        upuseAccess: false,
+      },
     });
     mockGetScanoTask.mockResolvedValue({
       item: createTaskDetail(),
@@ -311,6 +344,47 @@ describe("ScanoTaskRunnerPage", () => {
       ok: true,
       item: createTaskListItem(),
     });
+
+    Object.defineProperty(window, "isSecureContext", {
+      configurable: true,
+      value: true,
+    });
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: mockGetUserMedia,
+      },
+    });
+    Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", {
+      configurable: true,
+      get: () => 1280,
+    });
+    Object.defineProperty(HTMLVideoElement.prototype, "videoHeight", {
+      configurable: true,
+      get: () => 720,
+    });
+    Object.defineProperty(HTMLMediaElement.prototype, "readyState", {
+      configurable: true,
+      get: () => 4,
+    });
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => ({
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D));
   });
 
   afterEach(() => {
@@ -326,6 +400,210 @@ describe("ScanoTaskRunnerPage", () => {
       expect(input).toBeEnabled();
     });
   }
+
+  it("uses an inline camera icon, keeps the search button compact, and hides task details by default", async () => {
+    render(<ScanoTaskRunnerPage />);
+    await waitForRunnerReady();
+
+    expect(screen.queryByText("Open Camera Scanner")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Camera Scanner" })).toBeInTheDocument();
+    expect(screen.queryByText("Assigned Scanners")).not.toBeInTheDocument();
+    expect(screen.queryByText("Scheduled At")).not.toBeInTheDocument();
+
+    const searchButton = screen.getByRole("button", { name: "Find Product" });
+    expect(searchButton.className).toContain("MuiButton-sizeSmall");
+  });
+
+  it("shows the current user's confirmed count in the collapsed summary and expands task details on demand", async () => {
+    mockGetScanoTask.mockResolvedValue({
+      item: createTaskDetail({
+        counters: {
+          scannedProductsCount: 2,
+          vendorCount: 1,
+          vendorEditedCount: 0,
+          chainCount: 1,
+          chainEditedCount: 0,
+          masterCount: 0,
+          manualCount: 0,
+        },
+      }),
+    });
+    mockGetScanoRunnerBootstrap.mockResolvedValue({
+      item: createBootstrap({
+        confirmedProducts: [
+          createProduct({
+            id: "product-1",
+            sourceType: "vendor",
+            chain: "yes",
+            vendor: "yes",
+            new: "no",
+            createdBy: { id: 11, name: "Ali", linkedUserId: 2 },
+          }),
+          createProduct({
+            id: "product-2",
+            barcode: "555444333",
+            barcodes: ["555444333"],
+            sourceType: "chain",
+            chain: "yes",
+            vendor: "no",
+            new: "no",
+            createdBy: { id: 12, name: "Mona", linkedUserId: 3 },
+          }),
+        ],
+      }),
+    });
+
+    render(<ScanoTaskRunnerPage />);
+    await waitForRunnerReady();
+
+    expect(screen.getByText("My Confirmed: 1")).toBeInTheDocument();
+    expect(screen.getByText("Task Total: 2")).toBeInTheDocument();
+    expect(screen.queryByText("Assigned Scanners")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show Task Details" }));
+
+    expect(await screen.findByText("Assigned Scanners")).toBeInTheDocument();
+    expect(screen.getByText("Scheduled At")).toBeInTheDocument();
+  });
+
+  it("reuses the existing runner bootstrap state across repeated lookups on the same task", async () => {
+    mockResolveScanoTaskScan
+      .mockResolvedValueOnce({
+        kind: "draft",
+        draft: {
+          externalProductId: null,
+          previewImageUrl: null,
+          barcode: "999000111",
+          barcodes: ["999000111"],
+          sku: null,
+          price: null,
+          itemNameEn: null,
+          itemNameAr: null,
+          chain: "no",
+          vendor: "no",
+          masterfile: "no",
+          new: "yes",
+          sourceType: "manual",
+          images: [],
+          warning: "Not found in chain master file. Continue manually.",
+        },
+        rawScan: createScan({ barcode: "999000111" }),
+        task: createTaskListItem(),
+        counters: createTaskSummaryPatch().counters,
+      })
+      .mockResolvedValueOnce({
+        kind: "draft",
+        draft: {
+          externalProductId: null,
+          previewImageUrl: null,
+          barcode: "999000222",
+          barcodes: ["999000222"],
+          sku: null,
+          price: null,
+          itemNameEn: null,
+          itemNameAr: null,
+          chain: "no",
+          vendor: "no",
+          masterfile: "no",
+          new: "yes",
+          sourceType: "manual",
+          images: [],
+          warning: "Not found in chain master file. Continue manually.",
+        },
+        rawScan: createScan({ barcode: "999000222" }),
+        task: createTaskListItem(),
+        counters: createTaskSummaryPatch().counters,
+      });
+
+    render(<ScanoTaskRunnerPage />);
+    await waitForRunnerReady();
+
+    const input = screen.getByPlaceholderText("Type or scan barcode here");
+
+    fireEvent.change(input, {
+      target: { value: "999000111" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Find Product" }));
+
+    expect(await screen.findByText("Review Product")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => {
+      expect(screen.queryByText("Review Product")).not.toBeInTheDocument();
+    });
+
+    fireEvent.change(input, {
+      target: { value: "999000222" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Find Product" }));
+
+    expect(await screen.findByText("Review Product")).toBeInTheDocument();
+    expect(mockGetScanoRunnerBootstrap).toHaveBeenCalledTimes(1);
+    expect(mockResolveScanoTaskScan).toHaveBeenNthCalledWith(1, TASK_7, {
+      barcode: "999000111",
+      source: "manual",
+    });
+    expect(mockResolveScanoTaskScan).toHaveBeenNthCalledWith(2, TASK_7, {
+      barcode: "999000222",
+      source: "manual",
+    });
+  });
+
+  it("opens the camera scanner and resolves barcodes with the camera source", async () => {
+    mockDecodeFromCanvas.mockReturnValueOnce({
+      getText: () => "5544332211",
+    });
+
+    render(<ScanoTaskRunnerPage />);
+    await waitForRunnerReady();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Camera Scanner" }));
+
+    await waitFor(() => {
+      expect(mockGetUserMedia).toHaveBeenCalledWith(expect.objectContaining({
+        audio: false,
+        video: expect.objectContaining({
+          facingMode: { ideal: "environment" },
+        }),
+      }));
+    });
+
+    await waitFor(() => {
+      expect(mockResolveScanoTaskScan).toHaveBeenCalledWith(TASK_7, {
+        barcode: "5544332211",
+        source: "camera",
+      });
+      expect(mockBrowserMultiFormatOneDReader).toHaveBeenCalled();
+    });
+  });
+
+  it("shows a clear error when camera permission is denied", async () => {
+    mockGetUserMedia.mockRejectedValue(Object.assign(new Error("Permission denied"), {
+      name: "NotAllowedError",
+    }));
+
+    render(<ScanoTaskRunnerPage />);
+    await waitForRunnerReady();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Camera Scanner" }));
+
+    expect(await screen.findByText("Camera access was denied. Allow camera permission and try again.")).toBeInTheDocument();
+    expect(mockResolveScanoTaskScan).not.toHaveBeenCalled();
+  });
+
+  it("requires a secure context before opening the camera", async () => {
+    Object.defineProperty(window, "isSecureContext", {
+      configurable: true,
+      value: false,
+    });
+
+    render(<ScanoTaskRunnerPage />);
+    await waitForRunnerReady();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Camera Scanner" }));
+
+    expect(await screen.findByText("Camera access requires HTTPS or localhost on mobile browsers.")).toBeInTheDocument();
+    expect(mockGetUserMedia).not.toHaveBeenCalled();
+  });
 
   it("uses resolve for exact matches and auto-saves without runner hydrate calls", async () => {
     const imageUrls = [
@@ -415,6 +693,9 @@ describe("ScanoTaskRunnerPage", () => {
     expect(screen.getByAltText("Image 2")).toBeInTheDocument();
     expect(screen.getByAltText("Image 3")).toBeInTheDocument();
     expect(screen.getByText("Latest Confirmed Product")).toBeInTheDocument();
+    expect(document.body.textContent).toContain("My Confirmed: 1");
+    expect(document.body.textContent).toContain("Task Total: 1");
+    expect(mockGetScanoRunnerBootstrap).toHaveBeenCalledTimes(1);
     expect(screen.getAllByText("Imported Product").length).toBeGreaterThan(0);
   }, 15000);
 
@@ -624,6 +905,7 @@ describe("ScanoTaskRunnerPage", () => {
   it("asks for confirmation before ending the task and returns to the profile", async () => {
     render(<ScanoTaskRunnerPage />);
 
+    fireEvent.click(await screen.findByRole("button", { name: "Show Task Details" }));
     fireEvent.click(await screen.findByRole("button", { name: "End Task" }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
 

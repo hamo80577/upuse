@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createApiNoStoreMiddleware,
   createContentSecurityPolicyDirectives,
+  createCorsOptions,
   createCspNonceMiddleware,
   createTrustedOriginMiddleware,
   CLOUDFLARE_INSIGHTS_BEACON_ORIGIN,
@@ -32,6 +33,29 @@ describe("security helpers", () => {
   it("uses the explicit allowlist when provided", () => {
     expect(isAllowedOrigin("https://console.upuse.local", ["https://console.upuse.local"])).toBe(true);
     expect(isAllowedOrigin("https://other.upuse.local", ["https://console.upuse.local"])).toBe(false);
+  });
+
+  it("returns a CORS deny error for blocked origins in the cors delegate", () => {
+    const delegate = createCorsOptions(["https://console.upuse.local"]);
+    const callback = vi.fn();
+
+    delegate({
+      headers: {
+        origin: "https://evil.example.com",
+        host: "api.upuse.local",
+      },
+      protocol: "https",
+      get: (name: string) => (name.toLowerCase() === "host" ? "api.upuse.local" : undefined),
+      app: {
+        get: () => false,
+      },
+    } as any, callback);
+
+    expect(callback).toHaveBeenCalledWith(expect.any(Error), {
+      origin: false,
+      credentials: true,
+    });
+    expect((callback.mock.calls[0]?.[0] as Error).message).toBe("CORS origin not allowed");
   });
 
   it("resolves the request origin from forwarded production headers", () => {

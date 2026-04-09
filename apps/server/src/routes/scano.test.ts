@@ -1586,6 +1586,66 @@ describe("scano routes", () => {
     expect(completedBody.item.status).toBe("completed");
   });
 
+  it("records export confirmation metadata and unlocks completion as soon as download is confirmed", async () => {
+    const exportId = "11111111-1111-4111-8111-111111111111";
+    insertTeamMember({ id: 11, name: "Ali", linkedUserId: 2 });
+    insertTask({ id: TASK_1, scheduledAt: "2026-04-10T08:00:00.000Z", status: "awaiting_review" });
+
+    const productDir = path.join(TEST_SCANO_STORAGE_DIR, "product-images", TASK_1, "product-1");
+    const exportsDir = path.join(TEST_SCANO_STORAGE_DIR, "exports", TASK_1);
+    fs.mkdirSync(productDir, { recursive: true });
+    fs.mkdirSync(exportsDir, { recursive: true });
+
+    const imagePath = path.join(productDir, "SKU-1.png");
+    const exportPath = path.join(exportsDir, "review.zip");
+    fs.writeFileSync(imagePath, TINY_PNG_BYTES);
+    fs.writeFileSync(exportPath, Buffer.from("zip-data"));
+
+    insertTaskProductRecord({
+      productId: "product-1",
+      taskId: TASK_1,
+      teamMemberId: 11,
+      barcode: "99887766",
+      sku: "SKU-1",
+      itemNameEn: "Imported Product",
+    });
+    insertTaskProductImageRecord({
+      imageId: "image-1",
+      productId: "product-1",
+      fileName: "SKU-1.png",
+      filePath: imagePath,
+    });
+    testDb.prepare(`
+      INSERT INTO scano_task_exports (id, taskId, fileName, filePath, createdAt, confirmedDownloadAt, imagesPurgedAt)
+      VALUES (?, ?, 'review.zip', ?, '2026-04-04T12:00:00.000Z', NULL, NULL)
+    `).run(exportId, TASK_1, exportPath);
+
+    const response = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/exports/${exportId}/confirm-download`, {
+      method: "POST",
+      headers: {
+        "x-role": "admin",
+        "x-primary-admin": "true",
+      },
+    });
+    const body = await response.json();
+    const exportRow = testDb.prepare(`
+      SELECT confirmedDownloadAt, imagesPurgedAt
+      FROM scano_task_exports
+      WHERE id = ?
+    `).get(exportId) as { confirmedDownloadAt: string | null; imagesPurgedAt: string | null };
+
+    expect(response.status).toBe(200);
+    expect(body.item).toMatchObject({
+      id: exportId,
+      requiresConfirmation: false,
+    });
+    expect(body.item.confirmedDownloadAt).toEqual(expect.any(String));
+    expect(body.item.imagesPurgedAt).toEqual(expect.any(String));
+    expect(body.task.permissions.canComplete).toBe(true);
+    expect(exportRow.confirmedDownloadAt).toEqual(expect.any(String));
+    expect(exportRow.imagesPurgedAt).toEqual(expect.any(String));
+  });
+
   it("exports only the latest row for each sku", async () => {
     insertTeamMember({ id: 11, name: "Ali", linkedUserId: 2 });
     insertTask({ id: TASK_1, scheduledAt: "2026-04-10T08:00:00.000Z", status: "awaiting_review" });
@@ -2941,6 +3001,12 @@ describe("scano routes", () => {
       fileName: "SKU-UPLOAD.png",
     });
   });
+
+  it.todo("rejects oversized scanner image uploads before product persistence");
+
+  it.todo("rejects non-image scanner uploads before product persistence");
+
+  it.todo("removes local task-image files immediately after export download confirmation");
 
   it("stores and masks Scano settings for admins", async () => {
     const getResponse = await fetch(`${baseUrl}/api/scano/settings`, {

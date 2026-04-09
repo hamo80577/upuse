@@ -212,8 +212,19 @@ If you want one Windows command that loads `.env`, builds, and starts production
 ## Validation commands
 - `npm --workspace apps/server run build`
 - `npm --workspace apps/server test`
+- `npm --workspace apps/server run test:scano:baseline`
 - `npm --workspace apps/web run build`
 - `npm --workspace apps/web test`
+- `npm --workspace apps/web run test:scano:baseline`
+- `npm run test:ops`
+- `npm run test:scano:baseline`
+
+## Scano refactor baseline
+- Phase 0 is documentation plus test scaffolding only. No behavior change is intended at this stage.
+- ADR: `docs/adr/0001-scano-canonical-source-of-truth.md`
+- Refactor checklist: `docs/refactor/scano-refactor-checklist.md`
+- One-command baseline matrix:
+  - `npm run test:scano:baseline`
 
 ## Secret rotation
 1) Set a new `UPUSE_SECRET`.
