@@ -10,7 +10,7 @@ vi.mock("../config/db.js", async () => {
 });
 
 import { db } from "../config/db.js";
-import { AuthStoreError, deleteUserById, updateUser } from "./authStore.js";
+import { AuthStoreError, createAuthSession, deleteUserById, getSessionUserByToken, updateUser } from "./authStore.js";
 
 function resetSchema() {
   db.exec(`
@@ -141,6 +141,26 @@ describe("authStore Scano access guards", () => {
     const memberRow = db.prepare("SELECT active FROM scano_team_members WHERE linkedUserId = 2").get() as { active: number };
     expect(updated.scanoRole).toBeUndefined();
     expect(memberRow.active).toBe(0);
+  });
+
+  it("revokes existing sessions after a password change", () => {
+    const session = createAuthSession(2);
+
+    expect(getSessionUserByToken(session.token)?.user.id).toBe(2);
+
+    updateUser({
+      id: 2,
+      email: "scanner@example.com",
+      name: "Scanner User",
+      upuseAccess: true,
+      upuseRole: "user",
+      scanoAccessRole: "scanner",
+      password: "updated-password-123",
+      actorUserId: 1,
+    });
+
+    expect(getSessionUserByToken(session.token)).toBeNull();
+    expect(db.prepare("SELECT COUNT(*) AS count FROM sessions WHERE userId = 2").get()).toEqual({ count: 0 });
   });
 
   it("blocks archiving users who are still assigned to awaiting-review tasks", () => {

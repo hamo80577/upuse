@@ -12,6 +12,7 @@ vi.mock("../services/authStore.js", () => ({
 }));
 
 import { createSessionAuthMiddleware, requireAuthenticatedApi, requireCapability } from "./auth.js";
+import { authorizeUpuseUpgradeFromCookieHeader } from "./auth.js";
 
 describe("createSessionAuthMiddleware", () => {
   beforeEach(() => {
@@ -73,6 +74,66 @@ describe("createSessionAuthMiddleware", () => {
 });
 
 describe("authorization capabilities", () => {
+  it("authorizes websocket upgrades only for authenticated UPuse users", () => {
+    mockGetSessionUserByToken.mockImplementation((token: string) => {
+      if (token === "upuse-user") {
+        return {
+          user: {
+            id: 1,
+            email: "admin@example.com",
+            name: "Admin",
+            role: "admin",
+            active: true,
+            createdAt: "2026-03-07T10:00:00.000Z",
+            upuseAccess: true,
+            isPrimaryAdmin: false,
+          },
+        };
+      }
+
+      if (token === "scano-only") {
+        return {
+          user: {
+            id: 2,
+            email: "scanner@example.com",
+            name: "Scanner",
+            role: "user",
+            active: true,
+            createdAt: "2026-03-07T10:05:00.000Z",
+            upuseAccess: false,
+            isPrimaryAdmin: false,
+            scanoRole: "scanner",
+          },
+        };
+      }
+
+      return null;
+    });
+
+    expect(authorizeUpuseUpgradeFromCookieHeader(undefined)).toEqual({
+      ok: false,
+      statusCode: 401,
+      message: "Unauthorized",
+      code: "SESSION_UNAUTHORIZED",
+      errorOrigin: "session",
+    });
+    expect(authorizeUpuseUpgradeFromCookieHeader(`${AUTH_SESSION_COOKIE_NAME}=scano-only`)).toEqual({
+      ok: false,
+      statusCode: 403,
+      message: "Forbidden",
+      code: "FORBIDDEN",
+      errorOrigin: "authorization",
+    });
+    expect(authorizeUpuseUpgradeFromCookieHeader(`${AUTH_SESSION_COOKIE_NAME}=upuse-user`)).toMatchObject({
+      ok: true,
+      sessionToken: "upuse-user",
+      user: {
+        id: 1,
+        upuseAccess: true,
+      },
+    });
+  });
+
   it("grants user access to mapping and token management, but not user management", () => {
     expect(hasCapability("user", "manage_monitor")).toBe(true);
     expect(hasCapability("user", "manage_branch_mappings")).toBe(true);

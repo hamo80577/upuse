@@ -13,6 +13,7 @@ describe("security config", () => {
   it("falls back to safe defaults for invalid values", () => {
     expect(resolveSecurityConfig({
       UPUSE_LOGIN_RATE_LIMIT_MAX_KEYS: "abc",
+      UPUSE_LOGIN_IP_RATE_LIMIT_MAX_ATTEMPTS: "0",
       UPUSE_STREAM_MAX_CONNECTIONS_PER_USER: "0",
       UPUSE_STREAM_MAX_CONNECTIONS_TOTAL: "999999",
       UPUSE_SCANO_CSV_UPLOAD_MAX_FILE_SIZE_BYTES: "0",
@@ -23,6 +24,7 @@ describe("security config", () => {
     })).toEqual({
       trustProxy: false,
       loginRateLimitMaxKeys: 5_000,
+      loginRateLimitMaxAttemptsPerIp: 20,
       maxStreamConnectionsPerUser: 3,
       maxStreamConnectionsTotal: 100,
       scanoCsvUploadMaxFileSizeBytes: 5 * 1024 * 1024,
@@ -37,6 +39,7 @@ describe("security config", () => {
     expect(resolveSecurityConfig({
       UPUSE_TRUST_PROXY: "1",
       UPUSE_LOGIN_RATE_LIMIT_MAX_KEYS: "1500",
+      UPUSE_LOGIN_IP_RATE_LIMIT_MAX_ATTEMPTS: "25",
       UPUSE_STREAM_MAX_CONNECTIONS_PER_USER: "5",
       UPUSE_STREAM_MAX_CONNECTIONS_TOTAL: "250",
       UPUSE_SCANO_CSV_UPLOAD_MAX_FILE_SIZE_BYTES: "2097152",
@@ -47,6 +50,7 @@ describe("security config", () => {
     })).toEqual({
       trustProxy: true,
       loginRateLimitMaxKeys: 1_500,
+      loginRateLimitMaxAttemptsPerIp: 25,
       maxStreamConnectionsPerUser: 5,
       maxStreamConnectionsTotal: 250,
       scanoCsvUploadMaxFileSizeBytes: 2 * 1024 * 1024,

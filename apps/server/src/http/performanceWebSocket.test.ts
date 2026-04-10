@@ -43,6 +43,8 @@ function authenticatedUser(id: number) {
     role: "user" as const,
     active: true,
     createdAt: "2026-03-21T10:00:00.000Z",
+    upuseAccess: true,
+    isPrimaryAdmin: false,
   };
 }
 
@@ -77,6 +79,7 @@ async function startServer(overrides?: Partial<{ maxConnectionsPerUser: number; 
     securityConfig: {
       trustProxy: false,
       loginRateLimitMaxKeys: 5000,
+      loginRateLimitMaxAttemptsPerIp: 20,
       maxStreamConnectionsPerUser: overrides?.maxConnectionsPerUser ?? 3,
       maxStreamConnectionsTotal: overrides?.maxConnectionsTotal ?? 10,
       scanoCsvUploadMaxFileSizeBytes: 5 * 1024 * 1024,
@@ -256,6 +259,15 @@ describe("performance websocket", () => {
       if (token === "user-2") {
         return { user: authenticatedUser(2) };
       }
+      if (token === "scano-only") {
+        return {
+          user: {
+            ...authenticatedUser(3),
+            upuseAccess: false,
+            scanoRole: "scanner",
+          },
+        };
+      }
       return null;
     });
     mockGetPerformanceSummary.mockResolvedValue({
@@ -313,6 +325,15 @@ describe("performance websocket", () => {
 
   it("rejects unauthorized websocket connections", async () => {
     await expect(connectPerformanceSocket(baseUrl, { origin: trustedOrigin })).rejects.toThrow("HTTP 401");
+  });
+
+  it("rejects authenticated websocket connections without UPuse access", async () => {
+    await expect(
+      connectPerformanceSocket(baseUrl, {
+        cookie: validCookie("scano-only"),
+        origin: trustedOrigin,
+      }),
+    ).rejects.toThrow("HTTP 403");
   });
 
   it("rejects untrusted websocket origins", async () => {

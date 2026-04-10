@@ -1100,6 +1100,18 @@ function getTaskLocalProductImagePaths(taskId: ScanoTaskId) {
   return rows.map((row) => row.filePath).filter((filePath): filePath is string => !!filePath);
 }
 
+function hasPurgedLocalTaskImages(taskId: ScanoTaskId) {
+  const row = db.prepare<[ScanoTaskId], { hasPurgedImages: number }>(`
+    SELECT 1 AS hasPurgedImages
+    FROM scano_task_exports
+    WHERE taskId = ?
+      AND imagesPurgedAt IS NOT NULL
+    LIMIT 1
+  `).get(taskId);
+
+  return !!row?.hasPurgedImages;
+}
+
 function getTaskExportFilePaths(taskId: ScanoTaskId) {
   const rows = db.prepare<[ScanoTaskId], { filePath: string }>(`
     SELECT filePath
@@ -2249,10 +2261,31 @@ export function getScanoTaskProductImageDownload(
   if (!product) {
     throw new ScanoTaskStoreError("Scano task product was not found.", 404, "SCANO_TASK_PRODUCT_NOT_FOUND");
   }
-  const image = product.images.find((item) => item.id === imageId) ?? null;
+
+  const image = db.prepare<[ScanoTaskId, string, string], {
+    id: string;
+    fileName: string;
+    storageKind: "local" | "external";
+    filePath: string | null;
+    externalUrl: string | null;
+  }>(`
+    SELECT
+      i.id,
+      i.fileName,
+      i.storageKind,
+      i.filePath,
+      i.externalUrl
+    FROM scano_task_product_images i
+    INNER JOIN scano_task_products p ON p.id = i.productId
+    WHERE p.taskId = ?
+      AND p.id = ?
+      AND i.id = ?
+    LIMIT 1
+  `).get(taskId, productId, imageId);
   if (!image) {
     throw new ScanoTaskStoreError("Scano task product image was not found.", 404, "SCANO_TASK_PRODUCT_IMAGE_NOT_FOUND");
   }
+
   if (image.filePath && fs.existsSync(image.filePath)) {
     return {
       kind: "file" as const,
@@ -2261,9 +2294,22 @@ export function getScanoTaskProductImageDownload(
       mimeType: guessMimeTypeFromFileName(image.fileName),
     };
   }
+
+  if (image.storageKind === "local") {
+    if (hasPurgedLocalTaskImages(taskId)) {
+      throw new ScanoTaskStoreError("Scano task product image is no longer available after export confirmation.", 410, "SCANO_TASK_PRODUCT_IMAGE_PURGED");
+    }
+
+    throw new ScanoTaskStoreError("Scano task product image was not found.", 404, "SCANO_TASK_PRODUCT_IMAGE_NOT_FOUND");
+  }
+
+  if (!image.externalUrl) {
+    throw new ScanoTaskStoreError("Scano task product image was not found.", 404, "SCANO_TASK_PRODUCT_IMAGE_NOT_FOUND");
+  }
+
   return {
     kind: "redirect" as const,
-    url: image.url,
+    url: image.externalUrl,
     fileName: image.fileName,
     mimeType: guessMimeTypeFromFileName(image.fileName),
   };

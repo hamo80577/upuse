@@ -210,12 +210,21 @@ export function createSqliteLoginThrottleStore(
   };
 }
 
-const { loginRateLimitMaxKeys } = resolveSecurityConfig();
+const {
+  loginRateLimitMaxAttemptsPerIp,
+  loginRateLimitMaxKeys,
+} = resolveSecurityConfig();
 
 export const loginThrottleStore = createSqliteLoginThrottleStore(db, {
   maxKeys: loginRateLimitMaxKeys,
 });
 
+export const loginIpThrottleStore = createSqliteLoginThrottleStore(db, {
+  maxAttempts: loginRateLimitMaxAttemptsPerIp,
+  maxKeys: loginRateLimitMaxKeys,
+});
+
 export function initializeLoginThrottleStore() {
   loginThrottleStore.initialize();
+  loginIpThrottleStore.initialize();
 }

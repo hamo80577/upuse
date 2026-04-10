@@ -2,11 +2,10 @@ import type { IncomingMessage, Server as HttpServer } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 import type { SecurityConfig } from "../config/security.js";
-import { getSessionUserByToken } from "../services/authStore.js";
 import type { MonitorEngine } from "../services/monitorEngine.js";
 import type { AppUser, DashboardSnapshot } from "../types/models.js";
+import { authorizeUpuseUpgradeFromCookieHeader } from "./auth.js";
 import { createConnectionQuota } from "./connectionQuota.js";
-import { readAuthSessionTokenFromCookieHeader } from "./sessionCookie.js";
 import { isTrustedOrigin, parseCorsOrigins } from "./security.js";
 
 const DASHBOARD_WEBSOCKET_PATH = "/api/ws/dashboard";
@@ -50,14 +49,6 @@ function createOriginRequestLike(req: IncomingMessage, trustProxy: SecurityConfi
   } as Parameters<typeof isTrustedOrigin>[1];
 }
 
-function resolveAuthenticatedUser(req: IncomingMessage) {
-  const sessionToken = readAuthSessionTokenFromCookieHeader(getHeaderValue(req, "cookie"));
-  if (!sessionToken) return null;
-
-  const auth = getSessionUserByToken(sessionToken);
-  return auth?.user ?? null;
-}
-
 function sendMessage(ws: WebSocket, payload: DashboardWebSocketEnvelope) {
   if (ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify(payload));
@@ -90,20 +81,20 @@ export function attachDashboardWebSocketServer(options: {
       return;
     }
 
-    const user = resolveAuthenticatedUser(req);
-    if (!user) {
-      writeUpgradeError(socket, 401, "Unauthorized");
+    const authorization = authorizeUpuseUpgradeFromCookieHeader(getHeaderValue(req, "cookie"));
+    if (!authorization.ok) {
+      writeUpgradeError(socket, authorization.statusCode, authorization.message);
       return;
     }
 
-    const accepted = connectionQuota.acquire(user.id);
+    const accepted = connectionQuota.acquire(authorization.user.id);
     if (!accepted.ok) {
       writeUpgradeError(socket, accepted.statusCode, accepted.message);
       return;
     }
 
     webSocketServer.handleUpgrade(req, socket, head, (ws: WebSocket) => {
-      webSocketServer.emit("connection", ws, req, user);
+      webSocketServer.emit("connection", ws, req, authorization.user);
     });
   });
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-04-10
+
+- Hardened UPuse live-stream authorization so `/api/ws/dashboard` and `/api/ws/performance` now reject authenticated users who do not have `upuseAccess`, matching the protected HTTP dashboard/performance routes.
+- Revoked active browser sessions on user password change and aligned user-management password validation with the bootstrap-admin minimum of 12 characters.
+- Hashed Scano runner bearer tokens at rest in SQLite and added a compatibility path that rewrites short-lived legacy raw runner-token rows on successful reads.
+- Tightened unsafe API origin enforcement so browser-facing mutating `/api/*` requests now require a trusted `Origin`, trusted `Referer`, or same-site fetch metadata instead of implicitly allowing requests with no initiator headers.
+- Stopped advertising purged local Scano task-image URLs after review-export confirmation and changed direct reads for purged local images to return `410 Gone` instead of redirecting back to the same API route.
+- Added a second login anti-abuse layer keyed by IP-only to slow password spraying across many accounts from one source without changing the generic login error message.
+
 ## 2026-04-09
 
 - Added a background Scano master-product enrichment queue that seeds one pending job row per unique imported barcode, persists queue state in SQLite, and processes uploaded chains one at a time in FIFO order.

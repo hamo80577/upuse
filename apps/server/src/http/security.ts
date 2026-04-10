@@ -78,10 +78,7 @@ export function isTrustedOrigin(origin: string | undefined, req: RequestSecurity
   return isAllowedOrigin(origin, configuredOrigins) || isSameRequestOrigin(origin, req);
 }
 
-function resolveRequestInitiatorOrigin(req: RequestOriginLike) {
-  const requestOrigin = normalizeOrigin(firstHeaderValue(req.headers.origin));
-  if (requestOrigin) return requestOrigin;
-
+function resolveRefererOrigin(req: RequestOriginLike) {
   const referer = firstHeaderValue(req.headers.referer);
   if (!referer) return null;
 
@@ -173,8 +170,37 @@ export function createTrustedOriginMiddleware(configuredOrigins = parseCorsOrigi
       return;
     }
 
-    const initiatorOrigin = resolveRequestInitiatorOrigin(req);
-    if (!initiatorOrigin || isTrustedOrigin(initiatorOrigin, req, trustedOrigins)) {
+    const rawOrigin = firstHeaderValue(req.headers.origin);
+    const requestOrigin = normalizeOrigin(rawOrigin);
+    if (rawOrigin) {
+      if (requestOrigin && isTrustedOrigin(requestOrigin, req, trustedOrigins)) {
+        next();
+        return;
+      }
+
+      res.status(403).json({
+        ok: false,
+        message: "Untrusted request origin",
+      });
+      return;
+    }
+
+    const rawReferer = firstHeaderValue(req.headers.referer);
+    const refererOrigin = rawReferer ? resolveRefererOrigin(req) : null;
+    if (rawReferer) {
+      if (refererOrigin && isTrustedOrigin(refererOrigin, req, trustedOrigins)) {
+        next();
+        return;
+      }
+
+      res.status(403).json({
+        ok: false,
+        message: "Untrusted request origin",
+      });
+      return;
+    }
+
+    if (fetchSite === "same-origin" || fetchSite === "same-site") {
       next();
       return;
     }

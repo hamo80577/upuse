@@ -291,6 +291,18 @@ function getTaskProductRowById(database: BetterSqlite3.Database, taskId: ScanoTa
   `).get(taskId, productId);
 }
 
+function hasPurgedLocalTaskImages(database: BetterSqlite3.Database, taskId: ScanoTaskId) {
+  const row = database.prepare<[ScanoTaskId], { hasPurgedImages: number }>(`
+    SELECT 1 AS hasPurgedImages
+    FROM scano_task_exports
+    WHERE taskId = ?
+      AND imagesPurgedAt IS NOT NULL
+    LIMIT 1
+  `).get(taskId);
+
+  return !!row?.hasPurgedImages;
+}
+
 export function getTaskProductBarcodesByIds(database: BetterSqlite3.Database, productIds: string[]) {
   if (!productIds.length) {
     return new Map<string, string[]>();
@@ -315,6 +327,7 @@ export function getTaskProductImagesByIds(database: BetterSqlite3.Database, task
     return new Map<string, ScanoTaskProductImage[]>();
   }
 
+  const hidePurgedLocalImages = hasPurgedLocalTaskImages(database, taskId);
   const rows = database.prepare(`
     SELECT id, productId, fileName, storageKind, filePath, externalUrl, mimeType, sortOrder
     FROM scano_task_product_images
@@ -324,6 +337,10 @@ export function getTaskProductImagesByIds(database: BetterSqlite3.Database, task
 
   const result = new Map<string, ScanoTaskProductImage[]>();
   for (const row of rows) {
+    if (hidePurgedLocalImages && row.storageKind === "local") {
+      continue;
+    }
+
     const image: ScanoTaskProductImage = {
       id: row.id,
       fileName: row.fileName,
@@ -339,6 +356,7 @@ export function getStoredTaskProductImagesByIds(database: BetterSqlite3.Database
     return new Map<string, StoredScanoTaskProductImage[]>();
   }
 
+  const hidePurgedLocalImages = hasPurgedLocalTaskImages(database, taskId);
   const rows = database.prepare(`
     SELECT id, productId, fileName, storageKind, filePath, externalUrl, mimeType, sortOrder
     FROM scano_task_product_images
@@ -348,6 +366,10 @@ export function getStoredTaskProductImagesByIds(database: BetterSqlite3.Database
 
   const result = new Map<string, StoredScanoTaskProductImage[]>();
   for (const row of rows) {
+    if (hidePurgedLocalImages && row.storageKind === "local") {
+      continue;
+    }
+
     const image: StoredScanoTaskProductImage = {
       id: row.id,
       fileName: row.fileName,

@@ -9,6 +9,7 @@ vi.mock("../config/db.js", async () => {
 });
 
 import { createSqliteScanoRunnerSessionStore } from "./scanoRunnerSessionStore.js";
+import { hashSessionToken } from "./auth/passwords.js";
 
 const TASK_ID = "11111111-1111-4111-8111-111111111111";
 const TASK_ID_2 = "22222222-2222-4222-8222-222222222222";
@@ -114,7 +115,7 @@ function createTestDb() {
 }
 
 describe("scanoRunnerSessionStore", () => {
-  it("persists newly created runner sessions to sqlite", () => {
+  it("persists newly created runner sessions hashed at rest", () => {
     const database = createTestDb();
     const store = createSqliteScanoRunnerSessionStore(database);
 
@@ -128,9 +129,9 @@ describe("scanoRunnerSessionStore", () => {
     }, Date.parse("2026-04-10T08:00:00.000Z"));
 
     expect(
-      database.prepare("SELECT token, taskId, actorUserId, teamMemberId FROM scano_runner_sessions WHERE token = ?").get(session.token),
+      database.prepare("SELECT token, taskId, actorUserId, teamMemberId FROM scano_runner_sessions WHERE token = ?").get(hashSessionToken(session.token)),
     ).toEqual({
-      token: session.token,
+      token: hashSessionToken(session.token),
       taskId: TASK_ID,
       actorUserId: 2,
       teamMemberId: 11,
@@ -232,7 +233,7 @@ describe("scanoRunnerSessionStore", () => {
 
     expect(refreshedSession!.expiresAt).toBeGreaterThan(session.expiresAt);
     expect(
-      database.prepare("SELECT expiresAt FROM scano_runner_sessions WHERE token = ?").get(session.token),
+      database.prepare("SELECT expiresAt FROM scano_runner_sessions WHERE token = ?").get(hashSessionToken(session.token)),
     ).toEqual({
       expiresAt: new Date(createdAtMs + 60_000 + (30 * 60 * 1000)).toISOString(),
     });
@@ -284,9 +285,9 @@ describe("scanoRunnerSessionStore", () => {
 
     expect(database.prepare("SELECT COUNT(*) AS count FROM scano_runner_sessions WHERE taskId = ?").get(TASK_ID)).toEqual({ count: 0 });
     expect(
-      database.prepare("SELECT token, taskId FROM scano_runner_sessions WHERE token = ?").get(otherSession.token),
+      database.prepare("SELECT token, taskId FROM scano_runner_sessions WHERE token = ?").get(hashSessionToken(otherSession.token)),
     ).toEqual({
-      token: otherSession.token,
+      token: hashSessionToken(otherSession.token),
       taskId: TASK_ID_2,
     });
     database.close();
@@ -344,6 +345,57 @@ describe("scanoRunnerSessionStore", () => {
     restartedStore.initialize();
 
     expect(database.prepare("SELECT COUNT(*) AS count FROM scano_runner_sessions").get()).toEqual({ count: 0 });
+    database.close();
+  });
+
+  it("rewrites legacy raw runner tokens to hashed storage on successful reads", () => {
+    const database = createTestDb();
+    const store = createSqliteScanoRunnerSessionStore(database);
+    const nowMs = Date.parse("2026-04-10T08:00:00.000Z");
+    const legacyToken = "legacy-runner-token";
+
+    database.prepare(`
+      INSERT INTO scano_runner_sessions (
+        token,
+        taskId,
+        actorUserId,
+        teamMemberId,
+        chainId,
+        vendorId,
+        globalEntityId,
+        expiresAt,
+        createdAt,
+        updatedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      legacyToken,
+      TASK_ID,
+      2,
+      11,
+      1037,
+      4594,
+      "TB_EG",
+      new Date(nowMs + (30 * 60 * 1000)).toISOString(),
+      new Date(nowMs).toISOString(),
+      new Date(nowMs).toISOString(),
+    );
+
+    const restoredSession = store.readRunnerSession(TASK_ID, 2, legacyToken, nowMs + 1_000);
+
+    expect(restoredSession).toMatchObject({
+      token: legacyToken,
+      taskId: TASK_ID,
+      actorUserId: 2,
+      teamMemberId: 11,
+    });
+    expect(database.prepare("SELECT COUNT(*) AS count FROM scano_runner_sessions WHERE token = ?").get(legacyToken)).toEqual({
+      count: 0,
+    });
+    expect(
+      database.prepare("SELECT token FROM scano_runner_sessions WHERE token = ?").get(hashSessionToken(legacyToken)),
+    ).toEqual({
+      token: hashSessionToken(legacyToken),
+    });
     database.close();
   });
 });

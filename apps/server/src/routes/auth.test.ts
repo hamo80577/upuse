@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { ZodError } from "zod";
 import { AUTH_SESSION_COOKIE_NAME } from "../http/sessionCookie.js";
 
 const {
@@ -157,7 +158,7 @@ describe("auth.logoutRoute", () => {
     expect(mockVerifyUserCredentials).toHaveBeenCalledTimes(5);
   });
 
-  it("persists throttle rows in sqlite and clears them after a successful login", () => {
+  it("persists throttle rows in sqlite and clears only the account-specific key after a successful login", () => {
     mockVerifyUserCredentials.mockReturnValue(null);
 
     const failedAttemptResponse = createMockResponse();
@@ -171,9 +172,9 @@ describe("auth.logoutRoute", () => {
 
     expect(failedAttemptResponse.statusCode).toBe(401);
     expect(
-      authTestDb.prepare("SELECT key, count, blockedUntil FROM login_attempts WHERE key = ?").get("127.0.0.1:admin@example.com"),
+      authTestDb.prepare("SELECT key, count, blockedUntil FROM login_attempts WHERE key = ?").get("acct:127.0.0.1:admin@example.com"),
     ).toEqual({
-      key: "127.0.0.1:admin@example.com",
+      key: "acct:127.0.0.1:admin@example.com",
       count: 1,
       blockedUntil: null,
     });
@@ -204,7 +205,8 @@ describe("auth.logoutRoute", () => {
     } as any, successResponse as any);
 
     expect(successResponse.statusCode).toBe(200);
-    expect(authTestDb.prepare("SELECT COUNT(*) AS count FROM login_attempts").get()).toEqual({ count: 0 });
+    const keys = (authTestDb.prepare("SELECT key FROM login_attempts ORDER BY key ASC").all() as Array<{ key: string }>).map((row) => row.key);
+    expect(keys).toEqual(["ip:127.0.0.1"]);
   });
 
   it("keeps the login throttle active across later requests for the same normalized ip/email key", () => {
@@ -246,6 +248,107 @@ describe("auth.logoutRoute", () => {
     });
     expect(mockVerifyUserCredentials).toHaveBeenCalledTimes(5);
     expect(mockCreateAuthSession).not.toHaveBeenCalled();
+  });
+
+  it("rate-limits password spraying across many accounts from the same ip", () => {
+    mockVerifyUserCredentials.mockReturnValue(null);
+
+    for (let attempt = 1; attempt <= 19; attempt += 1) {
+      const res = createMockResponse();
+      loginRoute({
+        ip: "127.0.0.1",
+        body: {
+          email: `user${attempt}@example.com`,
+          password: "wrong-password",
+        },
+      } as any, res as any);
+      expect(res.statusCode).toBe(401);
+    }
+
+    const throttledAttempt = createMockResponse();
+    loginRoute({
+      ip: "127.0.0.1",
+      body: {
+        email: "user20@example.com",
+        password: "wrong-password",
+      },
+    } as any, throttledAttempt as any);
+    expect(throttledAttempt.statusCode).toBe(429);
+
+    mockVerifyUserCredentials.mockReturnValue({
+      id: 1,
+      email: "admin@example.com",
+      name: "Admin",
+      role: "admin",
+      active: true,
+      createdAt: "2026-03-07T10:00:00.000Z",
+    });
+    const blockedSuccessAttempt = createMockResponse();
+    loginRoute({
+      ip: "127.0.0.1",
+      body: {
+        email: "admin@example.com",
+        password: "correct horse battery staple",
+      },
+    } as any, blockedSuccessAttempt as any);
+
+    expect(blockedSuccessAttempt.statusCode).toBe(429);
+    expect(blockedSuccessAttempt.payload).toEqual({
+      ok: false,
+      message: expect.stringContaining("Too many failed sign-in attempts."),
+    });
+    expect(mockVerifyUserCredentials).toHaveBeenCalledTimes(20);
+    expect(authTestDb.prepare("SELECT count FROM login_attempts WHERE key = ?").get("ip:127.0.0.1")).toEqual({ count: 20 });
+  });
+
+  it("clears only the account throttle on successful login and preserves ip-wide spray state", () => {
+    mockVerifyUserCredentials.mockReturnValue(null);
+
+    loginRoute({
+      ip: "127.0.0.1",
+      body: {
+        email: "first@example.com",
+        password: "wrong-password",
+      },
+    } as any, createMockResponse() as any);
+    loginRoute({
+      ip: "127.0.0.1",
+      body: {
+        email: "second@example.com",
+        password: "wrong-password",
+      },
+    } as any, createMockResponse() as any);
+
+    mockVerifyUserCredentials.mockReturnValue({
+      id: 1,
+      email: "first@example.com",
+      name: "Admin",
+      role: "admin",
+      active: true,
+      createdAt: "2026-03-07T10:00:00.000Z",
+    });
+    mockCreateAuthSession.mockReturnValue({
+      token: "raw-session-token",
+      userId: 1,
+      expiresAt: "2026-03-07T22:00:00.000Z",
+      createdAt: "2026-03-07T10:00:00.000Z",
+    });
+
+    const successResponse = createMockResponse();
+    loginRoute({
+      ip: "127.0.0.1",
+      body: {
+        email: "first@example.com",
+        password: "correct horse battery staple",
+      },
+    } as any, successResponse as any);
+
+    expect(successResponse.statusCode).toBe(200);
+    const keys = (authTestDb.prepare("SELECT key FROM login_attempts ORDER BY key ASC").all() as Array<{ key: string }>).map((row) => row.key);
+    expect(keys).toEqual([
+      "acct:127.0.0.1:second@example.com",
+      "ip:127.0.0.1",
+    ]);
   });
 
   it("deletes the current session without touching the monitor lifecycle", () => {
@@ -333,6 +436,23 @@ describe("auth.logoutRoute", () => {
     });
   });
 
+  it("rejects create-user passwords shorter than 12 characters", () => {
+    const req = {
+      body: {
+        email: "user@example.com",
+        password: "short-pass1",
+        name: "User",
+        upuseAccess: true,
+        upuseRole: "user",
+        scanoAccessRole: "scanner",
+      },
+    };
+    const res = createMockResponse();
+
+    expect(() => createUserRoute(req as any, res as any)).toThrow(ZodError);
+    expect(mockCreateUser).not.toHaveBeenCalled();
+  });
+
   it("updates an existing user and forwards the acting admin id", () => {
     const updatedUser = {
       id: 2,
@@ -377,6 +497,67 @@ describe("auth.logoutRoute", () => {
       ok: true,
       user: updatedUser,
     });
+  });
+
+  it("rejects update-user passwords shorter than 12 characters", () => {
+    const req = {
+      params: { id: "2" },
+      authUser: { id: 1 },
+      body: {
+        email: "user@example.com",
+        password: "short-pass1",
+        name: "Updated User",
+        upuseAccess: true,
+        upuseRole: "user",
+        scanoAccessRole: "team_lead",
+      },
+    };
+    const res = createMockResponse();
+
+    expect(() => updateUserRoute(req as any, res as any)).toThrow(ZodError);
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+  });
+
+  it("accepts update-user passwords with 12 or more characters", () => {
+    const updatedUser = {
+      id: 2,
+      email: "user@example.com",
+      name: "Updated User",
+      role: "user",
+      active: true,
+      createdAt: "2026-03-07T10:30:00.000Z",
+      upuseAccess: true,
+      isPrimaryAdmin: false,
+    };
+    mockUpdateUser.mockReturnValue(updatedUser);
+
+    const req = {
+      params: { id: "2" },
+      authUser: { id: 1 },
+      body: {
+        email: "user@example.com",
+        password: "updated-pass1",
+        name: "Updated User",
+        upuseAccess: true,
+        upuseRole: "user",
+        scanoAccessRole: "team_lead",
+      },
+    };
+    const res = createMockResponse();
+
+    updateUserRoute(req as any, res as any);
+
+    expect(mockUpdateUser).toHaveBeenCalledWith({
+      id: 2,
+      email: "user@example.com",
+      name: "Updated User",
+      upuseAccess: true,
+      upuseRole: "user",
+      scanoAccessRole: "team_lead",
+      password: "updated-pass1",
+      actorUserId: 1,
+    });
+    expect(res.statusCode).toBe(200);
   });
 
   it("archives an existing user and forwards the acting admin id", () => {

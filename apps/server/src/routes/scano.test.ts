@@ -8,6 +8,7 @@ import { ZodError } from "zod";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScanoMasterProductDetail, ScanoMasterProductListItem } from "../types/models.js";
 import { resolveDataDir } from "../config/paths.js";
+import { hashSessionToken } from "../services/auth/passwords.js";
 
 const {
   mockSearchScanoBranches,
@@ -3595,9 +3596,9 @@ describe("scano routes", () => {
     const bootstrapBody = await bootstrapResponse.json();
     const runnerToken = bootstrapBody.item.runnerToken as string;
     expect(
-      testDb.prepare("SELECT token, taskId, actorUserId, teamMemberId FROM scano_runner_sessions WHERE token = ?").get(runnerToken),
+      testDb.prepare("SELECT token, taskId, actorUserId, teamMemberId FROM scano_runner_sessions WHERE token = ?").get(hashSessionToken(runnerToken)),
     ).toEqual({
-      token: runnerToken,
+      token: hashSessionToken(runnerToken),
       taskId: TASK_1,
       actorUserId: 2,
       teamMemberId: 11,
@@ -4227,7 +4228,103 @@ describe("scano routes", () => {
     expect(testDb.prepare("SELECT COUNT(*) AS count FROM scano_task_products WHERE taskId = ?").get(TASK_1)).toEqual({ count: 0 });
   });
 
-  it.todo("removes local task-image files immediately after export download confirmation");
+  it("removes purged local task images from payloads and returns 410 for direct image reads", async () => {
+    const exportId = "33333333-3333-4333-8333-333333333333";
+    const productId = "44444444-4444-4444-8444-444444444444";
+    const imageId = "55555555-5555-4555-8555-555555555555";
+    insertTeamMember({ id: 11, name: "Ali", linkedUserId: 2 });
+    insertTask({ id: TASK_1, scheduledAt: "2026-04-10T08:00:00.000Z", status: "awaiting_review" });
+
+    const productDir = path.join(TEST_SCANO_STORAGE_DIR, "product-images", TASK_1, productId);
+    const exportsDir = path.join(TEST_SCANO_STORAGE_DIR, "exports", TASK_1);
+    fs.mkdirSync(productDir, { recursive: true });
+    fs.mkdirSync(exportsDir, { recursive: true });
+
+    const imagePath = path.join(productDir, "SKU-1.png");
+    const exportPath = path.join(exportsDir, "review.zip");
+    fs.writeFileSync(imagePath, TINY_PNG_BYTES);
+    fs.writeFileSync(exportPath, Buffer.from("zip-data"));
+
+    insertTaskProductRecord({
+      productId,
+      taskId: TASK_1,
+      teamMemberId: 11,
+      barcode: "99887766",
+      sku: "SKU-1",
+      itemNameEn: "Imported Product",
+      previewImageUrl: "https://images.example.com/review-preview.jpg",
+    });
+    insertTaskProductBarcodeRecord({
+      productId,
+      barcode: "99887766",
+    });
+    insertTaskProductImageRecord({
+      imageId,
+      productId,
+      fileName: "SKU-1.png",
+      filePath: imagePath,
+    });
+    testDb.prepare(`
+      INSERT INTO scano_task_exports (id, taskId, fileName, filePath, createdAt, confirmedDownloadAt, imagesPurgedAt)
+      VALUES (?, ?, 'review.zip', ?, '2026-04-04T12:00:00.000Z', NULL, NULL)
+    `).run(exportId, TASK_1, exportPath);
+
+    const confirmResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/exports/${exportId}/confirm-download`, {
+      method: "POST",
+      headers: {
+        "x-role": "admin",
+        "x-primary-admin": "true",
+      },
+    });
+    expect(confirmResponse.status).toBe(200);
+    expect(fs.existsSync(imagePath)).toBe(false);
+
+    const detailResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/products/${productId}`, {
+      headers: {
+        "x-role": "admin",
+        "x-primary-admin": "true",
+      },
+    });
+    const detailBody = await detailResponse.json();
+    expect(detailResponse.status).toBe(200);
+    expect(detailBody.item).toMatchObject({
+      id: productId,
+      previewImageUrl: "https://images.example.com/review-preview.jpg",
+      images: [],
+    });
+
+    const listResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/products?page=1&pageSize=10`, {
+      headers: {
+        "x-role": "admin",
+        "x-primary-admin": "true",
+      },
+    });
+    const listBody = await listResponse.json();
+    expect(listResponse.status).toBe(200);
+    expect(listBody.items).toEqual([
+      expect.objectContaining({
+        id: productId,
+        previewImageUrl: "https://images.example.com/review-preview.jpg",
+        images: [],
+      }),
+    ]);
+
+    const imageResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/products/${productId}/images/${imageId}`, {
+      headers: {
+        "x-role": "admin",
+        "x-primary-admin": "true",
+      },
+      redirect: "manual",
+    });
+    const imageBody = await imageResponse.json();
+    expect(imageResponse.status).toBe(410);
+    expect(imageResponse.headers.get("location")).toBeNull();
+    expect(imageBody).toMatchObject({
+      ok: false,
+      code: "SCANO_TASK_PRODUCT_IMAGE_PURGED",
+      message: "Scano task product image is no longer available after export confirmation.",
+    });
+  });
 
   it("stores and masks Scano settings for admins", async () => {
     const getResponse = await fetch(`${baseUrl}/api/scano/settings`, {

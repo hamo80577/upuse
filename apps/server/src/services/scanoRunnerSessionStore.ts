@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type BetterSqlite3 from "better-sqlite3";
 import { db } from "../config/db.js";
+import { hashSessionToken } from "./auth/passwords.js";
 import type { ScanoTaskId } from "../types/models.js";
 
 interface ScanoRunnerSessionRow {
@@ -54,6 +55,7 @@ interface ScanoRunnerSessionStatements {
   insertStatement: BetterSqlite3.Statement;
   selectByTokenStatement: BetterSqlite3.Statement<[string], ScanoRunnerSessionRow>;
   updateExpiryStatement: BetterSqlite3.Statement<[string, string, string]>;
+  rewriteLegacyTokenStatement: BetterSqlite3.Statement<[string, string, string, string]>;
   deleteByTokenStatement: BetterSqlite3.Statement<[string]>;
   deleteExpiredStatement: BetterSqlite3.Statement<[string]>;
   deleteByTaskStatement: BetterSqlite3.Statement<[ScanoTaskId]>;
@@ -72,6 +74,10 @@ function toMs(value: string | null | undefined) {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
+function hashRunnerSessionToken(token: string) {
+  return hashSessionToken(token);
+}
+
 export function createSqliteScanoRunnerSessionStore(
   database: BetterSqlite3.Database,
   options: Partial<SqliteScanoRunnerSessionStoreOptions> = {},
@@ -85,9 +91,9 @@ export function createSqliteScanoRunnerSessionStore(
     return nowMs ?? resolvedOptions.now();
   }
 
-  function toPublicSession(row: ScanoRunnerSessionRow): ScanoRunnerSession {
+  function toPublicSession(row: ScanoRunnerSessionRow, token: string): ScanoRunnerSession {
     return {
-      token: row.token,
+      token,
       taskId: row.taskId,
       actorUserId: row.actorUserId,
       teamMemberId: row.teamMemberId,
@@ -154,6 +160,14 @@ export function createSqliteScanoRunnerSessionStore(
           updatedAt = ?
         WHERE token = ?
       `),
+      rewriteLegacyTokenStatement: database.prepare<[string, string, string, string]>(`
+        UPDATE scano_runner_sessions
+        SET
+          token = ?,
+          expiresAt = ?,
+          updatedAt = ?
+        WHERE token = ?
+      `),
       deleteByTokenStatement: database.prepare<[string]>("DELETE FROM scano_runner_sessions WHERE token = ?"),
       deleteExpiredStatement: database.prepare<[string]>(`
         DELETE FROM scano_runner_sessions
@@ -183,8 +197,9 @@ export function createSqliteScanoRunnerSessionStore(
 
       const { insertStatement } = getStatements();
       const createdAt = toIso(effectiveNowMs);
+      const token = randomUUID();
       const session: ScanoRunnerSessionRow = {
-        token: randomUUID(),
+        token: hashRunnerSessionToken(token),
         taskId: input.taskId,
         actorUserId: input.actorUserId,
         teamMemberId: input.teamMemberId,
@@ -197,7 +212,7 @@ export function createSqliteScanoRunnerSessionStore(
       };
 
       insertStatement.run(session);
-      return toPublicSession(session);
+      return toPublicSession(session, token);
     },
 
     readRunnerSession(taskId, actorUserId, token, nowMs?: number) {
@@ -209,8 +224,14 @@ export function createSqliteScanoRunnerSessionStore(
         return null;
       }
 
-      const { deleteByTokenStatement, selectByTokenStatement, updateExpiryStatement } = getStatements();
-      const session = selectByTokenStatement.get(normalizedToken);
+      const persistedToken = hashRunnerSessionToken(normalizedToken);
+      const {
+        deleteByTokenStatement,
+        rewriteLegacyTokenStatement,
+        selectByTokenStatement,
+        updateExpiryStatement,
+      } = getStatements();
+      const session = selectByTokenStatement.get(persistedToken) ?? selectByTokenStatement.get(normalizedToken);
       if (!session || session.taskId !== taskId || session.actorUserId !== actorUserId) {
         return null;
       }
@@ -223,13 +244,18 @@ export function createSqliteScanoRunnerSessionStore(
 
       const refreshedExpiresAt = toIso(effectiveNowMs + resolvedOptions.sessionTtlMs);
       const refreshedUpdatedAt = toIso(effectiveNowMs);
-      updateExpiryStatement.run(refreshedExpiresAt, refreshedUpdatedAt, session.token);
+      if (session.token === persistedToken) {
+        updateExpiryStatement.run(refreshedExpiresAt, refreshedUpdatedAt, session.token);
+      } else {
+        rewriteLegacyTokenStatement.run(persistedToken, refreshedExpiresAt, refreshedUpdatedAt, session.token);
+      }
 
       return toPublicSession({
         ...session,
+        token: persistedToken,
         expiresAt: refreshedExpiresAt,
         updatedAt: refreshedUpdatedAt,
-      });
+      }, normalizedToken);
     },
 
     clearRunnerSessionsForTask(taskId) {

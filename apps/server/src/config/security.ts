@@ -1,6 +1,7 @@
 export interface SecurityConfig {
   trustProxy: false | true | number | string | string[];
   loginRateLimitMaxKeys: number;
+  loginRateLimitMaxAttemptsPerIp: number;
   maxStreamConnectionsPerUser: number;
   maxStreamConnectionsTotal: number;
   scanoCsvUploadMaxFileSizeBytes: number;
@@ -11,6 +12,7 @@ export interface SecurityConfig {
 }
 
 const DEFAULT_LOGIN_RATE_LIMIT_MAX_KEYS = 5_000;
+const DEFAULT_LOGIN_RATE_LIMIT_MAX_ATTEMPTS_PER_IP = 20;
 const DEFAULT_MAX_STREAM_CONNECTIONS_PER_USER = 3;
 const DEFAULT_MAX_STREAM_CONNECTIONS_TOTAL = 100;
 const DEFAULT_SCANO_CSV_UPLOAD_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
@@ -63,6 +65,14 @@ export function resolveSecurityConfig(env: NodeJS.ProcessEnv = process.env): Sec
       min: 100,
       max: 100_000,
     }),
+    loginRateLimitMaxAttemptsPerIp: parseBoundedInteger(
+      env.UPUSE_LOGIN_IP_RATE_LIMIT_MAX_ATTEMPTS,
+      DEFAULT_LOGIN_RATE_LIMIT_MAX_ATTEMPTS_PER_IP,
+      {
+        min: 5,
+        max: 500,
+      },
+    ),
     maxStreamConnectionsPerUser: parseBoundedInteger(
       env.UPUSE_STREAM_MAX_CONNECTIONS_PER_USER,
       DEFAULT_MAX_STREAM_CONNECTIONS_PER_USER,

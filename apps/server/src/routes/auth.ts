@@ -3,11 +3,12 @@ import { z } from "zod";
 import { createAuthSession, createUser, deleteAuthSession, deleteUserById, listUsers, updateUser, verifyUserCredentials } from "../services/authStore.js";
 import { clearAuthSessionCookie, setAuthSessionCookie } from "../http/sessionCookie.js";
 import { normalizeEmail } from "../services/auth/passwords.js";
-import { loginThrottleStore } from "../services/loginThrottleStore.js";
+import { loginIpThrottleStore, loginThrottleStore } from "../services/loginThrottleStore.js";
 import type { AppUserRole, AuthMeResponse, AuthUsersResponse, LoginResponse, ScanoRole } from "../types/models.js";
 
 const AppUserRoleSchema = z.enum(["admin", "user"] satisfies [AppUserRole, AppUserRole]);
 const ScanoRoleSchema = z.enum(["team_lead", "scanner"] satisfies [ScanoRole, ScanoRole]);
+const MIN_PASSWORD_LENGTH = 12;
 
 const LoginBody = z.object({
   email: z.string().email(),
@@ -16,7 +17,7 @@ const LoginBody = z.object({
 
 const CreateUserBody = z.object({
   email: z.string().email(),
-  password: z.string().min(8).max(120),
+  password: z.string().min(MIN_PASSWORD_LENGTH).max(120),
   name: z.string().trim().min(1).max(120),
   upuseAccess: z.boolean(),
   upuseRole: AppUserRoleSchema.optional(),
@@ -49,7 +50,7 @@ const CreateUserBody = z.object({
 
 const UpdateUserBody = z.object({
   email: z.string().email(),
-  password: z.string().min(8).max(120).optional().or(z.literal("")),
+  password: z.string().min(MIN_PASSWORD_LENGTH).max(120).optional().or(z.literal("")),
   name: z.string().trim().min(1).max(120),
   upuseAccess: z.boolean(),
   upuseRole: AppUserRoleSchema.optional(),
@@ -93,7 +94,11 @@ function isUniqueEmailError(error: unknown) {
 }
 
 function getLoginAttemptKey(req: Request, email: string) {
-  return `${req.ip || "unknown"}:${normalizeEmail(email)}`;
+  return `acct:${req.ip || "unknown"}:${normalizeEmail(email)}`;
+}
+
+function getLoginIpAttemptKey(req: Request) {
+  return `ip:${req.ip || "unknown"}`;
 }
 
 function buildLoginThrottleMessage(blockedUntilMs: number) {
@@ -103,12 +108,17 @@ function buildLoginThrottleMessage(blockedUntilMs: number) {
 
 export function resetLoginRateLimitStateForTests() {
   loginThrottleStore.resetLoginRateLimitStateForTests();
+  loginIpThrottleStore.resetLoginRateLimitStateForTests();
 }
 
 export function loginRoute(req: Request, res: Response) {
   const input = LoginBody.parse(req.body);
   const attemptKey = getLoginAttemptKey(req, input.email);
-  const blockedUntilMs = loginThrottleStore.getBlockedUntil(attemptKey);
+  const ipAttemptKey = getLoginIpAttemptKey(req);
+  const blockedUntilMs = Math.max(
+    loginThrottleStore.getBlockedUntil(attemptKey) ?? 0,
+    loginIpThrottleStore.getBlockedUntil(ipAttemptKey) ?? 0,
+  ) || null;
 
   if (blockedUntilMs) {
     return res.status(429).json({
@@ -120,11 +130,16 @@ export function loginRoute(req: Request, res: Response) {
   const user = verifyUserCredentials(input.email, input.password);
   if (!user) {
     const nextAttemptState = loginThrottleStore.registerFailedLoginAttempt(attemptKey);
-    const statusCode = nextAttemptState.blockedUntilMs ? 429 : 401;
+    const nextIpAttemptState = loginIpThrottleStore.registerFailedLoginAttempt(ipAttemptKey);
+    const nextBlockedUntilMs = Math.max(
+      nextAttemptState.blockedUntilMs ?? 0,
+      nextIpAttemptState.blockedUntilMs ?? 0,
+    ) || null;
+    const statusCode = nextBlockedUntilMs ? 429 : 401;
     return res.status(statusCode).json({
       ok: false,
-      message: nextAttemptState.blockedUntilMs
-        ? buildLoginThrottleMessage(nextAttemptState.blockedUntilMs)
+      message: nextBlockedUntilMs
+        ? buildLoginThrottleMessage(nextBlockedUntilMs)
         : "Invalid email or password",
     });
   }

@@ -45,6 +45,10 @@ function plusHoursIso(hours: number) {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }
 
+function deleteAuthSessionsForUser(userId: number) {
+  return db.prepare<[number]>("DELETE FROM sessions WHERE userId = ?").run(userId).changes;
+}
+
 function normalizeUserRole(role: string): AppUserRole {
   return role.trim().toLowerCase() === "admin" ? "admin" : "user";
 }
@@ -235,6 +239,8 @@ export function updateUser(input: {
         SET email = ?, name = ?, role = ?, upuseAccess = ?, passwordHash = ?
         WHERE id = ?
       `).run(normalizedEmail, trimmedName, nextRole, input.upuseAccess ? 1 : 0, hashPassword(trimmedPassword), input.id);
+      // Permission changes are read live from the DB, but password changes must revoke existing bearer sessions.
+      deleteAuthSessionsForUser(input.id);
     } else {
       db.prepare(`
         UPDATE users
@@ -290,7 +296,7 @@ export function deleteUserById(input: { id: number; actorUserId?: number | null 
       WHERE linkedUserId = ?
     `).run(archivedAt, input.id);
 
-    db.prepare<[number]>("DELETE FROM sessions WHERE userId = ?").run(input.id);
+    deleteAuthSessionsForUser(input.id);
     return updated.changes > 0;
   })();
 

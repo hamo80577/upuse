@@ -49,9 +49,12 @@ If you want one Windows command that loads `.env`, builds, and starts production
 - The server supports one-way secret rotation through `UPUSE_SECRET_PREVIOUS`: old secrets can still decrypt stored tokens, and the current `UPUSE_SECRET` is used to re-encrypt them during startup.
 - Web access is authenticated with email/password sessions and role-based authorization (`admin` / `user`).
 - Session tokens are delivered only through `HttpOnly` same-site cookies. The raw token is never exposed to frontend JavaScript, and the persisted session token is hashed before it is stored in SQLite.
+- UPuse live websocket feeds (`/api/ws/dashboard`, `/api/ws/performance`) now enforce the same `upuseAccess` check as the protected HTTP dashboard and performance routes.
+- Updating a user's password now revokes that user's active browser sessions, and user-management password create/update flows require a minimum length of 12 characters to match the bootstrap-admin policy.
+- Scano runner bearer tokens are short-lived, returned only to the caller that bootstraps the runner, and hashed before they are persisted in SQLite.
 - In production, new sessions are issued under a host-only `__Host-` cookie name for stronger cookie scoping. The server still accepts the legacy cookie name during the transition.
 - For the cookie session model, serve the web app and `/api` from the same site or behind one reverse proxy so the browser can keep the session same-origin.
-- Mutating API routes enforce trusted request origins. Browser writes should come from the same site or from origins explicitly listed in `UPUSE_CORS_ORIGINS`.
+- Mutating API routes enforce trusted request origins. Browser writes should come from the same site or from origins explicitly listed in `UPUSE_CORS_ORIGINS`, and unsafe requests that omit `Origin`, `Referer`, and `Sec-Fetch-Site` are rejected.
 - Browser logout now depends only on the UPuse session itself. A failing business API or external integration token no longer signs the user out on its own.
 - Non-session upstream auth failures are normalized into integration errors so the UI can show a toast/error without collapsing the current workspace session.
 
@@ -170,7 +173,7 @@ If you want one Windows command that loads `.env`, builds, and starts production
   - an `.xlsx` review sheet
   - the original captured images in a folder
   - the same images embedded inside the spreadsheet when the format is supported
-- Task completion is now gated behind review export confirmation. After the lead confirms the export download, temporary server-side product images are purged and the task can move from `awaiting_review` to `completed`
+- Task completion is now gated behind review export confirmation. After the lead confirms the export download, temporary server-side product images are purged, purged local image URLs stop appearing in normal task-product payloads, direct reads return `410 Gone`, and the task can move from `awaiting_review` to `completed`
 - If the server detects an old incompatible Scano task schema during migration, it now performs an explicit hard reset of legacy task-domain tables only. `scano_team_members`, `scano_settings`, and master-product data are preserved.
 
 ## Server env vars
@@ -181,6 +184,7 @@ If you want one Windows command that loads `.env`, builds, and starts production
 - `UPUSE_CORS_ORIGINS`: optional comma-separated allowed origins. By default only `http://localhost:*` and `http://127.0.0.1:*` are allowed.
 - `UPUSE_TRUST_PROXY`: configure Express `trust proxy` when the app is behind a reverse proxy. Accepts `true`, a hop count like `1`, or a subnet/list such as `loopback` or `loopback, linklocal`.
 - `UPUSE_LOGIN_RATE_LIMIT_MAX_KEYS`: maximum number of distinct login throttle keys retained in memory. Default `5000`.
+- `UPUSE_LOGIN_IP_RATE_LIMIT_MAX_ATTEMPTS`: maximum failed login attempts allowed per IP across many accounts before the IP-wide spray throttle blocks further login attempts. Default `20`.
 - `UPUSE_STREAM_MAX_CONNECTIONS_PER_USER`: maximum concurrent `/api/stream` connections per authenticated user. Default `3`.
 - `UPUSE_STREAM_MAX_CONNECTIONS_TOTAL`: maximum concurrent `/api/stream` connections across the process. Default `100`.
 - `UPUSE_SCANO_CSV_UPLOAD_MAX_FILE_SIZE_BYTES`: maximum CSV upload size for Scano master-product imports. Default `5242880` (5 MB).

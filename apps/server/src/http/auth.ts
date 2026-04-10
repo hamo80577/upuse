@@ -1,6 +1,6 @@
 import type { RequestHandler } from "express";
 import { getSessionUserByToken } from "../services/authStore.js";
-import { readAuthSessionToken } from "./sessionCookie.js";
+import { readAuthSessionToken, readAuthSessionTokenFromCookieHeader } from "./sessionCookie.js";
 import { hasCapability, type AppCapability } from "./authorization.js";
 import type { AppUser } from "../types/models.js";
 
@@ -12,6 +12,74 @@ const PUBLIC_API_PATHS = new Set([
 
 function isPublicApiPath(path: string) {
   return PUBLIC_API_PATHS.has(path);
+}
+
+function resolveSessionAuthByToken(sessionToken: string | undefined) {
+  if (!sessionToken) {
+    return null;
+  }
+
+  return getSessionUserByToken(sessionToken);
+}
+
+export function resolveSessionUserFromCookieHeader(cookieHeader: string | undefined) {
+  const sessionToken = readAuthSessionTokenFromCookieHeader(cookieHeader);
+  if (!sessionToken) {
+    return null;
+  }
+
+  const auth = resolveSessionAuthByToken(sessionToken);
+  if (!auth) {
+    return null;
+  }
+
+  return {
+    user: auth.user,
+    sessionToken,
+  };
+}
+
+export type UpuseUpgradeAuthorizationResult =
+  | {
+      ok: true;
+      user: AppUser;
+      sessionToken: string;
+    }
+  | {
+      ok: false;
+      statusCode: 401 | 403;
+      message: "Unauthorized" | "Forbidden";
+      code: "SESSION_UNAUTHORIZED" | "FORBIDDEN";
+      errorOrigin: "session" | "authorization";
+    };
+
+export function authorizeUpuseUpgradeFromCookieHeader(cookieHeader: string | undefined): UpuseUpgradeAuthorizationResult {
+  const session = resolveSessionUserFromCookieHeader(cookieHeader);
+  if (!session) {
+    return {
+      ok: false,
+      statusCode: 401,
+      message: "Unauthorized",
+      code: "SESSION_UNAUTHORIZED",
+      errorOrigin: "session",
+    };
+  }
+
+  if (!hasUpuseAccess(session.user)) {
+    return {
+      ok: false,
+      statusCode: 403,
+      message: "Forbidden",
+      code: "FORBIDDEN",
+      errorOrigin: "authorization",
+    };
+  }
+
+  return {
+    ok: true,
+    user: session.user,
+    sessionToken: session.sessionToken,
+  };
 }
 
 export function createSessionAuthMiddleware(): RequestHandler {
@@ -27,7 +95,7 @@ export function createSessionAuthMiddleware(): RequestHandler {
       return;
     }
 
-    const auth = getSessionUserByToken(sessionToken);
+    const auth = resolveSessionAuthByToken(sessionToken);
     if (auth) {
       req.authUser = auth.user;
       req.authSessionToken = sessionToken;

@@ -195,12 +195,13 @@ describe("security helpers", () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
-  it("allows non-browser unsafe API clients that do not send initiator headers", () => {
+  it("allows unsafe API requests with a trusted referer origin", () => {
     const middleware = createTrustedOriginMiddleware();
     const req: any = {
       path: "/api/auth/logout",
       method: "POST",
       headers: {
+        referer: "https://upuse.example.com/settings",
         host: "upuse.example.com",
       },
       protocol: "https",
@@ -218,6 +219,70 @@ describe("security helpers", () => {
     middleware(req, res, next);
 
     expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("allows unsafe API requests with same-site fetch metadata when origin headers are absent", () => {
+    const middleware = createTrustedOriginMiddleware();
+    const req: any = {
+      path: "/api/auth/logout",
+      method: "POST",
+      headers: {
+        host: "upuse.example.com",
+        "sec-fetch-site": "same-site",
+      },
+      protocol: "https",
+      get: (name: string) => (name.toLowerCase() === "host" ? "upuse.example.com" : undefined),
+      app: {
+        get: () => false,
+      },
+    };
+    const res: any = {
+      status: vi.fn(),
+      json: vi.fn(),
+    };
+    const next = vi.fn();
+
+    middleware(req, res, next);
+
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("blocks unsafe API requests that omit all initiator metadata", () => {
+    const middleware = createTrustedOriginMiddleware();
+    const req: any = {
+      path: "/api/auth/logout",
+      method: "POST",
+      headers: {
+        host: "upuse.example.com",
+      },
+      protocol: "https",
+      get: (name: string) => (name.toLowerCase() === "host" ? "upuse.example.com" : undefined),
+      app: {
+        get: () => false,
+      },
+    };
+    const res: any = {
+      statusCode: 200,
+      body: undefined,
+      status: vi.fn((statusCode: number) => {
+        res.statusCode = statusCode;
+        return res;
+      }),
+      json: vi.fn((body: unknown) => {
+        res.body = body;
+        return res;
+      }),
+    };
+    const next = vi.fn();
+
+    middleware(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toEqual({
+      ok: false,
+      message: "Untrusted request origin",
+    });
   });
 
   it("marks API responses as non-cacheable", () => {

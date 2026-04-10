@@ -123,6 +123,17 @@ function createTestDb() {
       createdAt TEXT NOT NULL,
       FOREIGN KEY (productId) REFERENCES scano_task_products(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE scano_task_exports (
+      id TEXT PRIMARY KEY,
+      taskId TEXT NOT NULL,
+      fileName TEXT NOT NULL,
+      filePath TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      confirmedDownloadAt TEXT,
+      imagesPurgedAt TEXT,
+      FOREIGN KEY (taskId) REFERENCES scano_tasks(id) ON DELETE CASCADE
+    );
   `);
 
   database.prepare(`
