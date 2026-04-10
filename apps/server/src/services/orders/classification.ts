@@ -4,6 +4,7 @@ import { isPastPickup } from "../../utils/time.js";
 export interface OrderClassificationInput {
   status?: unknown;
   isCompleted?: boolean | number | null;
+  isActiveNow?: boolean | number | null;
   pickupAt?: string | null;
   isUnassigned?: boolean | number | null;
   shopperId?: number | null;
@@ -38,7 +39,8 @@ export function isReadyToPickupStatus(status: unknown) {
 
 export function classifyOrderState(input: OrderClassificationInput, nowIso: string): OrderClassification {
   const isReadyToPickup = isReadyToPickupStatus(input.status);
-  const isInPreparation = !isTruthyFlag(input.isCompleted);
+  const hasExplicitActiveFlag = typeof input.isActiveNow !== "undefined" && input.isActiveNow != null;
+  const isInPreparation = !isTruthyFlag(input.isCompleted) && (!hasExplicitActiveFlag || isTruthyFlag(input.isActiveNow));
   const rawUnassigned =
     typeof input.isUnassigned !== "undefined" && input.isUnassigned != null
       ? isTruthyFlag(input.isUnassigned)

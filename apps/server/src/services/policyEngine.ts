@@ -1,5 +1,6 @@
 import { DateTime } from "luxon";
 import type { CloseReason, OrdersMetrics, AvailabilityRecord, ResolvedBranchMapping, Settings } from "../types/models.js";
+import { derivePreparingNow } from "./orders/classification.js";
 import { resolveBranchThresholdProfile } from "./thresholds.js";
 
 export interface PolicyInput {
@@ -36,6 +37,10 @@ function normalizeRecentActivePickers(value: number) {
 
 function capacityLimit(recentActivePickers: number) {
   return normalizeRecentActivePickers(recentActivePickers) * 3;
+}
+
+function resolveCapacityLoad(metrics: OrdersMetrics) {
+  return derivePreparingNow(metrics);
 }
 
 function isoToUtcDT(iso?: string | null) {
@@ -140,13 +145,14 @@ export function decide(input: PolicyInput): PolicyDecision {
     capacityRuleEnabled &&
     recentActiveAvailable &&
     normalizedRecentActivePickers >= 1;
+  const capacityLoad = resolveCapacityLoad(metrics);
 
   const exceedLate = metrics.lateNow >= thresholds.lateThreshold && thresholds.lateThreshold > 0;
   const exceedUnassigned = metrics.unassignedNow >= thresholds.unassignedThreshold && thresholds.unassignedThreshold > 0;
   const exceedReady = (metrics.readyNow ?? 0) >= readyThreshold && readyThreshold > 0;
   const exceedCapacity =
     capacityRuleCanApply &&
-    metrics.activeNow > capacityLimit(normalizedRecentActivePickers);
+    capacityLoad > capacityLimit(normalizedRecentActivePickers);
   const exceedCapacityPerHour =
     capacityPerHourEnabled &&
     capacityPerHourLimit != null &&
@@ -209,7 +215,7 @@ export function decide(input: PolicyInput): PolicyDecision {
     if (lastCloseReason === "CAPACITY" && recentActiveAvailable && normalizedRecentActivePickers < 1) {
       return { type: "EARLY_OPEN", reason: "CAPACITY" };
     }
-    if (lastCloseReason === "CAPACITY" && recentActiveAvailable && metrics.activeNow <= normalizedRecentActivePickers) {
+    if (lastCloseReason === "CAPACITY" && recentActiveAvailable && capacityLoad <= normalizedRecentActivePickers) {
       return { type: "EARLY_OPEN", reason: "CAPACITY" };
     }
     if (lastCloseReason === "CAPACITY_HOUR" && (!capacityPerHourEnabled || capacityPerHourLimit == null)) {

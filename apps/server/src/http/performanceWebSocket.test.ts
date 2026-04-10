@@ -56,17 +56,23 @@ async function startServer(overrides?: Partial<{ maxConnectionsPerUser: number; 
     res.end("Not found");
   });
 
+  const engineSnapshot = {
+    branches: [
+      {
+        branchId: 7,
+        statusColor: "green",
+      },
+    ],
+  };
+
   attachPerformanceWebSocketServer({
     server,
     engine: {
-      getSnapshot: () => ({
-        branches: [
-          {
-            branchId: 7,
-            statusColor: "green",
-          },
-        ],
-      }),
+      getSnapshot: () => engineSnapshot,
+      subscribe: (listener: (snapshot: typeof engineSnapshot) => void) => {
+        listener(engineSnapshot);
+        return () => {};
+      },
     } as any,
     securityConfig: {
       trustProxy: false,
@@ -220,6 +226,20 @@ function waitForTypedMessage(ws: WebSocket, type: "sync" | "summary") {
   });
 }
 
+function clearBufferedMessages(ws: WebSocket, type?: "sync" | "summary") {
+  const bufferedMessages = bufferedMessagesBySocket.get(ws);
+  if (!bufferedMessages) return;
+  if (!type) {
+    bufferedMessages.length = 0;
+    return;
+  }
+  for (let index = bufferedMessages.length - 1; index >= 0; index -= 1) {
+    if (bufferedMessages[index]?.type === type) {
+      bufferedMessages.splice(index, 1);
+    }
+  }
+}
+
 describe("performance websocket", () => {
   let server: Server | null = null;
   let baseUrl = "";
@@ -254,7 +274,6 @@ describe("performance websocket", () => {
         onHoldOrders: 1,
         unassignedOrders: 1,
         preparingNow: 3,
-        inPrepOrders: 3,
         readyToPickupOrders: 2,
         vfr: 8.33,
         lfr: 8.33,
@@ -364,6 +383,8 @@ describe("performance websocket", () => {
 
     expect(mockGetPerformanceSummary).toHaveBeenCalledTimes(1);
     expect(syncSubscribers.size).toBe(1);
+    clearBufferedMessages(first, "summary");
+    clearBufferedMessages(second, "summary");
 
     mockGetPerformanceSummary.mockResolvedValueOnce({
       scope: {
@@ -381,7 +402,6 @@ describe("performance websocket", () => {
         onHoldOrders: 1,
         unassignedOrders: 1,
         preparingNow: 4,
-        inPrepOrders: 4,
         readyToPickupOrders: 2,
         vfr: 13.33,
         lfr: 6.67,

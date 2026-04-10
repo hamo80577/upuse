@@ -501,12 +501,14 @@ describe("policyEngine.decide", () => {
     expect(decision).toEqual({ type: "NOOP" });
   });
 
-  it("closes on capacity when active orders exceed three times the recent-active picker count", () => {
+  it("closes on capacity when in-prep orders exceed three times the recent-active picker count", () => {
     const decision = decide({
       branch: baseBranch(),
       metrics: {
         ...baseMetrics(),
-        activeNow: 10,
+        activeNow: 14,
+        preparingNow: 10,
+        readyNow: 4,
       },
       recentActivePickers: 3,
       recentActiveAvailable: true,
@@ -523,7 +525,9 @@ describe("policyEngine.decide", () => {
       branch: baseBranch(),
       metrics: {
         ...baseMetrics(),
-        activeNow: 7,
+        activeNow: 9,
+        preparingNow: 7,
+        readyNow: 2,
       },
       recentActivePickers: 3,
       recentActiveAvailable: false,
@@ -540,7 +544,9 @@ describe("policyEngine.decide", () => {
       branch: baseBranch(),
       metrics: {
         ...baseMetrics(),
-        activeNow: 1,
+        activeNow: 4,
+        preparingNow: 1,
+        readyNow: 3,
       },
       recentActivePickers: 0,
       recentActiveAvailable: true,
@@ -552,12 +558,51 @@ describe("policyEngine.decide", () => {
     expect(decision).toEqual({ type: "NOOP" });
   });
 
-  it("does not close on capacity when active orders only meet the cap", () => {
+  it("does not close on capacity when in-prep orders only meet the cap", () => {
     const decision = decide({
       branch: baseBranch(),
       metrics: {
         ...baseMetrics(),
-        activeNow: 9,
+        activeNow: 12,
+        preparingNow: 9,
+        readyNow: 3,
+      },
+      recentActivePickers: 3,
+      recentActiveAvailable: true,
+      availability: openAvailability(),
+      nowUtcIso: "2026-03-03T10:00:00.000Z",
+      settings: baseSettings(),
+    });
+
+    expect(decision).toEqual({ type: "NOOP" });
+  });
+
+  it("does not close on capacity when ready-to-pickup orders are the only excess above the cap", () => {
+    const decision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        activeNow: 11,
+        preparingNow: 6,
+        readyNow: 5,
+      },
+      recentActivePickers: 3,
+      recentActiveAvailable: true,
+      availability: openAvailability(),
+      nowUtcIso: "2026-03-03T10:00:00.000Z",
+      settings: baseSettings(),
+    });
+
+    expect(decision).toEqual({ type: "NOOP" });
+  });
+
+  it("derives capacity load from active minus ready when preparingNow is missing", () => {
+    const decision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        activeNow: 11,
+        readyNow: 5,
       },
       recentActivePickers: 3,
       recentActiveAvailable: true,
@@ -577,7 +622,9 @@ describe("policyEngine.decide", () => {
       },
       metrics: {
         ...baseMetrics(),
-        activeNow: 10,
+        activeNow: 13,
+        preparingNow: 10,
+        readyNow: 3,
       },
       recentActivePickers: 3,
       recentActiveAvailable: true,
@@ -601,7 +648,9 @@ describe("policyEngine.decide", () => {
       },
       metrics: {
         ...baseMetrics(),
-        activeNow: 10,
+        activeNow: 13,
+        preparingNow: 10,
+        readyNow: 3,
       },
       recentActivePickers: 3,
       recentActiveAvailable: true,
@@ -621,7 +670,9 @@ describe("policyEngine.decide", () => {
       branch: baseBranch(),
       metrics: {
         ...baseMetrics(),
-        activeNow: 10,
+        activeNow: 14,
+        preparingNow: 10,
+        readyNow: 4,
         lateNow: 5,
       },
       recentActivePickers: 3,
@@ -634,12 +685,14 @@ describe("policyEngine.decide", () => {
     expect(decision).toEqual({ type: "CLOSE", reason: "LATE" });
   });
 
-  it("reopens capacity-owned closes when active orders drop to the picker count", () => {
+  it("reopens capacity-owned closes when in-prep orders drop to the picker count", () => {
     const decision = decide({
       branch: baseBranch(),
       metrics: {
         ...baseMetrics(),
-        activeNow: 3,
+        activeNow: 7,
+        preparingNow: 3,
+        readyNow: 4,
       },
       recentActivePickers: 3,
       recentActiveAvailable: true,
@@ -663,6 +716,7 @@ describe("policyEngine.decide", () => {
       metrics: {
         ...baseMetrics(),
         activeNow: 5,
+        preparingNow: 5,
       },
       recentActivePickers: 0,
       recentActiveAvailable: false,
@@ -688,7 +742,9 @@ describe("policyEngine.decide", () => {
       },
       metrics: {
         ...baseMetrics(),
-        activeNow: 5,
+        activeNow: 8,
+        preparingNow: 5,
+        readyNow: 3,
       },
       recentActivePickers: 3,
       recentActiveAvailable: true,
@@ -714,7 +770,9 @@ describe("policyEngine.decide", () => {
       branch: baseBranch(),
       metrics: {
         ...baseMetrics(),
-        activeNow: 5,
+        activeNow: 8,
+        preparingNow: 5,
+        readyNow: 3,
       },
       recentActivePickers: 0,
       recentActiveAvailable: true,
@@ -737,7 +795,9 @@ describe("policyEngine.decide", () => {
       branch: baseBranch(),
       metrics: {
         ...baseMetrics(),
-        activeNow: 10,
+        activeNow: 14,
+        preparingNow: 10,
+        readyNow: 4,
       },
       recentActivePickers: 3,
       recentActiveAvailable: true,

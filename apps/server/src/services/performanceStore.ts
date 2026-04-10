@@ -24,7 +24,10 @@ import type {
 import { listResolvedBranches, getResolvedBranchById } from "./branchStore.js";
 import { getGlobalEntityId, getSettings } from "./settingsStore.js";
 import { extractCancellationDetail, extractCancellationOwner, extractTransportType, getMirrorBranchPickers, getOrdersMirrorEntitySyncStatus } from "./ordersMirrorStore.js";
-import { classifyOrderState, isPreparingQueueOrder } from "./orders/classification.js";
+import {
+  classifyCanonicalOrderMetrics,
+  toCanonicalLiveOrder,
+} from "./orders/canonicalMetrics.js";
 import { TZ, nowUtcIso } from "../utils/time.js";
 
 type StatusColor = BranchSnapshot["statusColor"];
@@ -78,7 +81,6 @@ interface PerformanceAggregateMetrics {
   onHoldOrders: number;
   unassignedOrders: number;
   preparingNow: number;
-  inPrepOrders: number;
   readyToPickupOrders: number;
   sawLogisticsDelivery: boolean;
   sawKnownNonLogisticsDelivery: boolean;
@@ -96,7 +98,6 @@ interface PerformanceBranchAggregate {
   onHoldOrders: number;
   unassignedOrders: number;
   preparingNow: number;
-  inPrepOrders: number;
   readyToPickupOrders: number;
   sawLogisticsDelivery: boolean;
   sawKnownNonLogisticsDelivery: boolean;
@@ -116,7 +117,6 @@ interface PerformanceVendorAggregate {
   onHoldOrders: number;
   unassignedOrders: number;
   preparingNow: number;
-  inPrepOrders: number;
   readyToPickupOrders: number;
   sawLogisticsDelivery: boolean;
   sawKnownNonLogisticsDelivery: boolean;
@@ -135,7 +135,6 @@ interface PerformanceEntityBranchAggregate {
   onHoldOrders: number;
   unassignedOrders: number;
   preparingNow: number;
-  inPrepOrders: number;
   readyToPickupOrders: number;
   sawLogisticsDelivery: boolean;
   sawKnownNonLogisticsDelivery: boolean;
@@ -189,6 +188,17 @@ function resolvePerformanceScope(dayKey = getCurrentCairoDayKey()): PerformanceS
   };
 }
 
+function resolveSnapshotVersion(fetchedAt: string | null | undefined) {
+  return fetchedAt ?? null;
+}
+
+function resolveStaleAgeSeconds(fetchedAt: string | null | undefined, cacheState: PerformanceSummaryResponse["cacheState"]) {
+  if (!fetchedAt || cacheState !== "stale") return null;
+  const ageMs = Date.now() - toMillis(fetchedAt);
+  if (!Number.isFinite(ageMs) || ageMs < 0) return null;
+  return Math.floor(ageMs / 1000);
+}
+
 function toMillis(iso: string | null | undefined) {
   if (!iso) return Number.NEGATIVE_INFINITY;
   const value = new Date(iso).getTime();
@@ -229,60 +239,63 @@ function comparePlacedRows(left: PerformanceMirrorRow, right: PerformanceMirrorR
 function toLiveOrder(
   row: PerformanceMirrorRow,
   nowIso: string,
-  classification = classifyOrderState({
+  metrics = classifyCanonicalOrderMetrics({
+    orderId: row.orderId,
+    externalId: row.externalId,
     status: row.status,
     isCompleted: row.isCompleted,
+    isCancelled: row.isCancelled,
+    isActiveNow: row.isActiveNow,
     pickupAt: row.pickupAt,
     isUnassigned: row.isUnassigned,
     shopperId: row.shopperId,
+    customerFirstName: row.customerFirstName,
+    shopperFirstName: row.shopperFirstName,
+    placedAt: row.placedAt,
   }, nowIso),
 ): BranchLiveOrder {
-  return {
-    id: row.orderId,
-    externalId: row.externalId,
-    status: row.status,
-    placedAt: row.placedAt ?? undefined,
-    pickupAt: row.pickupAt ?? undefined,
-    customerFirstName: row.customerFirstName ?? undefined,
-    shopperId: row.shopperId ?? undefined,
-    shopperFirstName: row.shopperFirstName ?? undefined,
-    isUnassigned: classification.isUnassigned,
-    isLate: classification.isLate,
-  };
+  return toCanonicalLiveOrder(row, metrics);
 }
 
 function buildFlowOrders(rows: PerformanceMirrorRow[], nowIso: string) {
   const classifiedRows = rows.map((row) => {
-    const classification = classifyOrderState({
+    const metrics = classifyCanonicalOrderMetrics({
+      orderId: row.orderId,
+      externalId: row.externalId,
       status: row.status,
       isCompleted: row.isCompleted,
+      isCancelled: row.isCancelled,
+      isActiveNow: row.isActiveNow,
       pickupAt: row.pickupAt,
       isUnassigned: row.isUnassigned,
       shopperId: row.shopperId,
+      customerFirstName: row.customerFirstName,
+      shopperFirstName: row.shopperFirstName,
+      placedAt: row.placedAt,
     }, nowIso);
 
     return {
       row,
-      classification,
-      liveOrder: toLiveOrder(row, nowIso, classification),
+      metrics,
+      liveOrder: toLiveOrder(row, nowIso, metrics),
     };
   });
 
   return {
     onHoldOrders: classifiedRows
-      .filter(({ row }) => row.status === "ON_HOLD")
+      .filter(({ metrics }) => metrics.isOnHold)
       .sort((left, right) => compareFlowRows(left.row, right.row))
       .map(({ liveOrder }) => liveOrder),
     unassignedOrders: classifiedRows
-      .filter(({ classification }) => classification.isUnassigned)
+      .filter(({ metrics }) => metrics.isUnassigned)
       .sort((left, right) => comparePlacedRows(left.row, right.row))
       .map(({ liveOrder }) => liveOrder),
     inPrepOrders: classifiedRows
-      .filter(({ row, classification }) => row.status !== "ON_HOLD" && isPreparingQueueOrder(classification))
+      .filter(({ metrics }) => metrics.isInPrep)
       .sort((left, right) => compareFlowRows(left.row, right.row))
       .map(({ liveOrder }) => liveOrder),
     readyToPickupOrders: classifiedRows
-      .filter(({ classification }) => classification.isReadyToPickup)
+      .filter(({ metrics }) => metrics.isReadyToPickup)
       .sort((left, right) => compareFlowRows(left.row, right.row))
       .map(({ liveOrder }) => liveOrder),
   };
@@ -377,7 +390,6 @@ function buildDetailSummary(params: {
     onHoldOrders: params.aggregate.onHoldOrders,
     unassignedOrders: params.aggregate.unassignedOrders,
     preparingNow: params.aggregate.preparingNow,
-    inPrepOrders: params.aggregate.preparingNow,
     readyToPickupOrders: params.aggregate.readyToPickupOrders,
     vendorOwnerCancelledCount: params.vendorOwnerCancelledCount,
     transportOwnerCancelledCount: params.transportOwnerCancelledCount,
@@ -454,7 +466,6 @@ function createAggregateMetrics(): PerformanceAggregateMetrics {
     onHoldOrders: 0,
     unassignedOrders: 0,
     preparingNow: 0,
-    inPrepOrders: 0,
     readyToPickupOrders: 0,
     sawLogisticsDelivery: false,
     sawKnownNonLogisticsDelivery: false,
@@ -599,7 +610,6 @@ function buildLightweightBranchAggregates(
       onHoldOrders: aggregate.onHoldOrders,
       unassignedOrders: aggregate.unassignedOrders,
       preparingNow: aggregate.preparingNow,
-      inPrepOrders: aggregate.preparingNow,
       readyToPickupOrders: aggregate.readyToPickupOrders,
       deliveryMode,
       lfrApplicable,
@@ -622,12 +632,19 @@ function applyAggregateRow(
   cancelledOrder: PerformanceCancelledOrderItem | null,
   nowIso: string,
 ) {
-  const classification = classifyOrderState({
+  const metrics = classifyCanonicalOrderMetrics({
+    orderId: row.orderId,
+    externalId: row.externalId,
     status: row.status,
     isCompleted: row.isCompleted,
+    isCancelled: row.isCancelled,
+    isActiveNow: row.isActiveNow,
     pickupAt: row.pickupAt,
     isUnassigned: row.isUnassigned,
     shopperId: row.shopperId,
+    customerFirstName: row.customerFirstName,
+    shopperFirstName: row.shopperFirstName,
+    placedAt: row.placedAt,
   }, nowIso);
   aggregate.totalOrders += 1;
   aggregate.statusCounts.set(row.status, (aggregate.statusCounts.get(row.status) ?? 0) + 1);
@@ -635,25 +652,22 @@ function applyAggregateRow(
     aggregate.cancelledOrders.push(cancelledOrder);
   }
 
-  if (classification.isActive) {
+  if (metrics.isActive) {
     aggregate.activeOrders += 1;
   }
-  if (classification.isLate) {
+  if (metrics.isLate) {
     aggregate.lateNow += 1;
   }
-  if (row.status === "ON_HOLD") {
+  if (metrics.isOnHold) {
     aggregate.onHoldOrders += 1;
   }
-  if (classification.isUnassigned) {
+  if (metrics.isUnassigned) {
     aggregate.unassignedOrders += 1;
   }
-  if (classification.isInPreparation) {
+  if (metrics.isInPrep) {
     aggregate.preparingNow += 1;
   }
-  if (row.status !== "ON_HOLD" && isPreparingQueueOrder(classification)) {
-    aggregate.inPrepOrders += 1;
-  }
-  if (classification.isReadyToPickup) {
+  if (metrics.isReadyToPickup) {
     aggregate.readyToPickupOrders += 1;
   }
   if (row.shopperId != null) {
@@ -847,6 +861,8 @@ function aggregatePerformanceData(params: {
 
   const fetchedAt = params.fetchedAt ?? null;
   const cacheState = params.cacheState ?? "warming";
+  const snapshotVersion = resolveSnapshotVersion(fetchedAt);
+  const staleAgeSeconds = resolveStaleAgeSeconds(fetchedAt, cacheState);
   const branchDetailsById = new Map<number, PerformanceBranchDetailResponse>();
   const branchCardsById = new Map<number, PerformanceBranchCard>();
   const vendorDetailsById = new Map<number, PerformanceVendorDetailResponse>();
@@ -898,6 +914,8 @@ function aggregatePerformanceData(params: {
         pickers: emptyPickers(),
         fetchedAt,
         cacheState,
+        snapshotVersion,
+        staleAgeSeconds,
       });
 
       return {
@@ -910,7 +928,6 @@ function aggregatePerformanceData(params: {
         onHoldOrders: aggregate.onHoldOrders,
         unassignedOrders: aggregate.unassignedOrders,
         preparingNow: aggregate.preparingNow,
-        inPrepOrders: aggregate.preparingNow,
         readyToPickupOrders: aggregate.readyToPickupOrders,
         deliveryMode,
         lfrApplicable,
@@ -982,6 +999,8 @@ function aggregatePerformanceData(params: {
       pickers: emptyPickers(),
       fetchedAt,
       cacheState,
+      snapshotVersion,
+      staleAgeSeconds,
     });
   }
 
@@ -1103,7 +1122,6 @@ function aggregatePerformanceData(params: {
         onHoldOrders: summaryOnHoldOrders,
         unassignedOrders: summaryUnassignedOrders,
         preparingNow: summaryPreparingNow,
-        inPrepOrders: summaryPreparingNow,
         readyToPickupOrders: summaryReadyToPickupOrders,
         vfr: calculateVfr(summaryVendorOwnerCancelledCount, params.rows.length),
         lfr: calculateLfr(summaryTransportOwnerCancelledCount, params.rows.length),
@@ -1122,6 +1140,8 @@ function aggregatePerformanceData(params: {
       unmappedVendors,
       fetchedAt,
       cacheState,
+      snapshotVersion,
+      staleAgeSeconds,
     },
     branchDetailsById,
     vendorDetailsById,
@@ -1192,6 +1212,8 @@ export function buildPerformanceTrendResponse(params: {
     scope,
     fetchedAt: params.fetchedAt ?? null,
     cacheState: params.cacheState ?? "warming",
+    snapshotVersion: resolveSnapshotVersion(params.fetchedAt),
+    staleAgeSeconds: resolveStaleAgeSeconds(params.fetchedAt, params.cacheState ?? "warming"),
     resolutionMinutes: params.resolutionMinutes,
     startMinute: params.startMinute,
     endMinute: params.endMinute,

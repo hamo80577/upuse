@@ -434,7 +434,6 @@ describe("performanceStore", () => {
     expect(dataset.summary.cards.onHoldOrders).toBe(0);
     expect(dataset.summary.cards.unassignedOrders).toBe(0);
     expect(dataset.summary.cards.preparingNow).toBe(1);
-    expect(dataset.summary.cards.inPrepOrders).toBe(1);
     expect(dataset.summary.cards.readyToPickupOrders).toBe(0);
     expect(dataset.summary.cards.vendorOwnerCancelledCount).toBe(2);
     expect(dataset.summary.cards.transportOwnerCancelledCount).toBe(1);
@@ -453,7 +452,6 @@ describe("performanceStore", () => {
       activeOrders: 1,
       lateNow: 1,
       preparingNow: 1,
-      inPrepOrders: 1,
       onHoldOrders: 0,
       unassignedOrders: 0,
       readyToPickupOrders: 0,
@@ -486,7 +484,6 @@ describe("performanceStore", () => {
         activeOrders: 1,
         lateNow: 1,
         preparingNow: 1,
-        inPrepOrders: 1,
         vendorOwnerCancelledCount: 1,
         transportOwnerCancelledCount: 1,
         customerOwnerCancelledCount: 0,
@@ -812,7 +809,6 @@ describe("performanceStore", () => {
     expect(summary.cards.onHoldOrders).toBe(0);
     expect(summary.cards.unassignedOrders).toBe(0);
     expect(summary.cards.preparingNow).toBe(0);
-    expect(summary.cards.inPrepOrders).toBe(0);
     expect(summary.cards.readyToPickupOrders).toBe(0);
     expect(summary.branches).toEqual([
       expect.objectContaining({
@@ -958,7 +954,7 @@ describe("performanceStore", () => {
     });
   });
 
-  it("keeps preparingNow aligned with dashboard while assigned prep queue stays non-overlapping", () => {
+  it("keeps in-prep counts aligned to the canonical assigned prep queue", () => {
     const dataset = buildPerformanceDataset({
       dayKey: "2026-03-20",
       globalEntityId: "TB_EG",
@@ -1009,19 +1005,19 @@ describe("performanceStore", () => {
       ],
     });
 
-    expect(dataset.summary.cards.preparingNow).toBe(4);
-    expect(dataset.summary.cards.inPrepOrders).toBe(4);
+    expect(dataset.summary.cards.activeOrders).toBe(2);
+    expect(dataset.summary.cards.preparingNow).toBe(1);
     expect(dataset.summary.branches[0]).toMatchObject({
       vendorId: 333,
-      preparingNow: 4,
-      inPrepOrders: 4,
+      activeOrders: 2,
+      preparingNow: 1,
       onHoldOrders: 1,
       unassignedOrders: 1,
       readyToPickupOrders: 1,
     });
     expect(dataset.vendorDetailsById.get(333)?.summary).toMatchObject({
-      preparingNow: 4,
-      inPrepOrders: 4,
+      activeOrders: 2,
+      preparingNow: 1,
       onHoldOrders: 1,
       unassignedOrders: 1,
       readyToPickupOrders: 1,

@@ -17,6 +17,7 @@ import { getSettings } from "./services/settingsStore.js";
 import { initializeLoginThrottleStore } from "./services/loginThrottleStore.js";
 import { startOrdersMirrorRuntime } from "./services/ordersMirrorStore.js";
 import { initializeScanoRunnerSessionStore } from "./services/scanoRunnerSessionStore.js";
+import { initializeScanoMasterProductEnrichmentRuntime } from "./services/scanoMasterProductEnrichmentRuntime.js";
 import { attachDashboardWebSocketServer } from "./http/dashboardWebSocket.js";
 import { attachPerformanceWebSocketServer } from "./http/performanceWebSocket.js";
 import {
@@ -59,6 +60,7 @@ import {
   listScanoBranchesRoute,
   listScanoChainsRoute,
   listScanoMasterProductsRoute,
+  resumeScanoMasterProductRoute,
   listScanoTaskProductsRoute,
   listScanoTaskScansRoute,
   listScanoTasksRoute,
@@ -95,6 +97,7 @@ import { syncVendorCatalogFromCsv } from "./services/vendorCatalogStore.js";
 migrate();
 initializeLoginThrottleStore();
 initializeScanoRunnerSessionStore();
+initializeScanoMasterProductEnrichmentRuntime();
 const startupConfig = resolveStartupConfig();
 if (startupConfig.syncVendorCatalogOnStartup && startupConfig.vendorCatalogCsvPath) {
   syncVendorCatalogFromCsv(startupConfig.vendorCatalogCsvPath);
@@ -181,6 +184,7 @@ app.get("/api/scano/master-products", requireScanoLeadAccess(), listScanoMasterP
 app.post("/api/scano/master-products/preview", requireScanoLeadAccess(), scanoMasterProductUpload, previewScanoMasterProductsRoute);
 app.post("/api/scano/master-products", requireScanoLeadAccess(), scanoMasterProductUpload, createScanoMasterProductRoute);
 app.get("/api/scano/master-products/:chainId", requireScanoLeadAccess(), getScanoMasterProductRoute);
+app.post("/api/scano/master-products/:chainId/resume", requireScanoLeadAccess(), resumeScanoMasterProductRoute);
 app.put("/api/scano/master-products/:chainId", requireScanoLeadAccess(), scanoMasterProductUpload, updateScanoMasterProductRoute);
 app.delete("/api/scano/master-products/:chainId", requireScanoLeadAccess(), deleteScanoMasterProductRoute);
 app.get("/api/scano/tasks", requireScanoAccess(), listScanoTasksRoute);

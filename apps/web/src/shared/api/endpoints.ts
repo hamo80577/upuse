@@ -251,6 +251,11 @@ export const api = {
     requestJson<{ item: ScanoMasterProductDetail }>(`/api/scano/master-products/${chainId}`, {
       signal: options?.signal,
     }, { timeoutMs: 20_000 }),
+  resumeScanoMasterProductEnrichment: (chainId: number, options?: { signal?: AbortSignal }) =>
+    requestJson<{ ok: true; item: ScanoMasterProductListItem }>(`/api/scano/master-products/${chainId}/resume`, {
+      method: "POST",
+      signal: options?.signal,
+    }, { timeoutMs: 20_000 }),
   updateScanoMasterProduct: (chainId: number, payload: {
     chainId: number;
     chainName: string;

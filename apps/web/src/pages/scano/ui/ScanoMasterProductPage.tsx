@@ -2,8 +2,10 @@ import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
+import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
+import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import {
   Alert,
   Box,
@@ -30,6 +32,7 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -37,6 +40,7 @@ import { api, describeApiError } from "../../../api/client";
 import type {
   ScanoChainOption,
   ScanoMasterProductDetail,
+  ScanoMasterProductEnrichmentStatus,
   ScanoMasterProductField,
   ScanoMasterProductListItem,
   ScanoMasterProductMapping,
@@ -55,6 +59,7 @@ const MASTER_PRODUCT_FIELDS: Array<{ value: ScanoMasterProductField; label: stri
   { value: "image", label: "Image" },
 ];
 const REQUIRED_MASTER_PRODUCT_FIELDS = MASTER_PRODUCT_FIELDS.filter((field) => field.required).map((field) => field.value);
+const MASTER_PRODUCT_POLL_INTERVAL_MS = 8_000;
 
 type ToastState = { type: "success" | "error"; msg: string } | null;
 type WizardMode = "create" | "edit";
@@ -99,6 +104,51 @@ function getPreviewColumnKeys(preview: ScanoMasterProductPreviewResponse | null)
   return preview.headers;
 }
 
+function getEnrichmentStatusMeta(status: ScanoMasterProductEnrichmentStatus) {
+  switch (status) {
+    case "running":
+      return {
+        label: "Running",
+        bgColor: "rgba(14,165,233,0.12)",
+        color: "#0369a1",
+      };
+    case "paused_auth":
+      return {
+        label: "Paused",
+        bgColor: "rgba(245,158,11,0.14)",
+        color: "#b45309",
+      };
+    case "completed":
+      return {
+        label: "Completed",
+        bgColor: "rgba(34,197,94,0.12)",
+        color: "#166534",
+      };
+    default:
+      return {
+        label: "Queued",
+        bgColor: "rgba(99,102,241,0.10)",
+        color: "#4338ca",
+      };
+  }
+}
+
+function sortMasterProductItems(items: ScanoMasterProductListItem[]) {
+  return [...items].sort((left, right) =>
+    Date.parse(right.updatedAt) - Date.parse(left.updatedAt) || left.chainName.localeCompare(right.chainName));
+}
+
+function upsertMasterProductItem(items: ScanoMasterProductListItem[], nextItem: ScanoMasterProductListItem) {
+  return sortMasterProductItems([
+    nextItem,
+    ...items.filter((item) => item.chainId !== nextItem.chainId),
+  ]);
+}
+
+function canShowResumeAction(item: Pick<ScanoMasterProductListItem, "canResumeEnrichment" | "enrichmentStatus">) {
+  return item.canResumeEnrichment && item.enrichmentStatus !== "running";
+}
+
 export function ScanoMasterProductPage() {
   const [items, setItems] = useState<ScanoMasterProductListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -126,6 +176,7 @@ export function ScanoMasterProductPage() {
   const [viewDetail, setViewDetail] = useState<ScanoMasterProductDetail | null>(null);
   const [viewLoading, setViewLoading] = useState(false);
   const [viewError, setViewError] = useState("");
+  const [resumeChainId, setResumeChainId] = useState<number | null>(null);
 
   const [deleteTarget, setDeleteTarget] = useState<ScanoMasterProductListItem | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -159,6 +210,19 @@ export function ScanoMasterProductPage() {
     void loadMasterProducts(controller.signal);
     return () => controller.abort();
   }, [loadMasterProducts]);
+
+  useEffect(() => {
+    const shouldPoll = items.some((item) => item.enrichmentStatus !== "completed");
+    if (!shouldPoll) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadMasterProducts();
+    }, MASTER_PRODUCT_POLL_INTERVAL_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [items, loadMasterProducts]);
 
   useEffect(() => {
     if (!wizardOpen || activeStep !== 0 || wizardMode !== "create") return;
@@ -197,30 +261,56 @@ export function ScanoMasterProductPage() {
     return () => controller.abort();
   }, [activeStep, debouncedChainSearch, selectedChain, wizardMode, wizardOpen]);
 
+  const loadViewDetail = useCallback(async (
+    chainId: number,
+    options?: { signal?: AbortSignal; silent?: boolean },
+  ) => {
+    try {
+      if (!options?.silent) {
+        setViewLoading(true);
+        setViewError("");
+      }
+      const response = await api.getScanoMasterProduct(chainId, { signal: options?.signal });
+      if (options?.signal?.aborted) return;
+      setViewDetail(response.item);
+      setViewError("");
+      return response.item;
+    } catch (error) {
+      if (options?.signal?.aborted) return;
+      if (!options?.silent) {
+        setViewError(describeApiError(error, "Failed to load chain details"));
+      }
+      throw error;
+    } finally {
+      if (!options?.signal?.aborted && !options?.silent) {
+        setViewLoading(false);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (!viewChainId) return;
 
     const controller = new AbortController();
-    setViewLoading(true);
-    setViewError("");
-
-    void api.getScanoMasterProduct(viewChainId, { signal: controller.signal })
-      .then((response) => {
-        if (controller.signal.aborted) return;
-        setViewDetail(response.item);
-      })
-      .catch((error) => {
-        if (controller.signal.aborted) return;
-        setViewError(describeApiError(error, "Failed to load chain details"));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setViewLoading(false);
-        }
-      });
+    void loadViewDetail(viewChainId, { signal: controller.signal }).catch(() => undefined);
 
     return () => controller.abort();
-  }, [viewChainId]);
+  }, [loadViewDetail, viewChainId]);
+
+  useEffect(() => {
+    if (!viewChainId || !viewDetail) {
+      return;
+    }
+    if (viewDetail.enrichmentStatus === "completed" && !viewDetail.canResumeEnrichment) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadViewDetail(viewChainId, { silent: true }).catch(() => undefined);
+    }, MASTER_PRODUCT_POLL_INTERVAL_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [loadViewDetail, viewChainId, viewDetail]);
 
   function resetWizard() {
     setWizardMode("create");
@@ -325,10 +415,7 @@ export function ScanoMasterProductPage() {
         ? await api.updateScanoMasterProduct(selectedChain.id, payload)
         : await api.createScanoMasterProduct(payload);
 
-      setItems((current) => [
-        response.item,
-        ...current.filter((item) => item.chainId !== response.item.chainId),
-      ].sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt) || left.chainName.localeCompare(right.chainName)));
+      setItems((current) => upsertMasterProductItem(current, response.item));
       setToast({ type: "success", msg: wizardMode === "edit" ? "Chain import replaced." : "Chain import saved." });
       closeWizard();
     } catch (error) {
@@ -338,6 +425,22 @@ export function ScanoMasterProductPage() {
       });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleResumeEnrichment(chainId: number) {
+    try {
+      setResumeChainId(chainId);
+      const response = await api.resumeScanoMasterProductEnrichment(chainId);
+      setItems((current) => upsertMasterProductItem(current, response.item));
+      if (viewChainId === chainId) {
+        await loadViewDetail(chainId, { silent: true });
+      }
+      setToast({ type: "success", msg: "Enrichment resumed from the current saved progress." });
+    } catch (error) {
+      setToast({ type: "error", msg: describeApiError(error, "Failed to resume enrichment") });
+    } finally {
+      setResumeChainId(null);
     }
   }
 
@@ -468,7 +571,8 @@ export function ScanoMasterProductPage() {
                       <TableRow>
                         <TableCell sx={{ fontWeight: 900 }}>Chain</TableCell>
                         <TableCell sx={{ fontWeight: 900 }}>Last Update</TableCell>
-                        <TableCell sx={{ fontWeight: 900 }}>Products Count</TableCell>
+                        <TableCell sx={{ fontWeight: 900 }}>Products / Enriched</TableCell>
+                        <TableCell sx={{ fontWeight: 900 }}>Status</TableCell>
                         <TableCell align="right" sx={{ fontWeight: 900 }}>Actions</TableCell>
                       </TableRow>
                     </TableHead>
@@ -485,13 +589,45 @@ export function ScanoMasterProductPage() {
                           <TableCell>
                             <Chip
                               icon={<Inventory2RoundedIcon fontSize="small" />}
-                              label={`${item.productCount} rows`}
+                              label={`${item.productCount}/${item.enrichedCount}`}
                               size="small"
                               sx={{ fontWeight: 900, bgcolor: "rgba(22,163,74,0.08)", color: "#166534" }}
                             />
                           </TableCell>
+                          <TableCell>
+                            <Stack direction="row" spacing={0.8} alignItems="center">
+                              <Chip
+                                size="small"
+                                label={getEnrichmentStatusMeta(item.enrichmentStatus).label}
+                                sx={{
+                                  fontWeight: 900,
+                                  bgcolor: getEnrichmentStatusMeta(item.enrichmentStatus).bgColor,
+                                  color: getEnrichmentStatusMeta(item.enrichmentStatus).color,
+                                }}
+                              />
+                              {item.warningMessage ? (
+                                <Tooltip title={item.warningMessage}>
+                                  <WarningAmberRoundedIcon
+                                    titleAccess={item.warningMessage}
+                                    sx={{ color: "#d97706", fontSize: 18 }}
+                                  />
+                                </Tooltip>
+                              ) : null}
+                            </Stack>
+                          </TableCell>
                           <TableCell align="right">
                             <Stack direction="row" spacing={1} justifyContent="flex-end">
+                              {canShowResumeAction(item) ? (
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  startIcon={<PlayArrowRoundedIcon />}
+                                  onClick={() => void handleResumeEnrichment(item.chainId)}
+                                  disabled={resumeChainId === item.chainId}
+                                >
+                                  {resumeChainId === item.chainId ? "Resuming..." : "Resume"}
+                                </Button>
+                              ) : null}
                               <Button size="small" startIcon={<VisibilityOutlinedIcon />} onClick={() => {
                                 setViewChainId(item.chainId);
                                 setViewDetail(null);
@@ -809,18 +945,71 @@ export function ScanoMasterProductPage() {
             </Alert>
           ) : viewDetail ? (
             <Stack spacing={2}>
-              <Stack direction={{ xs: "column", md: "row" }} spacing={1.2} justifyContent="space-between">
-                <Box>
-                  <Typography variant="h6" sx={{ fontWeight: 900 }}>{viewDetail.chainName}</Typography>
-                  <Typography variant="body2" sx={{ color: "text.secondary" }}>
-                    Chain ID: {viewDetail.chainId}
+                <Stack direction={{ xs: "column", md: "row" }} spacing={1.2} justifyContent="space-between">
+                  <Box>
+                    <Typography variant="h6" sx={{ fontWeight: 900 }}>{viewDetail.chainName}</Typography>
+                    <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                      Chain ID: {viewDetail.chainId}
                   </Typography>
                 </Box>
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                  <Chip label={`${viewDetail.productCount} rows`} size="small" sx={{ fontWeight: 800 }} />
+                  <Chip label={`${viewDetail.productCount}/${viewDetail.enrichedCount}`} size="small" sx={{ fontWeight: 800 }} />
+                  <Chip
+                    label={getEnrichmentStatusMeta(viewDetail.enrichmentStatus).label}
+                    size="small"
+                    sx={{
+                      fontWeight: 800,
+                      bgcolor: getEnrichmentStatusMeta(viewDetail.enrichmentStatus).bgColor,
+                      color: getEnrichmentStatusMeta(viewDetail.enrichmentStatus).color,
+                    }}
+                  />
                   <Chip label={`Updated ${formatCairoFullDateTime(viewDetail.updatedAt)}`} size="small" sx={{ fontWeight: 800 }} />
                 </Stack>
               </Stack>
+
+              {viewDetail.warningMessage ? (
+                <Alert severity="warning" variant="outlined">
+                  {viewDetail.warningMessage}
+                </Alert>
+              ) : null}
+
+              <Card variant="outlined" sx={{ borderRadius: 3 }}>
+                <CardContent>
+                  <Stack spacing={1}>
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }}>
+                      <Typography sx={{ fontWeight: 900 }}>Enrichment Progress</Typography>
+                      {canShowResumeAction(viewDetail) ? (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<PlayArrowRoundedIcon />}
+                          onClick={() => void handleResumeEnrichment(viewDetail.chainId)}
+                          disabled={resumeChainId === viewDetail.chainId}
+                        >
+                          {resumeChainId === viewDetail.chainId ? "Resuming..." : "Resume Enrichment"}
+                        </Button>
+                      ) : null}
+                    </Stack>
+                    <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                      {viewDetail.productCount}/{viewDetail.enrichedCount} enriched successfully. Processed {viewDetail.processedCount}.
+                    </Typography>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                      {viewDetail.enrichmentQueuedAt ? (
+                        <Chip label={`Queued ${formatCairoFullDateTime(viewDetail.enrichmentQueuedAt)}`} size="small" sx={{ fontWeight: 800 }} />
+                      ) : null}
+                      {viewDetail.enrichmentStartedAt ? (
+                        <Chip label={`Started ${formatCairoFullDateTime(viewDetail.enrichmentStartedAt)}`} size="small" sx={{ fontWeight: 800 }} />
+                      ) : null}
+                      {viewDetail.enrichmentPausedAt ? (
+                        <Chip label={`Paused ${formatCairoFullDateTime(viewDetail.enrichmentPausedAt)}`} size="small" sx={{ fontWeight: 800 }} />
+                      ) : null}
+                      {viewDetail.enrichmentCompletedAt ? (
+                        <Chip label={`Completed ${formatCairoFullDateTime(viewDetail.enrichmentCompletedAt)}`} size="small" sx={{ fontWeight: 800 }} />
+                      ) : null}
+                    </Stack>
+                  </Stack>
+                </CardContent>
+              </Card>
 
               <Card variant="outlined" sx={{ borderRadius: 3 }}>
                 <CardContent>

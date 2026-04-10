@@ -9,6 +9,7 @@ const {
   mockSetRuntime,
   mockGetMirrorBranchDetail,
   mockGetCurrentHourPlacedCountByVendor,
+  mockGetOrdersMirrorEntitySyncStatus,
   mockSyncOrdersMirror,
   mockFetchAvailabilities,
   mockSetAvailability,
@@ -23,6 +24,7 @@ const {
   mockSetRuntime: vi.fn(),
   mockGetMirrorBranchDetail: vi.fn(),
   mockGetCurrentHourPlacedCountByVendor: vi.fn(() => new Map()),
+  mockGetOrdersMirrorEntitySyncStatus: vi.fn(),
   mockSyncOrdersMirror: vi.fn(),
   mockFetchAvailabilities: vi.fn(),
   mockSetAvailability: vi.fn(),
@@ -68,6 +70,7 @@ vi.mock("./monitorOrdersPolling.js", () => ({
 vi.mock("./ordersMirrorStore.js", () => ({
   getMirrorBranchDetail: mockGetMirrorBranchDetail,
   getCurrentHourPlacedCountByVendor: mockGetCurrentHourPlacedCountByVendor,
+  getOrdersMirrorEntitySyncStatus: mockGetOrdersMirrorEntitySyncStatus,
   syncOrdersMirror: mockSyncOrdersMirror,
 }));
 
@@ -132,6 +135,7 @@ describe("monitorEngine.getSnapshot", () => {
     mockSetRuntime.mockReset();
     mockGetMirrorBranchDetail.mockReset();
     mockGetCurrentHourPlacedCountByVendor.mockReset();
+    mockGetOrdersMirrorEntitySyncStatus.mockReset();
     mockSyncOrdersMirror.mockReset();
     mockFetchAvailabilities.mockReset();
     mockSetAvailability.mockReset();
@@ -163,6 +167,11 @@ describe("monitorEngine.getSnapshot", () => {
       cacheState: "warming",
     });
     mockGetCurrentHourPlacedCountByVendor.mockReturnValue(new Map());
+    mockGetOrdersMirrorEntitySyncStatus.mockReturnValue({
+      fetchedAt: null,
+      lastSuccessfulSyncAt: null,
+      cacheState: "warming",
+    });
     mockSyncOrdersMirror.mockResolvedValue({
       dayKey: "2026-03-04",
       totalVendors: 0,
@@ -1236,13 +1245,33 @@ describe("monitorEngine.stop", () => {
     mockGetRuntime.mockReset();
     mockSetRuntime.mockReset();
     mockGetCurrentHourPlacedCountByVendor.mockReset();
+    mockGetOrdersMirrorEntitySyncStatus.mockReset();
     mockFetchAvailabilities.mockReset();
     mockSetAvailability.mockReset();
     mockLog.mockReset();
     mockRecordMonitorCloseAction.mockReset();
     mockDecide.mockReset();
     mockDecide.mockReturnValue({ type: "NOOP" });
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 20,
+      availabilityRefreshSeconds: 11,
+      maxVendorsPerOrdersRequest: 50,
+    });
     mockGetCurrentHourPlacedCountByVendor.mockReturnValue(new Map());
+    mockGetOrdersMirrorEntitySyncStatus.mockReturnValue({
+      fetchedAt: null,
+      lastSuccessfulSyncAt: null,
+      cacheState: "warming",
+    });
     mockListResolvedBranches.mockImplementation((...args) => mockListBranches(...args));
   });
 
@@ -1881,7 +1910,7 @@ describe("monitorEngine.reconcile", () => {
     expect(mockLog).toHaveBeenCalledWith(8, "INFO", "TEMP CLOSE — Unassigned=7");
   });
 
-  it("logs capacity closures with active orders, cap, and picker counts", async () => {
+  it("logs capacity closures with in-prep orders, cap, and picker counts", async () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",
       availabilityToken: "",
@@ -1943,6 +1972,7 @@ describe("monitorEngine.reconcile", () => {
           cancelledToday: 1,
           doneToday: 11,
           activeNow: 10,
+          preparingNow: 10,
           lateNow: 0,
           unassignedNow: 0,
         },
@@ -1976,7 +2006,7 @@ describe("monitorEngine.reconcile", () => {
     expect(mockSetRuntime).toHaveBeenCalledWith(10, expect.objectContaining({
       lastUpuseCloseReason: "CAPACITY",
     }));
-    expect(mockLog).toHaveBeenCalledWith(10, "INFO", "TEMP CLOSE — Capacity active=10 cap=9 recentActivePickers=3");
+    expect(mockLog).toHaveBeenCalledWith(10, "INFO", "TEMP CLOSE — Capacity inPrep=10 cap=9 recentActivePickers=3");
   });
 
   it("passes recent-active picker counts into policy decisions", async () => {

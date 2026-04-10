@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-04-09
+
+- Added a background Scano master-product enrichment queue that seeds one pending job row per unique imported barcode, persists queue state in SQLite, and processes uploaded chains one at a time in FIFO order.
+- Split Scano master-product storage into:
+  - raw imported CSV rows kept as-is
+  - a separate local enriched cache populated from the Scano catalog API
+  - barcode lookup rows for fast local scan resolution
+- Reworked Scano scan lookup priority across both `/api/scano/tasks/:id/scans/resolve` and the legacy runner search/hydrate endpoints:
+  - duplicate check
+  - local enriched cache
+  - live external catalog search
+  - raw master-product fallback
+  - manual entry
+- Added enrichment runtime safeguards:
+  - adaptive pacing for background API calls
+  - per-item retry/backoff for transient upstream failures
+  - auth-pause handling when the Scano catalog token is invalid or missing
+  - resume-from-place behavior after settings update without restarting the chain from the top
+- Updated the `Master Product` page to show `Products / Enriched`, queue status chips, token-pause warnings, and live polling while any chain remains queued, running, or auth-paused.
+- Added targeted server and web coverage for FIFO queue behavior, retry/auth-pause handling, local enriched scan hits, raw master fallback, and active queue polling in the UI.
+
 ## 2026-04-08
 
 - Unified Scano task-management permissions so `team_lead` and the primary admin now share the same create/edit/assignee/branch/team-read capability across the web auth state, route guards, and route actor context.

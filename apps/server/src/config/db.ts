@@ -1098,6 +1098,16 @@ export function migrate() {
       chainName TEXT NOT NULL,
       mappingJson TEXT NOT NULL,
       productCount INTEGER NOT NULL DEFAULT 0,
+      importRevision INTEGER NOT NULL DEFAULT 1,
+      enrichmentStatus TEXT NOT NULL DEFAULT 'queued',
+      enrichmentQueuedAt TEXT,
+      enrichmentStartedAt TEXT,
+      enrichmentPausedAt TEXT,
+      enrichmentCompletedAt TEXT,
+      enrichedCount INTEGER NOT NULL DEFAULT 0,
+      processedCount INTEGER NOT NULL DEFAULT 0,
+      warningCode TEXT,
+      warningMessage TEXT,
       updatedAt TEXT NOT NULL,
       updatedByUserId INTEGER NOT NULL,
       createdAt TEXT NOT NULL,
@@ -1122,6 +1132,52 @@ export function migrate() {
 
     CREATE INDEX IF NOT EXISTS idx_scano_master_product_rows_chain_row
       ON scano_master_product_rows(chainId, rowNumber, id);
+
+    CREATE TABLE IF NOT EXISTS scano_master_product_enrichment_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chainId INTEGER NOT NULL,
+      importRevision INTEGER NOT NULL,
+      rowNumber INTEGER NOT NULL,
+      sourceBarcode TEXT NOT NULL,
+      normalizedBarcode TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attemptCount INTEGER NOT NULL DEFAULT 0,
+      nextAttemptAt TEXT,
+      lastError TEXT,
+      externalProductId TEXT,
+      sku TEXT,
+      price TEXT,
+      itemNameEn TEXT,
+      itemNameAr TEXT,
+      image TEXT,
+      chainFlag TEXT,
+      vendorFlag TEXT,
+      enrichedAt TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (chainId) REFERENCES scano_master_products(chainId) ON DELETE CASCADE
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_scano_master_product_enrichment_entry_unique
+      ON scano_master_product_enrichment_entries(chainId, importRevision, normalizedBarcode);
+
+    CREATE INDEX IF NOT EXISTS idx_scano_master_product_enrichment_entry_queue
+      ON scano_master_product_enrichment_entries(chainId, importRevision, status, nextAttemptAt, rowNumber, id);
+
+    CREATE TABLE IF NOT EXISTS scano_master_product_enrichment_barcodes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entryId INTEGER NOT NULL,
+      chainId INTEGER NOT NULL,
+      importRevision INTEGER NOT NULL,
+      barcode TEXT NOT NULL,
+      normalizedBarcode TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (entryId) REFERENCES scano_master_product_enrichment_entries(id) ON DELETE CASCADE,
+      FOREIGN KEY (chainId) REFERENCES scano_master_products(chainId) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scano_master_product_enrichment_barcodes_lookup
+      ON scano_master_product_enrichment_barcodes(chainId, normalizedBarcode, importRevision, entryId);
   `);
 
   migrateLegacyUserRoles();
@@ -1179,6 +1235,49 @@ export function migrate() {
   if (!scanoTaskProductColumns.some((column) => column.name === "previewImageUrl")) {
     db.exec("ALTER TABLE scano_task_products ADD COLUMN previewImageUrl TEXT");
   }
+  const scanoMasterProductColumns = db.prepare("PRAGMA table_info(scano_master_products)").all() as Array<{ name: string }>;
+  if (!scanoMasterProductColumns.some((column) => column.name === "importRevision")) {
+    db.exec("ALTER TABLE scano_master_products ADD COLUMN importRevision INTEGER NOT NULL DEFAULT 1");
+  }
+  if (!scanoMasterProductColumns.some((column) => column.name === "enrichmentStatus")) {
+    db.exec("ALTER TABLE scano_master_products ADD COLUMN enrichmentStatus TEXT NOT NULL DEFAULT 'queued'");
+  }
+  if (!scanoMasterProductColumns.some((column) => column.name === "enrichmentQueuedAt")) {
+    db.exec("ALTER TABLE scano_master_products ADD COLUMN enrichmentQueuedAt TEXT");
+  }
+  if (!scanoMasterProductColumns.some((column) => column.name === "enrichmentStartedAt")) {
+    db.exec("ALTER TABLE scano_master_products ADD COLUMN enrichmentStartedAt TEXT");
+  }
+  if (!scanoMasterProductColumns.some((column) => column.name === "enrichmentPausedAt")) {
+    db.exec("ALTER TABLE scano_master_products ADD COLUMN enrichmentPausedAt TEXT");
+  }
+  if (!scanoMasterProductColumns.some((column) => column.name === "enrichmentCompletedAt")) {
+    db.exec("ALTER TABLE scano_master_products ADD COLUMN enrichmentCompletedAt TEXT");
+  }
+  if (!scanoMasterProductColumns.some((column) => column.name === "enrichedCount")) {
+    db.exec("ALTER TABLE scano_master_products ADD COLUMN enrichedCount INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!scanoMasterProductColumns.some((column) => column.name === "processedCount")) {
+    db.exec("ALTER TABLE scano_master_products ADD COLUMN processedCount INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!scanoMasterProductColumns.some((column) => column.name === "warningCode")) {
+    db.exec("ALTER TABLE scano_master_products ADD COLUMN warningCode TEXT");
+  }
+  if (!scanoMasterProductColumns.some((column) => column.name === "warningMessage")) {
+    db.exec("ALTER TABLE scano_master_products ADD COLUMN warningMessage TEXT");
+  }
+  db.exec(`
+    UPDATE scano_master_products
+    SET
+      importRevision = COALESCE(importRevision, 1),
+      enrichmentStatus = CASE
+        WHEN TRIM(COALESCE(enrichmentStatus, '')) = '' THEN 'queued'
+        ELSE enrichmentStatus
+      END,
+      enrichmentQueuedAt = COALESCE(enrichmentQueuedAt, updatedAt),
+      enrichedCount = COALESCE(enrichedCount, 0),
+      processedCount = COALESCE(processedCount, 0)
+  `);
   backfillScanoTaskProductCanonicalRows(db);
   const branchRuntimeColumns = db.prepare("PRAGMA table_info(branch_runtime)").all() as Array<{ name: string }>;
   if (!branchRuntimeColumns.some((column) => column.name === "lastExternalCloseUntil")) {

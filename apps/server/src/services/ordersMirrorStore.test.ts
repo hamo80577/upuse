@@ -192,13 +192,80 @@ describe("ordersMirrorStore.fetchOrdersWindow", () => {
   it("uses a 60-minute recent picker activity window for mirror branch detail", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-05T10:00:00.000Z"));
-
-    const pickerCountGet = vi.fn(() => ({
-      todayCount: 0,
-      activePreparingCount: 0,
-      recentActiveCount: 0,
-    }));
-    const pickerRowsAll = vi.fn(() => []);
+    const mirrorRows = [
+      {
+        dayKey: "2026-03-05",
+        globalEntityId: "HF_EG",
+        vendorId: 10,
+        vendorName: "Branch 10",
+        orderId: "order-1",
+        externalId: "3556731001",
+        status: "STARTED",
+        transportType: "LOGISTICS_DELIVERY",
+        isCompleted: 0,
+        isCancelled: 0,
+        isUnassigned: 0,
+        placedAt: "2026-03-05T08:00:00.000Z",
+        pickupAt: "2026-03-05T08:20:00.000Z",
+        customerFirstName: "Nour",
+        shopperId: 51,
+        shopperFirstName: "Ali",
+        isActiveNow: 1,
+        lastSeenAt: "2026-03-05T09:59:00.000Z",
+        lastActiveSeenAt: "2026-03-05T09:30:00.000Z",
+        cancellationOwner: null,
+        cancellationOwnerLookupAt: null,
+        cancellationOwnerLookupError: null,
+      },
+      {
+        dayKey: "2026-03-05",
+        globalEntityId: "HF_EG",
+        vendorId: 10,
+        vendorName: "Branch 10",
+        orderId: "order-2",
+        externalId: "3556731002",
+        status: "STARTED",
+        transportType: "LOGISTICS_DELIVERY",
+        isCompleted: 0,
+        isCancelled: 0,
+        isUnassigned: 0,
+        placedAt: "2026-03-05T07:40:00.000Z",
+        pickupAt: "2026-03-05T08:10:00.000Z",
+        customerFirstName: "Sara",
+        shopperId: 52,
+        shopperFirstName: "Mona",
+        isActiveNow: 1,
+        lastSeenAt: "2026-03-05T09:55:00.000Z",
+        lastActiveSeenAt: "2026-03-05T08:50:00.000Z",
+        cancellationOwner: null,
+        cancellationOwnerLookupAt: null,
+        cancellationOwnerLookupError: null,
+      },
+      {
+        dayKey: "2026-03-05",
+        globalEntityId: "HF_EG",
+        vendorId: 10,
+        vendorName: "Branch 10",
+        orderId: "order-3",
+        externalId: "3556731003",
+        status: "ON_HOLD",
+        transportType: "LOGISTICS_DELIVERY",
+        isCompleted: 0,
+        isCancelled: 0,
+        isUnassigned: 0,
+        placedAt: "2026-03-05T08:30:00.000Z",
+        pickupAt: "2026-03-05T08:50:00.000Z",
+        customerFirstName: "Laila",
+        shopperId: 53,
+        shopperFirstName: "Omar",
+        isActiveNow: 1,
+        lastSeenAt: "2026-03-05T09:57:00.000Z",
+        lastActiveSeenAt: "2026-03-05T09:40:00.000Z",
+        cancellationOwner: null,
+        cancellationOwnerLookupAt: null,
+        cancellationOwnerLookupError: null,
+      },
+    ];
 
     mockPrepare.mockImplementation((sql: string) => {
       if (sql.includes("FROM orders_entity_sync_state")) {
@@ -224,26 +291,10 @@ describe("ordersMirrorStore.fetchOrdersWindow", () => {
         };
       }
 
-      if (sql.includes("COUNT(DISTINCT CASE WHEN shopperId IS NOT NULL AND lastActiveSeenAt IS NOT NULL")) {
-        return {
-          get: pickerCountGet,
-          all: vi.fn(() => []),
-          run: vi.fn(),
-        };
-      }
-
-      if (sql.includes("MAX(CASE WHEN lastActiveSeenAt IS NOT NULL AND lastActiveSeenAt <= ? AND lastActiveSeenAt >= ? THEN 1 ELSE 0 END) AS recentlyActive")) {
-        return {
-          get: vi.fn(() => null),
-          all: pickerRowsAll,
-          run: vi.fn(),
-        };
-      }
-
       if (sql.includes("FROM orders_mirror")) {
         return {
           get: vi.fn(() => null),
-          all: vi.fn(() => []),
+          all: vi.fn(() => mirrorRows),
           run: vi.fn(),
         };
       }
@@ -263,19 +314,23 @@ describe("ordersMirrorStore.fetchOrdersWindow", () => {
     });
 
     expect(detail.cacheState).toBe("fresh");
-    expect(pickerCountGet).toHaveBeenCalledWith(
-      "2026-03-05T10:00:00.000Z",
-      "2026-03-05T09:00:00.000Z",
-      "2026-03-05",
-      "HF_EG",
-      10,
-    );
-    expect(pickerRowsAll).toHaveBeenCalledWith(
-      "2026-03-05T10:00:00.000Z",
-      "2026-03-05T09:00:00.000Z",
-      "2026-03-05",
-      "HF_EG",
-      10,
-    );
+    expect(detail.pickers.todayCount).toBe(3);
+    expect(detail.pickers.activePreparingCount).toBe(2);
+    expect(detail.pickers.recentActiveCount).toBe(2);
+    expect(detail.pickers.items).toHaveLength(3);
+    expect(detail.pickers.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        shopperId: 51,
+        recentlyActive: true,
+      }),
+      expect.objectContaining({
+        shopperId: 52,
+        recentlyActive: false,
+      }),
+      expect.objectContaining({
+        shopperId: 53,
+        recentlyActive: true,
+      }),
+    ]));
   });
 });

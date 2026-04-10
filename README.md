@@ -106,6 +106,10 @@ If you want one Windows command that loads `.env`, builds, and starts production
 - `Scano Settings` is a minimal token screen used only to test and update the Scano catalog token
 - The catalog base URL is fixed on the server side and is not edited from the UI
 - `Master Product` is available to `primary admin` and `team_lead` only, and stores one normalized catalog import per chain for lookup fallback
+- Every saved `Master Product` chain now seeds a background enrichment queue from the imported barcode column
+- The raw CSV rows remain untouched, while a separate local enriched cache stores barcode-backed API results by chain and import revision
+- Enrichment runs through one global FIFO worker, so if multiple chains are uploaded together they process one after another instead of competing for upstream capacity
+- The `Master Product` table now shows `Products / Enriched`, queue status (`Queued`, `Running`, `Completed`, `Paused`), and a warning icon when enrichment is paused because the Scano catalog token needs attention
 
 ## Scano task flow
 - `Add New Task` opens a multi-step wizard:
@@ -138,11 +142,13 @@ If you want one Windows command that loads `.env`, builds, and starts production
   - optional camera scanning with runtime camera permission
 - Barcode resolution now follows this order:
   1. server-side duplicate check for the current task barcode
-  2. external product search by barcode
-  3. server-side vendor/chain assignment lookup for the chosen external product
-  4. local master-product fallback for the task chain when the external search misses
-  5. manual product completion when no external or master match exists
-- The browser no longer performs a separate runner `hydrate` request. The runner resolves scans through `/api/scano/tasks/:id/scans/resolve`, then auto-saves exact external/master hits when the returned draft is complete
+  2. local enriched master-product cache lookup for the task chain
+  3. external product search by barcode
+  4. server-side vendor/chain assignment lookup for the chosen external product
+  5. raw master-product row fallback for the task chain when the external search misses
+  6. manual product completion when no enriched, external, or raw master match exists
+- The browser no longer performs a separate runner `hydrate` request. The runner resolves scans through `/api/scano/tasks/:id/scans/resolve`, and both the modern scan flow and the legacy runner search/hydrate endpoints now follow the same local-first lookup order
+- Background enrichment accepts only exact barcode matches that are assigned to the active chain or vendor. Ambiguous or failed enrichments stay out of the local cache and continue to fall back to live external search or raw master rows at scan time
 - Confirmed task products now store:
   - external id when available
   - SKU, price, English and Arabic names

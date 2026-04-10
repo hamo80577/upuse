@@ -15,7 +15,12 @@ import { listBranches, listResolvedBranches, getRuntime, setRuntime } from "../.
 import { fetchAvailabilities, setAvailability } from "../../services/availabilityClient.js";
 import { log } from "../../services/logger.js";
 import { markCloseEventReopened, recordMonitorCloseAction } from "../../services/actionReportStore.js";
-import { getCurrentHourPlacedCountByVendor, getMirrorBranchDetail, syncOrdersMirror } from "../../services/ordersMirrorStore.js";
+import {
+  getCurrentHourPlacedCountByVendor,
+  getMirrorBranchDetail,
+  getOrdersMirrorEntitySyncStatus,
+  syncOrdersMirror,
+} from "../../services/ordersMirrorStore.js";
 import { derivePreparingNow } from "../../services/orders/classification.js";
 import { decide } from "../../services/policyEngine.js";
 import { resolveBranchThresholdProfile } from "../../services/thresholds.js";
@@ -53,6 +58,10 @@ function capacityLimit(recentActivePickers: number) {
   return normalizeRecentActivePickers(recentActivePickers) * 3;
 }
 
+function resolveCapacityLoad(metrics: OrdersMetrics) {
+  return derivePreparingNow(metrics);
+}
+
 function mergePendingCycleOptions(
   current?: CycleOptions,
   incoming?: CycleOptions,
@@ -75,11 +84,22 @@ function closeReasonLogTag(reason: CloseReason, metrics: OrdersMetrics, recentAc
   }
 
   const pickers = normalizeRecentActivePickers(recentActivePickers);
-  return `Capacity active=${metrics.activeNow} cap=${capacityLimit(pickers)} recentActivePickers=${pickers}`;
+  return `Capacity inPrep=${resolveCapacityLoad(metrics)} cap=${capacityLimit(pickers)} recentActivePickers=${pickers}`;
 }
 
 function collapseWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function resolveSnapshotVersion(fetchedAt?: string | null) {
+  return fetchedAt ?? null;
+}
+
+function resolveStaleAgeSeconds(fetchedAt: string | null | undefined, cacheState: "fresh" | "warming" | "stale") {
+  if (!fetchedAt || cacheState !== "stale") return null;
+  const ageMs = Date.now() - new Date(fetchedAt).getTime();
+  if (!Number.isFinite(ageMs) || ageMs < 0) return null;
+  return Math.floor(ageMs / 1000);
 }
 
 function stripHtmlTags(value: string) {
@@ -534,11 +554,12 @@ export class MonitorEngine {
     const capacityRuleCanApply = thresholds.capacityRuleEnabled !== false
       && recentActiveAvailable
       && normalizedRecentActivePickers >= 1;
+    const capacityLoad = resolveCapacityLoad(metrics);
     const exceedLate = metrics.lateNow >= thresholds.lateThreshold && thresholds.lateThreshold > 0;
     const exceedUnassigned = metrics.unassignedNow >= thresholds.unassignedThreshold && thresholds.unassignedThreshold > 0;
     const exceedReady = (metrics.readyNow ?? 0) >= readyThreshold && readyThreshold > 0;
     const exceedCapacity = capacityRuleCanApply
-      && metrics.activeNow > capacityLimit(normalizedRecentActivePickers);
+      && capacityLoad > capacityLimit(normalizedRecentActivePickers);
     const exceedCapacityPerHour = thresholds.capacityPerHourEnabled === true
       && typeof thresholds.capacityPerHourLimit === "number"
       && currentHourPlacedCount >= thresholds.capacityPerHourLimit;
@@ -916,6 +937,10 @@ export class MonitorEngine {
     const settings = getSettings();
     const branches = listResolvedBranches();
     const monitoredBranches = branches.filter((branch) => branch.enabled);
+    const ordersSnapshot = getOrdersMirrorEntitySyncStatus({
+      globalEntityId: settings.globalEntityId,
+      ordersRefreshSeconds: settings.ordersRefreshSeconds,
+    });
     const totals = {
       branchesMonitored: monitoredBranches.length,
       open: 0,
@@ -1045,6 +1070,10 @@ export class MonitorEngine {
     });
 
     return {
+      fetchedAt: ordersSnapshot.fetchedAt,
+      cacheState: ordersSnapshot.cacheState,
+      snapshotVersion: resolveSnapshotVersion(ordersSnapshot.lastSuccessfulSyncAt ?? ordersSnapshot.fetchedAt),
+      staleAgeSeconds: resolveStaleAgeSeconds(ordersSnapshot.fetchedAt, ordersSnapshot.cacheState),
       monitoring: {
         running: this.running,
         lastOrdersFetchAt: this.lastOrdersFetchAt,

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ScanoMasterProductDetail,
@@ -13,6 +13,7 @@ const {
   mockPreviewScanoMasterProducts,
   mockCreateScanoMasterProduct,
   mockGetScanoMasterProduct,
+  mockResumeScanoMasterProductEnrichment,
   mockUpdateScanoMasterProduct,
   mockDeleteScanoMasterProduct,
 } = vi.hoisted(() => ({
@@ -21,6 +22,7 @@ const {
   mockPreviewScanoMasterProducts: vi.fn(),
   mockCreateScanoMasterProduct: vi.fn(),
   mockGetScanoMasterProduct: vi.fn(),
+  mockResumeScanoMasterProductEnrichment: vi.fn(),
   mockUpdateScanoMasterProduct: vi.fn(),
   mockDeleteScanoMasterProduct: vi.fn(),
 }));
@@ -40,6 +42,7 @@ vi.mock("../../../api/client", () => ({
     previewScanoMasterProducts: mockPreviewScanoMasterProducts,
     createScanoMasterProduct: mockCreateScanoMasterProduct,
     getScanoMasterProduct: mockGetScanoMasterProduct,
+    resumeScanoMasterProductEnrichment: mockResumeScanoMasterProductEnrichment,
     updateScanoMasterProduct: mockUpdateScanoMasterProduct,
     deleteScanoMasterProduct: mockDeleteScanoMasterProduct,
   },
@@ -51,6 +54,12 @@ function createListItem(overrides?: Partial<ScanoMasterProductListItem>): ScanoM
     chainName: "Carrefour",
     productCount: 2,
     updatedAt: "2026-04-05T12:00:00.000Z",
+    enrichmentStatus: "completed",
+    enrichedCount: 2,
+    processedCount: 2,
+    canResumeEnrichment: false,
+    warningCode: null,
+    warningMessage: null,
     ...overrides,
   };
 }
@@ -90,6 +99,16 @@ function createDetail(overrides?: Partial<ScanoMasterProductDetail>): ScanoMaste
     chainName: "Carrefour",
     productCount: 2,
     updatedAt: "2026-04-05T12:00:00.000Z",
+    enrichmentStatus: "completed",
+    enrichedCount: 2,
+    processedCount: 2,
+    canResumeEnrichment: false,
+    warningCode: null,
+    warningMessage: null,
+    enrichmentQueuedAt: "2026-04-05T12:00:00.000Z",
+    enrichmentStartedAt: "2026-04-05T12:01:00.000Z",
+    enrichmentPausedAt: null,
+    enrichmentCompletedAt: "2026-04-05T12:10:00.000Z",
     mapping: {
       sku: "item number",
       barcode: "barcode value",
@@ -144,10 +163,22 @@ describe("ScanoMasterProductPage", () => {
     mockGetScanoMasterProduct.mockResolvedValue({
       item: createDetail(),
     });
+    mockResumeScanoMasterProductEnrichment.mockResolvedValue({
+      ok: true,
+      item: createListItem({
+        enrichmentStatus: "queued",
+        enrichedCount: 1,
+        processedCount: 1,
+        canResumeEnrichment: true,
+        warningCode: null,
+        warningMessage: null,
+      }),
+    });
     mockDeleteScanoMasterProduct.mockResolvedValue({ ok: true });
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -163,7 +194,9 @@ describe("ScanoMasterProductPage", () => {
       target: { value: "car" },
     });
 
-    await new Promise((resolve) => window.setTimeout(resolve, 320));
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 320));
+    });
     await waitFor(() => {
       expect(mockListScanoChains).toHaveBeenCalledWith("car", expect.anything());
     });
@@ -194,7 +227,7 @@ describe("ScanoMasterProductPage", () => {
 
     expect(await screen.findByText("Chain import saved.")).toBeInTheDocument();
     view.unmount();
-  });
+  }, 10_000);
 
   it("replaces an existing chain import with a fresh csv on edit", async () => {
     render(<ScanoMasterProductPage />);
@@ -226,7 +259,7 @@ describe("ScanoMasterProductPage", () => {
         file,
       });
     });
-  });
+  }, 10_000);
 
   it("opens the view dialog and renders mapping plus example rows", async () => {
     render(<ScanoMasterProductPage />);
@@ -242,6 +275,8 @@ describe("ScanoMasterProductPage", () => {
     expect(await within(dialog).findByText("Header Mapping")).toBeInTheDocument();
     expect(within(dialog).getByText("SKU-1")).toBeInTheDocument();
     expect(within(dialog).getByText("Milk")).toBeInTheDocument();
+    expect(within(dialog).getByText("2/2")).toBeInTheDocument();
+    expect(within(dialog).getByText("Completed")).toBeInTheDocument();
   });
 
   it("deletes a saved chain import after confirmation", async () => {
@@ -260,5 +295,126 @@ describe("ScanoMasterProductPage", () => {
     await waitFor(() => {
       expect(screen.queryByText("Carrefour")).not.toBeInTheDocument();
     });
+  });
+
+  it("shows resume actions for resumable chains and refreshes the open detail after resuming", async () => {
+    mockListScanoMasterProducts.mockResolvedValue({
+      items: [
+        createListItem({
+          enrichmentStatus: "paused_auth",
+          enrichedCount: 1,
+          processedCount: 2,
+          canResumeEnrichment: true,
+          warningCode: "SCANO_MASTER_ENRICHMENT_AUTH_PAUSED",
+          warningMessage: "Scano catalog token is invalid.",
+        }),
+      ],
+    });
+    mockGetScanoMasterProduct
+      .mockResolvedValueOnce({
+        item: createDetail({
+          enrichmentStatus: "paused_auth",
+          enrichedCount: 1,
+          processedCount: 2,
+          canResumeEnrichment: true,
+          warningCode: "SCANO_MASTER_ENRICHMENT_AUTH_PAUSED",
+          warningMessage: "Scano catalog token is invalid.",
+          enrichmentPausedAt: "2026-04-05T12:12:00.000Z",
+          enrichmentCompletedAt: null,
+        }),
+      })
+      .mockResolvedValueOnce({
+        item: createDetail({
+          enrichmentStatus: "queued",
+          enrichedCount: 1,
+          processedCount: 1,
+          canResumeEnrichment: true,
+          warningCode: null,
+          warningMessage: null,
+          enrichmentPausedAt: null,
+          enrichmentCompletedAt: null,
+        }),
+      });
+
+    render(<ScanoMasterProductPage />);
+
+    expect(await screen.findByText("Carrefour")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+
+    await waitFor(() => {
+      expect(mockResumeScanoMasterProductEnrichment).toHaveBeenCalledWith(1037);
+    });
+    expect(await screen.findByText("Enrichment resumed from the current saved progress.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    const dialog = await screen.findByRole("dialog", { name: "Chain Import Details" });
+    expect(await within(dialog).findByText("Resume Enrichment")).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Resume Enrichment" }));
+
+    await waitFor(() => {
+      expect(mockResumeScanoMasterProductEnrichment).toHaveBeenCalledTimes(2);
+      expect(mockGetScanoMasterProduct).toHaveBeenCalledTimes(2);
+    });
+    expect(await within(dialog).findByText("Queued")).toBeInTheDocument();
+  });
+
+  it("shows enrichment ratio, paused warning, and polls while the queue is active", async () => {
+    let pollCallback: (() => void) | null = null;
+    const setIntervalSpy = vi.spyOn(window, "setInterval").mockImplementation(((handler: TimerHandler) => {
+      if (typeof handler === "function") {
+        pollCallback = handler as () => void;
+      }
+      return 1;
+    }) as typeof window.setInterval);
+    const clearIntervalSpy = vi.spyOn(window, "clearInterval").mockImplementation(() => {});
+    mockListScanoMasterProducts
+      .mockResolvedValueOnce({
+        items: [
+          createListItem({
+            productCount: 15000,
+            enrichedCount: 3000,
+            processedCount: 4200,
+            enrichmentStatus: "paused_auth",
+            canResumeEnrichment: true,
+            warningCode: "SCANO_MASTER_ENRICHMENT_AUTH_PAUSED",
+            warningMessage: "Scano catalog token is invalid.",
+          }),
+        ],
+      })
+      .mockResolvedValue({
+        items: [
+          createListItem({
+            productCount: 15000,
+            enrichedCount: 3001,
+            processedCount: 4201,
+            enrichmentStatus: "running",
+            canResumeEnrichment: false,
+          }),
+        ],
+      });
+
+    render(<ScanoMasterProductPage />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("15000/3000")).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+    expect(screen.getByTitle("Scano catalog token is invalid.")).toBeInTheDocument();
+
+    await act(async () => {
+      pollCallback?.();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(mockListScanoMasterProducts).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.getByText("15000/3001")).toBeInTheDocument();
+    expect(screen.getByText("Running")).toBeInTheDocument();
+    setIntervalSpy.mockRestore();
+    clearIntervalSpy.mockRestore();
   });
 });

@@ -174,6 +174,8 @@ function buildSnapshotUnavailableDetail(
     branchSnapshot?: BranchSnapshot;
     totals?: OrdersMetrics;
     fetchedAt?: string | null;
+    snapshotVersion?: string | null;
+    staleAgeSeconds?: number | null;
     unassignedOrders?: BranchDetailSnapshotUnavailable["unassignedOrders"];
     preparingOrders?: BranchDetailSnapshotUnavailable["preparingOrders"];
     readyToPickupOrders?: BranchDetailSnapshotUnavailable["readyToPickupOrders"];
@@ -189,6 +191,8 @@ function buildSnapshotUnavailableDetail(
     totals: options?.totals ?? snapshot.metrics,
     fetchedAt: options?.fetchedAt ?? null,
     cacheState: options?.cacheState ?? "fresh",
+    ...(typeof options?.snapshotVersion !== "undefined" ? { snapshotVersion: options.snapshotVersion } : {}),
+    ...(typeof options?.staleAgeSeconds !== "undefined" ? { staleAgeSeconds: options.staleAgeSeconds } : {}),
     unassignedOrders: options?.unassignedOrders ?? [],
     preparingOrders: options?.preparingOrders ?? [],
     readyToPickupOrders: options?.readyToPickupOrders ?? [],
@@ -226,6 +230,8 @@ function buildOkBranchDetail(
   detail: {
     fetchedAt: string;
     cacheState: BranchDetailCacheState;
+    snapshotVersion?: string | null;
+    staleAgeSeconds?: number | null;
     unassignedOrders: BranchDetailOk["unassignedOrders"];
     preparingOrders: BranchDetailOk["preparingOrders"];
     readyToPickupOrders: BranchDetailOk["readyToPickupOrders"];
@@ -239,6 +245,8 @@ function buildOkBranchDetail(
     totals: normalizedSnapshot.metrics,
     fetchedAt: detail.fetchedAt,
     cacheState: detail.cacheState,
+    ...(typeof detail.snapshotVersion !== "undefined" ? { snapshotVersion: detail.snapshotVersion } : {}),
+    ...(typeof detail.staleAgeSeconds !== "undefined" ? { staleAgeSeconds: detail.staleAgeSeconds } : {}),
     unassignedOrders: detail.unassignedOrders,
     preparingOrders: detail.preparingOrders,
     readyToPickupOrders: detail.readyToPickupOrders,
@@ -432,6 +440,8 @@ export function branchDetailRoute(engine: MonitorEngine) {
       return res.json(buildOkBranchDetail(latestSnapshotBranch, branch, settings, {
         fetchedAt: localDetail.fetchedAt,
         cacheState: localDetail.cacheState,
+        snapshotVersion: localDetail.snapshotVersion,
+        staleAgeSeconds: localDetail.staleAgeSeconds,
         unassignedOrders: localDetail.unassignedOrders,
         preparingOrders: localDetail.preparingOrders,
         readyToPickupOrders: localDetail.readyToPickupOrders,
@@ -463,6 +473,8 @@ export function branchDetailRoute(engine: MonitorEngine) {
         totals: localDetail.metrics,
         fetchedAt: localDetail.fetchedAt,
         cacheState: localDetail.cacheState,
+        snapshotVersion: localDetail.snapshotVersion,
+        staleAgeSeconds: localDetail.staleAgeSeconds,
         unassignedOrders: localDetail.unassignedOrders,
         preparingOrders: localDetail.preparingOrders,
         readyToPickupOrders: localDetail.readyToPickupOrders,

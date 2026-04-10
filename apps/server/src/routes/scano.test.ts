@@ -15,6 +15,7 @@ const {
   mockSearchScanoProductsByBarcode,
   mockGetScanoProductDetail,
   mockGetScanoProductAssignmentCheck,
+  mockListScanoProductAssignments,
   mockTestScanoCatalogConnection,
 } = vi.hoisted(() => ({
   mockSearchScanoBranches: vi.fn(),
@@ -22,6 +23,7 @@ const {
   mockSearchScanoProductsByBarcode: vi.fn(),
   mockGetScanoProductDetail: vi.fn(),
   mockGetScanoProductAssignmentCheck: vi.fn(),
+  mockListScanoProductAssignments: vi.fn(),
   mockTestScanoCatalogConnection: vi.fn(),
 }));
 
@@ -44,6 +46,7 @@ vi.mock("../services/scanoCatalogClient.js", () => ({
   searchScanoProductsByBarcode: mockSearchScanoProductsByBarcode,
   getScanoProductDetail: mockGetScanoProductDetail,
   getScanoProductAssignmentCheck: mockGetScanoProductAssignmentCheck,
+  listScanoProductAssignments: mockListScanoProductAssignments,
   testScanoCatalogConnection: mockTestScanoCatalogConnection,
   normalizeBarcodeForExternalLookup: (value: string) => {
     const trimmed = value.trim();
@@ -112,6 +115,7 @@ import {
   listScanoTasksRoute,
   listScanoTeamRoute,
   previewScanoMasterProductsRoute,
+  resumeScanoMasterProductRoute,
   resumeScanoTaskRoute,
   searchScanoRunnerExternalProductsRoute,
   scanoMasterProductUpload,
@@ -165,6 +169,7 @@ function createApp() {
   app.post("/api/scano/master-products/preview", requireScanoLeadAccess(), scanoMasterProductUpload, previewScanoMasterProductsRoute);
   app.post("/api/scano/master-products", requireScanoLeadAccess(), scanoMasterProductUpload, createScanoMasterProductRoute);
   app.get("/api/scano/master-products/:chainId", requireScanoLeadAccess(), getScanoMasterProductRoute);
+  app.post("/api/scano/master-products/:chainId/resume", requireScanoLeadAccess(), resumeScanoMasterProductRoute);
   app.put("/api/scano/master-products/:chainId", requireScanoLeadAccess(), scanoMasterProductUpload, updateScanoMasterProductRoute);
   app.delete("/api/scano/master-products/:chainId", requireScanoLeadAccess(), deleteScanoMasterProductRoute);
   app.get("/api/scano/tasks", requireScanoAccess(), listScanoTasksRoute);
@@ -295,6 +300,8 @@ function resetDb() {
     DROP TABLE IF EXISTS scano_task_participants;
     DROP TABLE IF EXISTS scano_task_assignees;
     DROP TABLE IF EXISTS scano_tasks;
+    DROP TABLE IF EXISTS scano_master_product_enrichment_barcodes;
+    DROP TABLE IF EXISTS scano_master_product_enrichment_entries;
     DROP TABLE IF EXISTS scano_master_product_rows;
     DROP TABLE IF EXISTS scano_master_products;
     DROP TABLE IF EXISTS scano_team_members;
@@ -336,6 +343,16 @@ function resetDb() {
       chainName TEXT NOT NULL,
       mappingJson TEXT NOT NULL,
       productCount INTEGER NOT NULL DEFAULT 0,
+      importRevision INTEGER NOT NULL DEFAULT 1,
+      enrichmentStatus TEXT NOT NULL DEFAULT 'queued',
+      enrichmentQueuedAt TEXT,
+      enrichmentStartedAt TEXT,
+      enrichmentPausedAt TEXT,
+      enrichmentCompletedAt TEXT,
+      enrichedCount INTEGER NOT NULL DEFAULT 0,
+      processedCount INTEGER NOT NULL DEFAULT 0,
+      warningCode TEXT,
+      warningMessage TEXT,
       updatedAt TEXT NOT NULL,
       updatedByUserId INTEGER NOT NULL,
       createdAt TEXT NOT NULL,
@@ -352,6 +369,43 @@ function resetDb() {
       itemNameEn TEXT,
       itemNameAr TEXT,
       image TEXT,
+      FOREIGN KEY (chainId) REFERENCES scano_master_products(chainId) ON DELETE CASCADE
+    );
+
+    CREATE TABLE scano_master_product_enrichment_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chainId INTEGER NOT NULL,
+      importRevision INTEGER NOT NULL,
+      rowNumber INTEGER NOT NULL,
+      sourceBarcode TEXT NOT NULL,
+      normalizedBarcode TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attemptCount INTEGER NOT NULL DEFAULT 0,
+      nextAttemptAt TEXT,
+      lastError TEXT,
+      externalProductId TEXT,
+      sku TEXT,
+      price TEXT,
+      itemNameEn TEXT,
+      itemNameAr TEXT,
+      image TEXT,
+      chainFlag TEXT,
+      vendorFlag TEXT,
+      enrichedAt TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (chainId) REFERENCES scano_master_products(chainId) ON DELETE CASCADE
+    );
+
+    CREATE TABLE scano_master_product_enrichment_barcodes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entryId INTEGER NOT NULL,
+      chainId INTEGER NOT NULL,
+      importRevision INTEGER NOT NULL,
+      barcode TEXT NOT NULL,
+      normalizedBarcode TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (entryId) REFERENCES scano_master_product_enrichment_entries(id) ON DELETE CASCADE,
       FOREIGN KEY (chainId) REFERENCES scano_master_products(chainId) ON DELETE CASCADE
     );
 
@@ -535,6 +589,16 @@ function insertMasterProduct(params: {
   chainName: string;
   mappingJson?: string;
   productCount?: number;
+  importRevision?: number;
+  enrichmentStatus?: "queued" | "running" | "completed" | "paused_auth";
+  enrichmentQueuedAt?: string | null;
+  enrichmentStartedAt?: string | null;
+  enrichmentPausedAt?: string | null;
+  enrichmentCompletedAt?: string | null;
+  enrichedCount?: number;
+  processedCount?: number;
+  warningCode?: string | null;
+  warningMessage?: string | null;
   updatedAt?: string;
 }) {
   testDb.prepare(`
@@ -543,10 +607,20 @@ function insertMasterProduct(params: {
       chainName,
       mappingJson,
       productCount,
+      importRevision,
+      enrichmentStatus,
+      enrichmentQueuedAt,
+      enrichmentStartedAt,
+      enrichmentPausedAt,
+      enrichmentCompletedAt,
+      enrichedCount,
+      processedCount,
+      warningCode,
+      warningMessage,
       updatedAt,
       updatedByUserId,
       createdAt
-    ) VALUES (?, ?, ?, ?, ?, 1, '2026-04-04T10:00:00.000Z')
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, '2026-04-04T10:00:00.000Z')
   `).run(
     params.chainId,
     params.chainName,
@@ -559,6 +633,16 @@ function insertMasterProduct(params: {
       image: null,
     }),
     params.productCount ?? 2,
+    params.importRevision ?? 1,
+    params.enrichmentStatus ?? "completed",
+    params.enrichmentQueuedAt ?? "2026-04-05T12:00:00.000Z",
+    params.enrichmentStartedAt ?? "2026-04-05T12:01:00.000Z",
+    params.enrichmentPausedAt ?? null,
+    params.enrichmentCompletedAt ?? "2026-04-05T12:10:00.000Z",
+    params.enrichedCount ?? (params.productCount ?? 2),
+    params.processedCount ?? (params.productCount ?? 2),
+    params.warningCode ?? null,
+    params.warningMessage ?? null,
     params.updatedAt ?? "2026-04-05T12:00:00.000Z",
   );
 }
@@ -593,6 +677,106 @@ function insertMasterProductRow(params: {
     params.itemNameEn ?? null,
     params.itemNameAr ?? null,
     params.image ?? null,
+  );
+}
+
+function normalizeTestBarcode(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed || !/^\d+$/.test(trimmed)) {
+    return trimmed;
+  }
+  return trimmed.length >= 14 ? trimmed : trimmed.padStart(14, "0");
+}
+
+function insertMasterProductEnrichmentEntry(params: {
+  id?: number;
+  chainId: number;
+  importRevision?: number;
+  rowNumber: number;
+  sourceBarcode: string;
+  normalizedBarcode?: string;
+  status?: "pending" | "enriched" | "failed" | "ambiguous";
+  attemptCount?: number;
+  externalProductId?: string | null;
+  sku?: string | null;
+  price?: string | null;
+  itemNameEn?: string | null;
+  itemNameAr?: string | null;
+  image?: string | null;
+  chainFlag?: "yes" | "no" | null;
+  vendorFlag?: "yes" | "no" | null;
+}) {
+  const result = testDb.prepare(`
+    INSERT INTO scano_master_product_enrichment_entries (
+      ${params.id != null ? "id," : ""}
+      chainId,
+      importRevision,
+      rowNumber,
+      sourceBarcode,
+      normalizedBarcode,
+      status,
+      attemptCount,
+      nextAttemptAt,
+      lastError,
+      externalProductId,
+      sku,
+      price,
+      itemNameEn,
+      itemNameAr,
+      image,
+      chainFlag,
+      vendorFlag,
+      enrichedAt,
+      createdAt,
+      updatedAt
+    ) VALUES (
+      ${params.id != null ? "?," : ""}
+      ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, '2026-04-05T12:05:00.000Z', '2026-04-05T12:00:00.000Z', '2026-04-05T12:05:00.000Z'
+    )
+  `).run(
+    ...(params.id != null ? [params.id] : []),
+    params.chainId,
+    params.importRevision ?? 1,
+    params.rowNumber,
+    params.sourceBarcode,
+    params.normalizedBarcode ?? normalizeTestBarcode(params.sourceBarcode),
+    params.status ?? "enriched",
+    params.attemptCount ?? 1,
+    params.externalProductId ?? null,
+    params.sku ?? null,
+    params.price ?? null,
+    params.itemNameEn ?? null,
+    params.itemNameAr ?? null,
+    params.image ?? null,
+    params.chainFlag ?? null,
+    params.vendorFlag ?? null,
+  );
+
+  return params.id ?? Number(result.lastInsertRowid);
+}
+
+function insertMasterProductEnrichmentBarcode(params: {
+  entryId: number;
+  chainId: number;
+  importRevision?: number;
+  barcode: string;
+  normalizedBarcode?: string;
+}) {
+  testDb.prepare(`
+    INSERT INTO scano_master_product_enrichment_barcodes (
+      entryId,
+      chainId,
+      importRevision,
+      barcode,
+      normalizedBarcode,
+      createdAt
+    ) VALUES (?, ?, ?, ?, ?, '2026-04-05T12:05:00.000Z')
+  `).run(
+    params.entryId,
+    params.chainId,
+    params.importRevision ?? 1,
+    params.barcode,
+    params.normalizedBarcode ?? normalizeTestBarcode(params.barcode),
   );
 }
 
@@ -824,6 +1008,7 @@ describe("scano routes", () => {
     mockSearchScanoProductsByBarcode.mockReset();
     mockGetScanoProductDetail.mockReset();
     mockGetScanoProductAssignmentCheck.mockReset();
+    mockListScanoProductAssignments.mockReset();
     mockTestScanoCatalogConnection.mockReset();
     mockSearchScanoProductsByBarcode.mockResolvedValue([]);
     mockGetScanoProductDetail.mockResolvedValue({
@@ -842,6 +1027,14 @@ describe("scano routes", () => {
       sku: "SKU-1",
       price: "100",
     });
+    mockListScanoProductAssignments.mockResolvedValue([
+      {
+        vendorId: 4594,
+        chainId: 1037,
+        sku: "SKU-1",
+        price: "100",
+      },
+    ]);
     resetDb();
 
     const started = await startServer();
@@ -1138,6 +1331,82 @@ describe("scano routes", () => {
     const detailBody = await detailResponse.json() as { item: ScanoMasterProductDetail };
     expect(detailBody.item.exampleRows[0]?.sku).toBe("SKU-9");
     expect(detailBody.item.exampleRows.some((row) => row.sku === "SKU-OLD")).toBe(false);
+  });
+
+  it("resumes master product enrichment from the current import without clearing enriched rows", async () => {
+    insertMasterProduct({
+      chainId: 1037,
+      chainName: "Carrefour",
+      importRevision: 3,
+      enrichmentStatus: "paused_auth",
+      enrichmentPausedAt: "2026-04-05T12:11:00.000Z",
+      enrichmentCompletedAt: null,
+      enrichedCount: 1,
+      processedCount: 3,
+      warningCode: "SCANO_MASTER_ENRICHMENT_AUTH_PAUSED",
+      warningMessage: "Scano catalog token is invalid.",
+    });
+    insertMasterProductEnrichmentEntry({
+      chainId: 1037,
+      importRevision: 3,
+      rowNumber: 1,
+      sourceBarcode: "111",
+      status: "enriched",
+      attemptCount: 1,
+      externalProductId: "product-111",
+      sku: "SKU-1",
+      price: "55",
+      itemNameEn: "Milk",
+      chainFlag: "yes",
+      vendorFlag: "yes",
+    });
+    insertMasterProductEnrichmentEntry({
+      chainId: 1037,
+      importRevision: 3,
+      rowNumber: 2,
+      sourceBarcode: "222",
+      status: "failed",
+      attemptCount: 3,
+    });
+    insertMasterProductEnrichmentEntry({
+      chainId: 1037,
+      importRevision: 3,
+      rowNumber: 3,
+      sourceBarcode: "333",
+      status: "ambiguous",
+      attemptCount: 2,
+    });
+
+    const response = await fetch(`${baseUrl}/api/scano/master-products/1037/resume`, {
+      method: "POST",
+      headers: {
+        "x-role": "user",
+        "x-user-id": "4",
+        "x-scano-role": "team_lead",
+      },
+    });
+    const body = await response.json() as { ok: true; item: ScanoMasterProductListItem };
+
+    expect(response.status).toBe(200);
+    expect(body.item).toMatchObject({
+      chainId: 1037,
+      enrichmentStatus: "queued",
+      enrichedCount: 1,
+      processedCount: 1,
+      canResumeEnrichment: true,
+      warningCode: null,
+      warningMessage: null,
+    });
+    expect(testDb.prepare(`
+      SELECT status, attemptCount
+      FROM scano_master_product_enrichment_entries
+      WHERE chainId = 1037 AND importRevision = 3
+      ORDER BY rowNumber ASC
+    `).all()).toEqual([
+      { status: "enriched", attemptCount: 1 },
+      { status: "pending", attemptCount: 0 },
+      { status: "pending", attemptCount: 0 },
+    ]);
   });
 
   it("deletes master product chains and their normalized rows", async () => {
@@ -2005,6 +2274,116 @@ describe("scano routes", () => {
       ],
     });
     expect(mockGetScanoProductDetail).not.toHaveBeenCalled();
+  });
+
+  it("prefers the local enriched cache before external search during scan resolution", async () => {
+    insertTeamMember({ id: 11, name: "Ali", linkedUserId: 2 });
+    insertMasterProduct({
+      chainId: 1037,
+      chainName: "Carrefour",
+      productCount: 1,
+      enrichedCount: 1,
+      processedCount: 1,
+    });
+    const entryId = insertMasterProductEnrichmentEntry({
+      chainId: 1037,
+      rowNumber: 1,
+      sourceBarcode: "44556677",
+      externalProductId: "LOCAL-1",
+      sku: "SKU-LOCAL",
+      price: "55",
+      itemNameEn: "Local Cached Product",
+      image: "https://images.example.com/local.jpg",
+      chainFlag: "yes",
+      vendorFlag: "yes",
+    });
+    insertMasterProductEnrichmentBarcode({
+      entryId,
+      chainId: 1037,
+      barcode: "44556677",
+    });
+    insertTask({ id: TASK_1, scheduledAt: "2026-04-10T08:00:00.000Z", status: "in_progress", startedByUserId: 2, startedByTeamMemberId: 11 });
+    assignTask(TASK_1, 11);
+    insertParticipant({ taskId: TASK_1, teamMemberId: 11 });
+
+    const response = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/scans/resolve`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-role": "user",
+        "x-user-id": "2",
+        "x-scano-role": "scanner",
+      },
+      body: JSON.stringify({
+        barcode: "44556677",
+        source: "manual",
+      }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      kind: "draft",
+      draft: {
+        externalProductId: "LOCAL-1",
+        sku: "SKU-LOCAL",
+        price: "55",
+        itemNameEn: "Local Cached Product",
+        chain: "yes",
+        vendor: "yes",
+        masterfile: "no",
+        sourceType: "vendor",
+      },
+    });
+    expect(mockSearchScanoProductsByBarcode).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the raw master file after external search misses", async () => {
+    insertTeamMember({ id: 11, name: "Ali", linkedUserId: 2 });
+    insertMasterProduct({ chainId: 1037, chainName: "Carrefour", productCount: 1 });
+    insertMasterProductRow({
+      chainId: 1037,
+      rowNumber: 1,
+      sku: "MASTER-1",
+      barcode: "77889900",
+      price: "41",
+      itemNameEn: "Master Fallback Product",
+      itemNameAr: "منتج بديل",
+      image: "https://images.example.com/master-fallback.jpg",
+    });
+    insertTask({ id: TASK_1, scheduledAt: "2026-04-10T08:00:00.000Z", status: "in_progress", startedByUserId: 2, startedByTeamMemberId: 11 });
+    assignTask(TASK_1, 11);
+    insertParticipant({ taskId: TASK_1, teamMemberId: 11 });
+    mockSearchScanoProductsByBarcode.mockResolvedValueOnce([]);
+
+    const response = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/scans/resolve`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-role": "user",
+        "x-user-id": "2",
+        "x-scano-role": "scanner",
+      },
+      body: JSON.stringify({
+        barcode: "77889900",
+        source: "manual",
+      }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      kind: "draft",
+      draft: {
+        externalProductId: null,
+        sku: "MASTER-1",
+        price: "41",
+        itemNameEn: "Master Fallback Product",
+        masterfile: "yes",
+        sourceType: "master",
+      },
+    });
+    expect(mockSearchScanoProductsByBarcode).toHaveBeenCalledTimes(1);
   });
 
   it("builds external drafts with every available detail image during review", async () => {
@@ -3097,6 +3476,96 @@ describe("scano routes", () => {
     expect(body.item.previewImageUrl).toBe("https://images.example.com/external-preview.jpg");
     expect(body.item.images).toEqual([]);
     expect(testDb.prepare("SELECT COUNT(*) AS count FROM scano_task_product_images").get()).toEqual({ count: 0 });
+  });
+
+  it("uses local enriched cache for legacy runner search and hydrate before calling external APIs", async () => {
+    insertTeamMember({ id: 11, name: "Ali", linkedUserId: 2 });
+    insertMasterProduct({
+      chainId: 1037,
+      chainName: "Carrefour",
+      productCount: 1,
+      enrichedCount: 1,
+      processedCount: 1,
+    });
+    const entryId = insertMasterProductEnrichmentEntry({
+      chainId: 1037,
+      rowNumber: 1,
+      sourceBarcode: "99887766",
+      externalProductId: "LOCAL-1",
+      sku: "SKU-LOCAL",
+      price: "77",
+      itemNameEn: "Local Runner Product",
+      image: "https://images.example.com/local-runner.jpg",
+      chainFlag: "yes",
+      vendorFlag: "yes",
+    });
+    insertMasterProductEnrichmentBarcode({
+      entryId,
+      chainId: 1037,
+      barcode: "99887766",
+    });
+    insertTask({ id: TASK_1, scheduledAt: "2026-04-10T08:00:00.000Z", status: "in_progress", startedByUserId: 2, startedByTeamMemberId: 11 });
+    assignTask(TASK_1, 11);
+    insertParticipant({ taskId: TASK_1, teamMemberId: 11 });
+
+    const bootstrapResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/runner/bootstrap`, {
+      headers: {
+        "x-role": "user",
+        "x-user-id": "2",
+        "x-scano-role": "scanner",
+      },
+    });
+    const bootstrapBody = await bootstrapResponse.json();
+    const runnerToken = bootstrapBody.item.runnerToken as string;
+
+    const searchResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/runner/search`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-role": "user",
+        "x-user-id": "2",
+        "x-scano-role": "scanner",
+      },
+      body: JSON.stringify({
+        runnerToken,
+        barcode: "99887766",
+      }),
+    });
+    const searchBody = await searchResponse.json();
+
+    expect(searchResponse.status).toBe(200);
+    expect(searchBody).toMatchObject({
+      kind: "match",
+      item: {
+        id: "LOCAL-1",
+        barcode: "99887766",
+      },
+    });
+    expect(mockSearchScanoProductsByBarcode).not.toHaveBeenCalled();
+
+    const hydrateResponse = await fetch(`${baseUrl}/api/scano/tasks/${TASK_1}/runner/hydrate`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-role": "user",
+        "x-user-id": "2",
+        "x-scano-role": "scanner",
+      },
+      body: JSON.stringify({
+        runnerToken,
+        productId: "LOCAL-1",
+      }),
+    });
+    const hydrateBody = await hydrateResponse.json();
+
+    expect(hydrateResponse.status).toBe(200);
+    expect(hydrateBody.item).toEqual({
+      chain: "yes",
+      vendor: "yes",
+      sku: "SKU-LOCAL",
+      price: "77",
+    });
+    expect(mockGetScanoProductAssignmentCheck).not.toHaveBeenCalled();
   });
 
   it("searches external products through the runner session without recording scans", async () => {

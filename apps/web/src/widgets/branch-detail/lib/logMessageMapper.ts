@@ -7,18 +7,20 @@ export function describeLogMessage(message: string) {
   };
 
   const reapplyAfterGraceCapacityMatch = message.match(
-    /^TEMP CLOSE — re-applied after external open grace \(Capacity active=(\d+) cap=(\d+) (?:pickers|recentActivePickers)=(\d+)\)(?: until ([0-9]{2}:[0-9]{2}))?$/i,
+    /^TEMP CLOSE — re-applied after external open grace \(Capacity (active|inPrep)=(\d+) cap=(\d+) (?:pickers|recentActivePickers)=(\d+)\)(?: until ([0-9]{2}:[0-9]{2}))?$/i,
   );
   if (reapplyAfterGraceCapacityMatch) {
-    const active = reapplyAfterGraceCapacityMatch[1];
-    const cap = reapplyAfterGraceCapacityMatch[2];
-    const pickers = reapplyAfterGraceCapacityMatch[3];
-    const until = reapplyAfterGraceCapacityMatch[4];
+    const metricKind = reapplyAfterGraceCapacityMatch[1]?.toLowerCase();
+    const load = reapplyAfterGraceCapacityMatch[2];
+    const cap = reapplyAfterGraceCapacityMatch[3];
+    const pickers = reapplyAfterGraceCapacityMatch[4];
+    const until = reapplyAfterGraceCapacityMatch[5];
+    const loadLabel = metricKind === "inprep" ? "In Prep orders" : "Active orders";
     return {
       title: "Temporary close re-applied",
       detail: until
-        ? `Active orders stayed at ${active} above picker capacity ${cap} from ${pickers} recent active pickers (60m) after grace. Source timer ends at ${until}.`
-        : `Active orders stayed at ${active} above picker capacity ${cap} from ${pickers} recent active pickers (60m) after grace.`,
+        ? `${loadLabel} stayed at ${load} above picker capacity ${cap} from ${pickers} recent active pickers (60m) after grace. Source timer ends at ${until}.`
+        : `${loadLabel} stayed at ${load} above picker capacity ${cap} from ${pickers} recent active pickers (60m) after grace.`,
     };
   }
 
@@ -38,18 +40,20 @@ export function describeLogMessage(message: string) {
   }
 
   const capacityMatch = message.match(
-    /^TEMP CLOSE — Capacity active=(\d+) cap=(\d+) (?:pickers|recentActivePickers)=(\d+)(?: until ([0-9]{2}:[0-9]{2}))?$/i,
+    /^TEMP CLOSE — Capacity (active|inPrep)=(\d+) cap=(\d+) (?:pickers|recentActivePickers)=(\d+)(?: until ([0-9]{2}:[0-9]{2}))?$/i,
   );
   if (capacityMatch) {
-    const active = capacityMatch[1];
-    const cap = capacityMatch[2];
-    const pickers = capacityMatch[3];
-    const until = capacityMatch[4];
+    const metricKind = capacityMatch[1]?.toLowerCase();
+    const load = capacityMatch[2];
+    const cap = capacityMatch[3];
+    const pickers = capacityMatch[4];
+    const until = capacityMatch[5];
+    const loadLabel = metricKind === "inprep" ? "In Prep orders" : "Active orders";
     return {
       title: "Temporary close applied",
       detail: until
-        ? `Active orders reached ${active}, above picker capacity ${cap} from ${pickers} recent active pickers (60m). Source timer ends at ${until}.`
-        : `Active orders reached ${active}, above picker capacity ${cap} from ${pickers} recent active pickers (60m).`,
+        ? `${loadLabel} reached ${load}, above picker capacity ${cap} from ${pickers} recent active pickers (60m). Source timer ends at ${until}.`
+        : `${loadLabel} reached ${load}, above picker capacity ${cap} from ${pickers} recent active pickers (60m).`,
     };
   }
 

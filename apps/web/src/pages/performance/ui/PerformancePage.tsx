@@ -50,7 +50,6 @@ import type {
   PerformanceTrendResponse,
   PerformanceVendorDetailResponse,
 } from "../../../api/types";
-import { useAuth } from "../../../app/providers/AuthProvider";
 import { useMonitorStatus } from "../../../app/providers/MonitorStatusProvider";
 import { TopBar } from "../../../widgets/top-bar/ui/TopBar";
 import { PerformanceBranchDialog } from "./PerformanceBranchDialog";
@@ -76,6 +75,7 @@ const LazyPerformanceTrendPanel = lazy(async () => {
 interface DisplayPerformanceBranchCard extends PerformanceEntityBranchCard {
   availabilityVendorId?: string | null;
   isPlaceholder?: boolean;
+  isUnmappedVendor?: boolean;
 }
 
 interface BulkAddResolvedVendor {
@@ -453,7 +453,6 @@ function buildPlaceholderBranchCard(
     onHoldOrders: 0,
     unassignedOrders: 0,
     preparingNow: 0,
-    inPrepOrders: 0,
     readyToPickupOrders: 0,
     deliveryMode: "unknown",
     lfrApplicable: false,
@@ -692,6 +691,22 @@ function buildVisibleSummary(branches: DisplayPerformanceBranchCard[]) {
     lfr: totals.totalOrders ? (totals.transportOwnerCancelledCount / totals.totalOrders) * 100 : 0,
     vlfr: totals.totalOrders ? ((totals.vendorOwnerCancelledCount + totals.transportOwnerCancelledCount) / totals.totalOrders) * 100 : 0,
   };
+}
+
+function formatPerformanceSnapshotTime(value: string | null | undefined) {
+  if (!value) return null;
+  try {
+    return new Date(value).toLocaleString("en-GB", {
+      timeZone: "Africa/Cairo",
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  } catch {
+    return value;
+  }
 }
 
 function branchMatchesActivityFilter(branch: DisplayPerformanceBranchCard, activityFilter: BranchActivityFilter) {
@@ -965,6 +980,22 @@ function BranchCard(props: {
                 <Typography sx={{ color: "#64748b", fontSize: 13, fontWeight: 700, whiteSpace: "nowrap" }}>
                   {metric(props.branch.totalOrders)} orders
                 </Typography>
+                {props.branch.isUnmappedVendor ? (
+                  <>
+                    <Box
+                      sx={{
+                        width: 4,
+                        height: 4,
+                        borderRadius: "50%",
+                        bgcolor: "rgba(148,163,184,0.8)",
+                        flexShrink: 0,
+                      }}
+                    />
+                    <Typography sx={{ color: "#854d0e", fontSize: 12.5, fontWeight: 800, whiteSpace: "nowrap" }}>
+                      Unmapped vendor
+                    </Typography>
+                  </>
+                ) : null}
                 {props.branch.isPlaceholder ? (
                   <>
                     <Box
@@ -1106,8 +1137,7 @@ function BranchCard(props: {
 }
 
 export function PerformancePage() {
-  const { canManageMonitor } = useAuth();
-  const { monitoring, startMonitoring, stopMonitoring } = useMonitorStatus();
+  const { monitoring } = useMonitorStatus();
   const [heroPanel, setHeroPanel] = useState<HeroPanel>("summary");
   const [summary, setSummary] = useState<PerformanceSummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1187,6 +1217,10 @@ export function PerformancePage() {
     () => new Map(sourceItems.map((item) => [item.ordersVendorId, item])),
     [sourceItems],
   );
+  const unmappedVendorIdSet = useMemo(
+    () => new Set((summary?.unmappedVendors ?? []).map((vendor) => vendor.vendorId)),
+    [summary],
+  );
   const summaryBranchByVendorId = useMemo(
     () => new Map((summary?.branches ?? []).map((branch) => [branch.vendorId, branch])),
     [summary],
@@ -1201,12 +1235,15 @@ export function PerformancePage() {
 
   const allBranches = useMemo(
     () => {
-      const summaryBranches = summary?.branches ?? [];
+      const summaryBranches = (summary?.branches ?? []).map((branch) => ({
+        ...branch,
+        isUnmappedVendor: unmappedVendorIdSet.has(branch.vendorId),
+      })) as DisplayPerformanceBranchCard[];
       if (!scopedPlaceholderVendorIds.length) {
-        return summaryBranches as DisplayPerformanceBranchCard[];
+        return summaryBranches;
       }
 
-      const merged = [...summaryBranches] as DisplayPerformanceBranchCard[];
+      const merged = [...summaryBranches];
       const existingVendorIds = new Set(summaryBranches.map((branch) => branch.vendorId));
       for (const vendorId of scopedPlaceholderVendorIds) {
         if (existingVendorIds.has(vendorId)) continue;
@@ -1219,7 +1256,7 @@ export function PerformancePage() {
       }
       return merged;
     },
-    [scopedPlaceholderVendorIds, sourceItemByOrdersVendorId, summary],
+    [scopedPlaceholderVendorIds, sourceItemByOrdersVendorId, summary, unmappedVendorIdSet],
   );
 
   const activeDetailSubject = useMemo(() => {
@@ -2185,13 +2222,6 @@ export function PerformancePage() {
       <TopBar
         running={monitoring.running}
         degraded={monitoring.degraded}
-        onStart={async () => {
-          if (canManageMonitor) await startMonitoring();
-        }}
-        onStop={async () => {
-          if (canManageMonitor) await stopMonitoring();
-        }}
-        canControlMonitor={canManageMonitor}
       />
 
       <Container maxWidth="xl" sx={{ py: { xs: 2, md: 3 } }}>
@@ -2250,6 +2280,21 @@ export function PerformancePage() {
                 Refresh
               </Button>
             </Stack>
+
+            {summary?.cacheState && summary.cacheState !== "fresh" ? (
+              <Alert severity={summary.cacheState === "stale" ? "warning" : "info"} variant="outlined" sx={{ mt: 1.2 }}>
+                {summary.cacheState === "stale"
+                  ? "Performance snapshot is stale. The page is showing the latest current-day snapshot until the next successful refresh finishes."
+                  : "Performance snapshot is warming up. Current-day totals may still be filling in."}
+                {summary.fetchedAt ? ` Last snapshot ${formatPerformanceSnapshotTime(summary.fetchedAt)} Cairo time.` : ""}
+              </Alert>
+            ) : null}
+
+            {summary?.ownerCoverage.warning ? (
+              <Alert severity="warning" variant="outlined" sx={{ mt: 1.2 }}>
+                {summary.ownerCoverage.warning}
+              </Alert>
+            ) : null}
 
             <div id="performance-hero-tabs">
               <Stack
@@ -2398,6 +2443,11 @@ export function PerformancePage() {
                     <div
                       key="trend-panel"
                     >
+                      {summary?.ownerCoverage.warning ? (
+                        <Alert severity="warning" variant="outlined" sx={{ mb: 1 }}>
+                          {summary.ownerCoverage.warning}
+                        </Alert>
+                      ) : null}
                       <Suspense
                         fallback={(
                           <Stack

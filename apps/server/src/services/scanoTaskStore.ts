@@ -11,7 +11,12 @@ import {
   normalizeBarcodeForExternalLookup,
   searchScanoProductsByBarcode,
 } from "./scanoCatalogClient.js";
-import { findScanoMasterProductMatch, listScanoMasterProductIndex } from "./scanoMasterProductStore.js";
+import {
+  findScanoMasterProductEnrichedAssignment,
+  findScanoMasterProductEnrichedMatch,
+  findScanoMasterProductMatch,
+  listScanoMasterProductIndex,
+} from "./scanoMasterProductStore.js";
 import {
   scanoTaskProductRepository,
   type StoredScanoTaskProduct as StoredTaskProduct,
@@ -1246,7 +1251,42 @@ function saveStoredTaskProductScan(params: {
   );
 }
 
+function buildEnrichedLocalDraft(barcode: string, match: NonNullable<ReturnType<typeof findScanoMasterProductEnrichedMatch>>) {
+  const enrichedBarcodes = dedupeStrings(match.barcodes.length ? match.barcodes : [match.barcode, barcode]);
+  const primaryBarcode = enrichedBarcodes[0] ?? match.barcode ?? barcode;
+  return {
+    kind: "draft" as const,
+    outcome: "matched_external" as const,
+    draft: {
+      externalProductId: match.externalProductId,
+      previewImageUrl: match.image ?? null,
+      barcode: primaryBarcode,
+      barcodes: enrichedBarcodes.length ? enrichedBarcodes : [barcode],
+      sku: match.sku,
+      price: match.price,
+      itemNameEn: match.itemNameEn,
+      itemNameAr: match.itemNameAr,
+      chain: match.chain,
+      vendor: match.vendor,
+      masterfile: "no" as const,
+      new: "no" as const,
+      sourceType: determineSourceType({
+        vendor: match.vendor,
+        chain: match.chain,
+        masterfile: "no",
+      }),
+      images: match.image ? [match.image] : [],
+      warning: null,
+    } satisfies ScanoTaskProductDraft,
+  };
+}
+
 async function buildResolveDraft(task: ScanoTaskRow, barcode: string, selectedExternalProductId: string | null) {
+  const enrichedMatch = findScanoMasterProductEnrichedMatch(task.chainId, barcode);
+  if (enrichedMatch) {
+    return buildEnrichedLocalDraft(barcode, enrichedMatch);
+  }
+
   const externalMatches = await searchScanoProductsByBarcode({
     barcode,
     globalEntityId: task.globalEntityId,
@@ -1523,6 +1563,21 @@ export async function searchScanoRunnerExternalProducts(
   if (!runnerSession) {
     throw new ScanoTaskStoreError("Runner session is invalid. Reload the task runner.", 401, "SCANO_RUNNER_SESSION_INVALID");
   }
+  const localEnrichedMatch = findScanoMasterProductEnrichedMatch(runnerSession.chainId, normalizedBarcode);
+  if (localEnrichedMatch) {
+    return {
+      kind: "match",
+      item: {
+        id: localEnrichedMatch.externalProductId,
+        barcode: localEnrichedMatch.barcode,
+        barcodes: localEnrichedMatch.barcodes,
+        itemNameEn: localEnrichedMatch.itemNameEn,
+        itemNameAr: localEnrichedMatch.itemNameAr,
+        image: localEnrichedMatch.image,
+      },
+    };
+  }
+
   const items = await searchScanoProductsByBarcode({
     barcode: normalizedBarcode,
     globalEntityId: runnerSession.globalEntityId,
@@ -1543,6 +1598,21 @@ export async function searchScanoRunnerExternalProducts(
     };
   }
 
+  const masterMatch = findScanoMasterProductMatch(runnerSession.chainId, normalizedBarcode);
+  if (masterMatch) {
+    return {
+      kind: "match",
+      item: {
+        id: `master:${runnerSession.chainId}:${masterMatch.barcode}`,
+        barcode: masterMatch.barcode,
+        barcodes: [masterMatch.barcode],
+        itemNameEn: masterMatch.itemNameEn,
+        itemNameAr: masterMatch.itemNameAr,
+        image: masterMatch.image,
+      },
+    };
+  }
+
   return {
     kind: "miss",
   };
@@ -1560,6 +1630,29 @@ export async function hydrateScanoRunnerExternalProduct(
   const productId = trimToNull(input.productId);
   if (!productId) {
     throw new ScanoTaskStoreError("Product id is required.", 400, "SCANO_RUNNER_PRODUCT_ID_REQUIRED");
+  }
+
+  const localEnrichedAssignment = findScanoMasterProductEnrichedAssignment(runnerSession.chainId, productId);
+  if (localEnrichedAssignment) {
+    return {
+      chain: localEnrichedAssignment.chain,
+      vendor: localEnrichedAssignment.vendor,
+      sku: localEnrichedAssignment.sku,
+      price: localEnrichedAssignment.price,
+    };
+  }
+
+  if (productId.startsWith(`master:${runnerSession.chainId}:`)) {
+    const barcode = productId.slice(`master:${runnerSession.chainId}:`.length).trim();
+    const masterMatch = findScanoMasterProductMatch(runnerSession.chainId, barcode);
+    if (masterMatch) {
+      return {
+        chain: "no",
+        vendor: "no",
+        sku: masterMatch.sku,
+        price: masterMatch.price,
+      };
+    }
   }
 
   return getScanoProductAssignmentCheck({

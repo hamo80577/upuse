@@ -79,6 +79,13 @@ interface RawAssignmentsPayload {
   data?: RawAssignmentItem[];
 }
 
+export interface ScanoCatalogProductAssignment {
+  vendorId: number | null;
+  chainId: number | null;
+  sku: string | null;
+  price: string | null;
+}
+
 export class ScanoCatalogClientError extends Error {
   status: number;
   code?: string;
@@ -120,8 +127,8 @@ const barcodeSearchCache = new Map<string, CacheEntry<ScanoExternalProductSearch
 const barcodeSearchInFlight = new Map<string, Promise<ScanoExternalProductSearchResult[]>>();
 const productDetailCache = new Map<string, CacheEntry<ScanoExternalProductDetail>>();
 const productDetailInFlight = new Map<string, Promise<ScanoExternalProductDetail>>();
-const assignmentCheckCache = new Map<string, CacheEntry<ScanoProductAssignmentCheck>>();
-const assignmentCheckInFlight = new Map<string, Promise<ScanoProductAssignmentCheck>>();
+const productAssignmentsCache = new Map<string, CacheEntry<ScanoCatalogProductAssignment[]>>();
+const productAssignmentsInFlight = new Map<string, Promise<ScanoCatalogProductAssignment[]>>();
 
 function getConfig(overrides?: {
   catalogBaseUrl?: string;
@@ -516,6 +523,21 @@ function normalizeAssignmentFlag(value: boolean): ScanoYesNoFlag {
   return value ? "yes" : "no";
 }
 
+function normalizeAssignments(payload: RawAssignmentsPayload | RawAssignmentItem[] | undefined) {
+  const assignments = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.data)
+      ? payload.data
+      : [];
+
+  return assignments.map((item) => ({
+    vendorId: typeof item.vendorId === "number" ? item.vendorId : null,
+    chainId: typeof item.chainId === "number" ? item.chainId : null,
+    sku: trimToNull(item.sku),
+    price: toPlainPrice(item.price ?? item.originalPrice ?? null),
+  }));
+}
+
 export async function searchScanoProductsByBarcode(params: {
   barcode: string;
   globalEntityId: string;
@@ -669,14 +691,27 @@ export async function getScanoProductAssignmentCheck(params: {
   chainId: number;
   vendorId: number;
 }): Promise<ScanoProductAssignmentCheck> {
+  const cache = await listScanoProductAssignments(params.productId);
+  const vendorAssignment = cache.find((item) => item.vendorId === params.vendorId) ?? null;
+  const chainAssignment = vendorAssignment ?? cache.find((item) => item.chainId === params.chainId) ?? null;
+
+  return {
+    chain: normalizeAssignmentFlag(!!chainAssignment || !!vendorAssignment),
+    vendor: normalizeAssignmentFlag(!!vendorAssignment),
+    sku: trimToNull(vendorAssignment?.sku ?? chainAssignment?.sku ?? null),
+    price: toPlainPrice(vendorAssignment?.price ?? chainAssignment?.price ?? null),
+  };
+}
+
+export async function listScanoProductAssignments(productId: string): Promise<ScanoCatalogProductAssignment[]> {
   const config = getConfig();
-  const trimmedProductId = params.productId.trim();
-  const cacheKey = buildLookupCacheKey(["assignment", config.baseUrl, trimmedProductId, params.chainId, params.vendorId]);
+  const trimmedProductId = productId.trim();
+  const cacheKey = buildLookupCacheKey(["assignments", config.baseUrl, trimmedProductId]);
 
   return getCachedAsync({
     key: cacheKey,
-    cache: assignmentCheckCache,
-    inFlight: assignmentCheckInFlight,
+    cache: productAssignmentsCache,
+    inFlight: productAssignmentsInFlight,
     loader: async () => {
       try {
         const response = await axios.get<RawAssignmentsPayload | RawAssignmentItem[]>(
@@ -689,21 +724,7 @@ export async function getScanoProductAssignmentCheck(params: {
             ...getAxiosTransportOptions(config.requestTimeoutMs),
           },
         );
-
-        const assignments = Array.isArray(response.data)
-          ? response.data
-          : Array.isArray(response.data?.data)
-            ? response.data.data
-            : [];
-        const vendorAssignment = assignments.find((item) => item.vendorId === params.vendorId) ?? null;
-        const chainAssignment = vendorAssignment ?? assignments.find((item) => item.chainId === params.chainId) ?? null;
-
-        return {
-          chain: normalizeAssignmentFlag(!!chainAssignment || !!vendorAssignment),
-          vendor: normalizeAssignmentFlag(!!vendorAssignment),
-          sku: trimToNull(vendorAssignment?.sku ?? chainAssignment?.sku ?? null),
-          price: toPlainPrice(vendorAssignment?.price ?? vendorAssignment?.originalPrice ?? chainAssignment?.price ?? chainAssignment?.originalPrice ?? null),
-        };
+        return normalizeAssignments(response.data);
       } catch (error) {
         throw toClientError(error);
       }

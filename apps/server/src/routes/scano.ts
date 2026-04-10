@@ -33,6 +33,7 @@ import {
   getScanoMasterProduct,
   listScanoMasterProducts,
   previewScanoMasterProductCsv,
+  resumeScanoMasterProductEnrichment,
   ScanoMasterProductStoreError,
   upsertScanoMasterProduct,
 } from "../services/scanoMasterProductStore.js";
@@ -44,6 +45,10 @@ import {
   updateScanoTeamMember,
 } from "../services/scanoTeamStore.js";
 import { searchScanoBranches, ScanoCatalogClientError, searchScanoChains, testScanoCatalogConnection } from "../services/scanoCatalogClient.js";
+import {
+  notifyScanoMasterProductEnrichmentConfigChanged,
+  notifyScanoMasterProductEnrichmentQueueChanged,
+} from "../services/scanoMasterProductEnrichmentRuntime.js";
 import { getScanoSettings, updateScanoSettings } from "../services/scanoSettingsStore.js";
 
 const IsoDateTimeSchema = z.string().trim().refine((value) => !Number.isNaN(Date.parse(value)), {
@@ -840,6 +845,7 @@ export function updateScanoSettingsRoute(req: Request, res: Response) {
   try {
     const patch = ScanoSettingsPatchSchema.parse(req.body ?? {});
     const updated = updateScanoSettings(patch);
+    notifyScanoMasterProductEnrichmentConfigChanged();
     res.json({
       ok: true,
       settings: {
@@ -899,6 +905,7 @@ export function createScanoMasterProductRoute(req: Request, res: Response) {
       csv,
       actorUserId: actor.actorUserId,
     });
+    notifyScanoMasterProductEnrichmentQueueChanged();
     res.status(201).json({
       ok: true,
       item,
@@ -913,6 +920,20 @@ export function getScanoMasterProductRoute(req: Request, res: Response) {
     const { chainId } = ChainIdParamSchema.parse(req.params);
     res.json({
       item: getScanoMasterProduct(chainId),
+    });
+  } catch (error) {
+    throw normalizeScanoError(error);
+  }
+}
+
+export function resumeScanoMasterProductRoute(req: Request, res: Response) {
+  try {
+    const { chainId } = ChainIdParamSchema.parse(req.params);
+    const item = resumeScanoMasterProductEnrichment(chainId);
+    notifyScanoMasterProductEnrichmentQueueChanged();
+    res.json({
+      ok: true,
+      item,
     });
   } catch (error) {
     throw normalizeScanoError(error);
@@ -939,6 +960,7 @@ export function updateScanoMasterProductRoute(req: Request, res: Response) {
       csv,
       actorUserId: actor.actorUserId,
     });
+    notifyScanoMasterProductEnrichmentQueueChanged();
     res.json({
       ok: true,
       item,
@@ -952,6 +974,7 @@ export function deleteScanoMasterProductRoute(req: Request, res: Response) {
   try {
     const { chainId } = ChainIdParamSchema.parse(req.params);
     deleteScanoMasterProduct(chainId);
+    notifyScanoMasterProductEnrichmentQueueChanged();
     res.json({
       ok: true,
     });

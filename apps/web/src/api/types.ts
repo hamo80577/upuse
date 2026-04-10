@@ -142,6 +142,10 @@ export interface LocalVendorCatalogItem {
 }
 
 export interface DashboardSnapshot {
+  fetchedAt?: string | null;
+  cacheState?: BranchDetailCacheState;
+  snapshotVersion?: string | null;
+  staleAgeSeconds?: number | null;
   monitoring: {
     running: boolean;
     lastOrdersFetchAt?: string;
@@ -239,7 +243,6 @@ export interface PerformanceEntityBranchCard {
   onHoldOrders: number;
   unassignedOrders: number;
   preparingNow: number;
-  inPrepOrders: number;
   readyToPickupOrders: number;
   deliveryMode: "logistics" | "self" | "mixed" | "unknown";
   lfrApplicable: boolean;
@@ -297,7 +300,6 @@ export interface PerformanceDetailSummary {
   onHoldOrders: number;
   unassignedOrders: number;
   preparingNow: number;
-  inPrepOrders: number;
   readyToPickupOrders: number;
   vendorOwnerCancelledCount: number;
   transportOwnerCancelledCount: number;
@@ -326,7 +328,6 @@ export interface PerformanceSummaryResponse {
     onHoldOrders: number;
     unassignedOrders: number;
     preparingNow: number;
-    inPrepOrders: number;
     readyToPickupOrders: number;
     vfr: number;
     lfr: number;
@@ -341,6 +342,8 @@ export interface PerformanceSummaryResponse {
   unmappedVendors: PerformanceUnmappedVendorCard[];
   fetchedAt: string | null;
   cacheState: BranchDetailCacheState;
+  snapshotVersion?: string | null;
+  staleAgeSeconds?: number | null;
 }
 
 export type PerformanceTrendResolutionMinutes = 15 | 30 | 60;
@@ -361,6 +364,8 @@ export interface PerformanceTrendResponse {
   scope: PerformanceSummaryResponse["scope"];
   fetchedAt: string | null;
   cacheState: BranchDetailCacheState;
+  snapshotVersion?: string | null;
+  staleAgeSeconds?: number | null;
   resolutionMinutes: PerformanceTrendResolutionMinutes;
   startMinute: number;
   endMinute: number;
@@ -436,6 +441,8 @@ export interface PerformanceBranchDetailResponse {
   pickers: BranchPickersSummary;
   fetchedAt: string | null;
   cacheState: BranchDetailCacheState;
+  snapshotVersion?: string | null;
+  staleAgeSeconds?: number | null;
 }
 
 export interface PerformanceVendorDetailResponse {
@@ -455,6 +462,8 @@ export interface PerformanceVendorDetailResponse {
   pickers: BranchPickersSummary;
   fetchedAt: string | null;
   cacheState: BranchDetailCacheState;
+  snapshotVersion?: string | null;
+  staleAgeSeconds?: number | null;
 }
 
 interface BranchDetailBase {
@@ -462,6 +471,8 @@ interface BranchDetailBase {
   totals: OrdersMetrics;
   fetchedAt: string | null;
   cacheState: BranchDetailCacheState;
+  snapshotVersion?: string | null;
+  staleAgeSeconds?: number | null;
   unassignedOrders: BranchLiveOrder[];
   preparingOrders: BranchLiveOrder[];
   readyToPickupOrders: BranchLiveOrder[];
@@ -782,6 +793,12 @@ export interface ScanoProductAssignmentCheck {
   price: string | null;
 }
 
+export type ScanoMasterProductEnrichmentStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "paused_auth";
+
 export interface ScanoRunnerMasterIndexItem {
   barcode: string;
   sku: string | null;
@@ -1068,6 +1085,12 @@ export interface ScanoMasterProductListItem {
   chainName: string;
   productCount: number;
   updatedAt: string;
+  enrichmentStatus: ScanoMasterProductEnrichmentStatus;
+  enrichedCount: number;
+  processedCount: number;
+  canResumeEnrichment: boolean;
+  warningCode: string | null;
+  warningMessage: string | null;
 }
 
 export interface ScanoMasterProductRowExample {
@@ -1089,6 +1112,10 @@ export interface ScanoMasterProductPreviewResponse {
 export interface ScanoMasterProductDetail extends ScanoMasterProductListItem {
   mapping: ScanoMasterProductMapping;
   exampleRows: ScanoMasterProductRowExample[];
+  enrichmentQueuedAt: string | null;
+  enrichmentStartedAt: string | null;
+  enrichmentPausedAt: string | null;
+  enrichmentCompletedAt: string | null;
 }
 
 export interface ScanoTasksResponse {

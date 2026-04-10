@@ -14,6 +14,12 @@ import { Mutex } from "../utils/mutex.js";
 import { listResolvedBranches } from "./branchStore.js";
 import { getGlobalEntityId, getSettings } from "./settingsStore.js";
 import { classifyOrderState, isPreparingQueueOrder } from "./orders/classification.js";
+import {
+  accumulateCanonicalOrdersMetrics,
+  classifyCanonicalOrderMetrics,
+  createEmptyCanonicalOrdersMetrics,
+  toCanonicalLiveOrder,
+} from "./orders/canonicalMetrics.js";
 import { getWithRetry } from "./orders/httpClient.js";
 import { createPageLimitError } from "./orders/paginationGuards.js";
 import {
@@ -81,6 +87,8 @@ interface OrdersEntitySyncStateRow {
 interface MirrorOrdersDetail {
   metrics: OrdersMetrics;
   fetchedAt: string | null;
+  snapshotVersion: string | null;
+  staleAgeSeconds: number | null;
   unassignedOrders: BranchLiveOrder[];
   preparingOrders: BranchLiveOrder[];
   readyToPickupOrders: BranchLiveOrder[];
@@ -108,6 +116,13 @@ interface NormalizedMirrorOrder {
   isActiveNow: number;
   lastSeenAt: string;
   lastActiveSeenAt: string | null;
+}
+
+interface MirrorOrderFallbacks {
+  vendorId?: number | null;
+  vendorName?: string | null;
+  orderId?: string | null;
+  externalId?: string | null;
 }
 
 interface OrdersFetchResult {
@@ -143,6 +158,15 @@ interface TransportTypeLookupCandidate {
   globalEntityId: string;
   vendorId: number;
   orderId: string;
+}
+
+interface DroppedActiveOrderCandidate {
+  dayKey: string;
+  globalEntityId: string;
+  vendorId: number;
+  vendorName: string | null;
+  orderId: string;
+  externalId: string;
 }
 
 export interface OrdersMirrorEntitySyncStatus {
@@ -211,16 +235,7 @@ export function subscribeOrdersMirrorEntitySync(fn: (status: OrdersMirrorEntityS
 }
 
 function emptyMetrics(): OrdersMetrics {
-  return {
-    totalToday: 0,
-    cancelledToday: 0,
-    doneToday: 0,
-    activeNow: 0,
-    preparingNow: 0,
-    lateNow: 0,
-    unassignedNow: 0,
-    readyNow: 0,
-  };
+  return createEmptyCanonicalOrdersMetrics();
 }
 
 function emptyPickers(): BranchPickersSummary {
@@ -369,9 +384,24 @@ export function extractTransportType(payload: unknown) {
   return normalized.length ? normalized : null;
 }
 
-function normalizeMirrorOrder(order: any, dayKey: string, globalEntityId: string, nowIso: string): NormalizedMirrorOrder | null {
-  const orderId = stableOrderKey(order);
-  const vendorId = resolveVendorId(order);
+function normalizeMirrorOrder(
+  order: any,
+  dayKey: string,
+  globalEntityId: string,
+  nowIso: string,
+  fallbacks: MirrorOrderFallbacks = {},
+): NormalizedMirrorOrder | null {
+  const fallbackOrderId = typeof fallbacks.orderId === "string" && fallbacks.orderId.trim().length
+    ? fallbacks.orderId
+    : "";
+  const fallbackExternalId = typeof fallbacks.externalId === "string" && fallbacks.externalId.trim().length
+    ? fallbacks.externalId
+    : null;
+  const fallbackVendorId = typeof fallbacks.vendorId === "number" && Number.isFinite(fallbacks.vendorId)
+    ? Math.trunc(fallbacks.vendorId)
+    : 0;
+  const orderId = stableOrderKey(order) || fallbackOrderId;
+  const vendorId = resolveVendorId(order) || fallbackVendorId;
   if (!orderId || !vendorId) return null;
 
   const isCompleted = Boolean(order?.isCompleted);
@@ -382,9 +412,9 @@ function normalizeMirrorOrder(order: any, dayKey: string, globalEntityId: string
     dayKey,
     globalEntityId,
     vendorId,
-    vendorName: resolveVendorName(order),
+    vendorName: resolveVendorName(order) ?? fallbacks.vendorName ?? null,
     orderId,
-    externalId: String(order?.externalId ?? order?.shortCode ?? order?.id ?? ""),
+    externalId: String(order?.externalId ?? order?.shortCode ?? fallbackExternalId ?? order?.id ?? ""),
     status,
     transportType: extractTransportType(order),
     isCompleted: isCompleted ? 1 : 0,
@@ -408,6 +438,7 @@ function toLiveOrder(row: OrdersMirrorRow, nowIso: string): BranchLiveOrder {
   const classification = classifyOrderState({
     status: row.status,
     isCompleted: row.isCompleted,
+    isActiveNow: row.isActiveNow,
     pickupAt: row.pickupAt,
     isUnassigned: row.isUnassigned,
     shopperId: row.shopperId,
@@ -462,6 +493,17 @@ function resolveCacheState(
 
   const staleAfterMs = Math.max(60_000, ordersRefreshSeconds * 2_000);
   return nowMs - toMillis(fetchedAt) > staleAfterMs ? "stale" : "fresh";
+}
+
+function resolveSnapshotVersion(fetchedAt: string | null | undefined) {
+  return fetchedAt ?? null;
+}
+
+function resolveStaleAgeSeconds(fetchedAt: string | null | undefined, cacheState: BranchDetailCacheState) {
+  if (!fetchedAt || cacheState !== "stale") return null;
+  const ageMs = Date.now() - toMillis(fetchedAt);
+  if (!Number.isFinite(ageMs) || ageMs < 0) return null;
+  return Math.floor(ageMs / 1000);
 }
 
 function getOrdersHeaders(token: string) {
@@ -845,6 +887,39 @@ function replaceActiveOrders(params: {
   `).run(params.dayKey, params.globalEntityId, ...params.activeOrderIds);
 }
 
+function listDroppedActiveOrderCandidates(params: {
+  dayKey: string;
+  globalEntityId: string;
+  activeOrderIds: string[];
+}) {
+  if (!params.activeOrderIds.length) {
+    return db.prepare<[string, string], DroppedActiveOrderCandidate>(`
+      SELECT
+        dayKey,
+        globalEntityId,
+        vendorId,
+        vendorName,
+        orderId,
+        externalId
+      FROM orders_mirror
+      WHERE dayKey = ? AND globalEntityId = ? AND isActiveNow = 1
+    `).all(params.dayKey, params.globalEntityId);
+  }
+
+  const placeholders = params.activeOrderIds.map(() => "?").join(", ");
+  return db.prepare<any[], DroppedActiveOrderCandidate>(`
+    SELECT
+      dayKey,
+      globalEntityId,
+      vendorId,
+      vendorName,
+      orderId,
+      externalId
+    FROM orders_mirror
+    WHERE dayKey = ? AND globalEntityId = ? AND isActiveNow = 1 AND orderId NOT IN (${placeholders})
+  `).all(params.dayKey, params.globalEntityId, ...params.activeOrderIds);
+}
+
 function getHistoryWindow(dayKey: string, state: OrdersEntitySyncStateRow | null, endUtcIso: string) {
   const fullDay = getDayWindow(dayKey);
   const dayStartMs = toMillis(fullDay.startUtcIso);
@@ -874,6 +949,13 @@ function shouldReuseFreshState(state: OrdersEntitySyncStateRow | null, ordersRef
   const fetchedAt = resolveFetchedAt(state);
   if (!fetchedAt) return false;
   return Date.now() - toMillis(fetchedAt) < Math.max(5_000, ordersRefreshSeconds * 1000);
+}
+
+function shouldRequireFullRecoveryAudit(state: OrdersEntitySyncStateRow | null, ordersRefreshSeconds: number) {
+  if (!state?.bootstrapCompletedAt) return false;
+  if ((state.consecutiveFailures ?? 0) > 0) return true;
+  if (state.staleSince) return true;
+  return resolveCacheState(state, ordersRefreshSeconds) === "stale";
 }
 
 function buildEntityStatus(dayKey: string, globalEntityId: string, ordersRefreshSeconds: number): OrdersMirrorEntitySyncStatus {
@@ -1121,9 +1203,79 @@ async function fetchOrderDetailMetadata(orderId: string, token: string) {
   );
 
   return {
+    order: response.data,
     cancellation: extractCancellationDetail(response.data),
     transportType: extractTransportType(response.data),
   };
+}
+
+async function reconcileDroppedActiveOrders(params: {
+  token: string;
+  candidates: DroppedActiveOrderCandidate[];
+}) {
+  if (!params.candidates.length || !params.token.trim().length) return;
+
+  const lookedUpAt = nowUtcIso();
+  const normalizedRows: NormalizedMirrorOrder[] = [];
+  let fatalAuthError: string | null = null;
+
+  await mapWithConcurrency(params.candidates, resolveDetailLookupConcurrency(), async (candidate) => {
+    if (fatalAuthError) return;
+
+    try {
+      const detail = await fetchOrderDetailMetadata(candidate.orderId, params.token);
+      const normalized = normalizeMirrorOrder(
+        detail.order,
+        candidate.dayKey,
+        candidate.globalEntityId,
+        lookedUpAt,
+        {
+          vendorId: candidate.vendorId,
+          vendorName: candidate.vendorName,
+          orderId: candidate.orderId,
+          externalId: candidate.externalId,
+        },
+      );
+
+      if (normalized) {
+        normalizedRows.push(normalized);
+      }
+
+      persistTransportTypeLookupResult(candidate, {
+        transportType: detail.transportType,
+        lookedUpAt,
+        error: detail.transportType ? null : "Transport type was missing from the detail response.",
+      });
+
+      if (
+        normalized?.isCancelled === 1
+        || detail.cancellation.owner
+        || detail.cancellation.reason
+        || detail.cancellation.createdAt
+      ) {
+        persistCancellationLookupResult(candidate, {
+          owner: detail.cancellation.owner,
+          reason: detail.cancellation.reason,
+          stage: detail.cancellation.stage,
+          source: detail.cancellation.source,
+          createdAt: detail.cancellation.createdAt,
+          updatedAt: detail.cancellation.updatedAt,
+          lookedUpAt,
+          error:
+            detail.cancellation.owner || detail.cancellation.reason || detail.cancellation.createdAt
+              ? null
+              : "Cancellation detail was missing from the detail response.",
+        });
+      }
+    } catch (error: any) {
+      const normalizedError = normalizeLookupError(error);
+      if (normalizedError.status === 401 || normalizedError.status === 403) {
+        fatalAuthError = normalizedError.message;
+      }
+    }
+  });
+
+  upsertMirrorOrders(normalizedRows);
 }
 
 async function enrichTransportTypes(dayKey: string, globalEntityId: string, token: string) {
@@ -1240,6 +1392,38 @@ async function enrichCancellationOwners(dayKey: string, globalEntityId: string, 
   });
 }
 
+async function drainTransportTypeEnrichment(dayKey: string, globalEntityId: string, token: string) {
+  while (true) {
+    const retryAfterIso = new Date(Date.now() - resolveDetailLookupCooldownMs()).toISOString();
+    const pendingCandidates = listPendingTransportTypeLookupCandidates(
+      dayKey,
+      globalEntityId,
+      retryAfterIso,
+      resolveTransportTypeLookupBatchLimit(),
+    );
+    if (!pendingCandidates.length) {
+      return;
+    }
+    await enrichTransportTypes(dayKey, globalEntityId, token);
+  }
+}
+
+async function drainCancellationOwnerEnrichment(dayKey: string, globalEntityId: string, token: string) {
+  while (true) {
+    const retryAfterIso = new Date(Date.now() - resolveDetailLookupCooldownMs()).toISOString();
+    const pendingCandidates = listPendingOwnerLookupCandidates(
+      dayKey,
+      globalEntityId,
+      retryAfterIso,
+      resolveOwnerLookupBatchLimit(),
+    );
+    if (!pendingCandidates.length) {
+      return;
+    }
+    await enrichCancellationOwners(dayKey, globalEntityId, token);
+  }
+}
+
 async function performEntitySync(params: {
   token: string;
   globalEntityId: string;
@@ -1284,6 +1468,7 @@ async function performEntitySync(params: {
     const syncWindow = getSyncWindow(dayKey, nowIso);
     const phaseFetchedAt: string[] = [];
     const bootstrapRequired = !state?.bootstrapCompletedAt;
+    const recoveryAuditRequired = shouldRequireFullRecoveryAudit(state, params.ordersRefreshSeconds);
 
     if (bootstrapRequired) {
       const bootstrap = await fetchOrdersWindow({
@@ -1321,12 +1506,22 @@ async function performEntitySync(params: {
       const activeRows = active.items
         .map((order) => normalizeMirrorOrder(order, dayKey, params.globalEntityId, active.fetchedAt))
         .filter((row): row is NormalizedMirrorOrder => Boolean(row));
+      const activeOrderIds = activeRows.map((row) => row.orderId);
 
       upsertMirrorOrders(activeRows);
+      const droppedActiveCandidates = listDroppedActiveOrderCandidates({
+        dayKey,
+        globalEntityId: params.globalEntityId,
+        activeOrderIds,
+      });
       replaceActiveOrders({
         dayKey,
         globalEntityId: params.globalEntityId,
-        activeOrderIds: activeRows.map((row) => row.orderId),
+        activeOrderIds,
+      });
+      await reconcileDroppedActiveOrders({
+        token: params.token,
+        candidates: droppedActiveCandidates,
       });
       phaseFetchedAt.push(active.fetchedAt);
       upsertEntitySyncState(dayKey, params.globalEntityId, {
@@ -1335,40 +1530,8 @@ async function performEntitySync(params: {
       });
       state = getEntitySyncState(dayKey, params.globalEntityId);
 
-      const historyWindow = getHistoryWindow(dayKey, state, syncWindow.endUtcIso);
-      const shouldRunHistory =
-        historyWindow.shouldRun &&
-        (params.force || !state?.lastHistorySyncAt || Date.now() - toMillis(state.lastHistorySyncAt) >= resolveOrdersHistorySyncSeconds() * 1000);
-
-      if (shouldRunHistory) {
-        const history = await fetchOrdersWindow({
-          token: params.token,
-          globalEntityId: params.globalEntityId,
-          pageSize: HISTORY_SYNC_PAGE_SIZE,
-          window: {
-            startUtcIso: historyWindow.startUtcIso,
-            endUtcIso: historyWindow.endUtcIso,
-          },
-          nowIso,
-        });
-
-        upsertMirrorOrders(
-          history.items
-            .map((order) => normalizeMirrorOrder(order, dayKey, params.globalEntityId, history.fetchedAt))
-            .filter((row): row is NormalizedMirrorOrder => Boolean(row)),
-        );
-
-        phaseFetchedAt.push(history.fetchedAt);
-        upsertEntitySyncState(dayKey, params.globalEntityId, {
-          ...state,
-          lastHistorySyncAt: history.fetchedAt,
-          lastHistoryCursorAt: historyWindow.endUtcIso,
-        });
-        state = getEntitySyncState(dayKey, params.globalEntityId);
-      }
-
-      if (params.force || shouldRunRepair(state)) {
-        const repair = await fetchOrdersWindow({
+      if (recoveryAuditRequired) {
+        const recoveryAudit = await fetchOrdersWindow({
           token: params.token,
           globalEntityId: params.globalEntityId,
           pageSize: HISTORY_SYNC_PAGE_SIZE,
@@ -1377,17 +1540,74 @@ async function performEntitySync(params: {
         });
 
         upsertMirrorOrders(
-          repair.items
-            .map((order) => normalizeMirrorOrder(order, dayKey, params.globalEntityId, repair.fetchedAt))
+          recoveryAudit.items
+            .map((order) => normalizeMirrorOrder(order, dayKey, params.globalEntityId, recoveryAudit.fetchedAt))
             .filter((row): row is NormalizedMirrorOrder => Boolean(row)),
         );
 
-        phaseFetchedAt.push(repair.fetchedAt);
+        phaseFetchedAt.push(recoveryAudit.fetchedAt);
         upsertEntitySyncState(dayKey, params.globalEntityId, {
           ...state,
-          lastFullHistorySweepAt: repair.fetchedAt,
+          lastHistorySyncAt: recoveryAudit.fetchedAt,
+          lastFullHistorySweepAt: recoveryAudit.fetchedAt,
+          lastHistoryCursorAt: syncWindow.endUtcIso,
         });
         state = getEntitySyncState(dayKey, params.globalEntityId);
+      } else {
+        const historyWindow = getHistoryWindow(dayKey, state, syncWindow.endUtcIso);
+        const shouldRunHistory =
+          historyWindow.shouldRun &&
+          (params.force || !state?.lastHistorySyncAt || Date.now() - toMillis(state.lastHistorySyncAt) >= resolveOrdersHistorySyncSeconds() * 1000);
+
+        if (shouldRunHistory) {
+          const history = await fetchOrdersWindow({
+            token: params.token,
+            globalEntityId: params.globalEntityId,
+            pageSize: HISTORY_SYNC_PAGE_SIZE,
+            window: {
+              startUtcIso: historyWindow.startUtcIso,
+              endUtcIso: historyWindow.endUtcIso,
+            },
+            nowIso,
+          });
+
+          upsertMirrorOrders(
+            history.items
+              .map((order) => normalizeMirrorOrder(order, dayKey, params.globalEntityId, history.fetchedAt))
+              .filter((row): row is NormalizedMirrorOrder => Boolean(row)),
+          );
+
+          phaseFetchedAt.push(history.fetchedAt);
+          upsertEntitySyncState(dayKey, params.globalEntityId, {
+            ...state,
+            lastHistorySyncAt: history.fetchedAt,
+            lastHistoryCursorAt: historyWindow.endUtcIso,
+          });
+          state = getEntitySyncState(dayKey, params.globalEntityId);
+        }
+
+        if (params.force || shouldRunRepair(state)) {
+          const repair = await fetchOrdersWindow({
+            token: params.token,
+            globalEntityId: params.globalEntityId,
+            pageSize: HISTORY_SYNC_PAGE_SIZE,
+            window: syncWindow,
+            nowIso,
+          });
+
+          upsertMirrorOrders(
+            repair.items
+              .map((order) => normalizeMirrorOrder(order, dayKey, params.globalEntityId, repair.fetchedAt))
+              .filter((row): row is NormalizedMirrorOrder => Boolean(row)),
+          );
+
+          phaseFetchedAt.push(repair.fetchedAt);
+          upsertEntitySyncState(dayKey, params.globalEntityId, {
+            ...state,
+            lastFullHistorySweepAt: repair.fetchedAt,
+          });
+          state = getEntitySyncState(dayKey, params.globalEntityId);
+        }
       }
     }
 
@@ -1395,13 +1615,18 @@ async function performEntitySync(params: {
       ? phaseFetchedAt.reduce((latest, current) => (toMillis(current) > toMillis(latest) ? current : latest))
       : resolveFetchedAt(state) ?? nowIso;
 
+    if (recoveryAuditRequired) {
+      await drainTransportTypeEnrichment(dayKey, params.globalEntityId, params.token);
+      await drainCancellationOwnerEnrichment(dayKey, params.globalEntityId, params.token);
+    } else {
+      await enrichTransportTypes(dayKey, params.globalEntityId, params.token);
+      await enrichCancellationOwners(dayKey, params.globalEntityId, params.token);
+    }
+
     markEntitySyncSuccess(dayKey, params.globalEntityId, latestFetchedAt, {
       ...state,
       bootstrapCompletedAt: state?.bootstrapCompletedAt ?? latestFetchedAt,
     });
-
-    await enrichTransportTypes(dayKey, params.globalEntityId, params.token);
-    await enrichCancellationOwners(dayKey, params.globalEntityId, params.token);
 
     const entityStatus = buildEntityStatus(dayKey, params.globalEntityId, params.ordersRefreshSeconds);
     publishEntitySyncStatus(entityStatus);
@@ -1546,6 +1771,8 @@ export function getMirrorBranchDetail(params: {
   const entityStatus = buildEntityStatus(dayKey, params.globalEntityId, params.ordersRefreshSeconds);
   const fetchedAt = entityStatus.fetchedAt;
   const cacheState = entityStatus.cacheState;
+  const snapshotVersion = resolveSnapshotVersion(entityStatus.lastSuccessfulSyncAt ?? fetchedAt);
+  const staleAgeSeconds = resolveStaleAgeSeconds(fetchedAt, cacheState);
   const nowIso = nowUtcIso();
   const nowMs = Date.now();
   const recentActiveStartIso = new Date(nowMs - PICKER_RECENT_ACTIVE_WINDOW_MS).toISOString();
@@ -1577,127 +1804,136 @@ export function getMirrorBranchDetail(params: {
     FROM orders_mirror
     WHERE dayKey = ? AND globalEntityId = ? AND vendorId = ?
   `).all(dayKey, params.globalEntityId, params.vendorId);
-  const classifiedRows = rows.map((row) => ({
-    row,
-    classification: classifyOrderState({
+  const classifiedRows = rows.map((row) => {
+    const metrics = classifyCanonicalOrderMetrics({
+      orderId: row.orderId,
+      externalId: row.externalId,
       status: row.status,
       isCompleted: row.isCompleted,
+      isCancelled: row.isCancelled,
+      isActiveNow: row.isActiveNow,
       pickupAt: row.pickupAt,
       isUnassigned: row.isUnassigned,
       shopperId: row.shopperId,
-    }, nowIso),
-  }));
+      customerFirstName: row.customerFirstName,
+      shopperFirstName: row.shopperFirstName,
+      placedAt: row.placedAt,
+    }, nowIso);
+
+    return {
+      row,
+      metrics,
+      liveOrder: toCanonicalLiveOrder(row, metrics),
+    };
+  });
 
   const metrics = classifiedRows.length
-      ? classifiedRows.reduce<OrdersMetrics>((current, { row, classification }) => {
-        current.totalToday += 1;
-        if (row.isCancelled === 1) current.cancelledToday += 1;
-        if (row.isCompleted === 1) current.doneToday += 1;
-        if (classification.isActive) {
-          current.activeNow += 1;
-        }
-        if (classification.isInPreparation) {
-          current.preparingNow = (current.preparingNow ?? 0) + 1;
-        }
-        if (classification.isUnassigned) current.unassignedNow += 1;
-        if (classification.isReadyToPickup) current.readyNow = (current.readyNow ?? 0) + 1;
-        if (classification.isLate) current.lateNow += 1;
-        return current;
-      }, emptyMetrics())
+      ? classifiedRows.reduce<OrdersMetrics>((current, { row, metrics: rowMetrics }) => (
+        accumulateCanonicalOrdersMetrics(current, row, rowMetrics)
+      ), emptyMetrics())
     : emptyMetrics();
 
   const unassignedOrders = classifiedRows
-    .filter(({ classification }) => classification.isUnassigned)
-    .map(({ row }) => row)
-    .sort((left, right) => toMillis(left.placedAt) - toMillis(right.placedAt))
-    .map((row) => toLiveOrder(row, nowIso));
+    .filter(({ metrics: rowMetrics }) => rowMetrics.isUnassigned)
+    .sort((left, right) => toMillis(left.row.placedAt) - toMillis(right.row.placedAt))
+    .map(({ liveOrder }) => liveOrder);
 
   const preparingOrders = classifiedRows
-    .filter(({ classification }) => isPreparingQueueOrder(classification))
-    .map(({ row }) => row)
-    .sort((left, right) => toMillis(left.pickupAt) - toMillis(right.pickupAt))
-    .map((row) => toLiveOrder(row, nowIso));
+    .filter(({ metrics: rowMetrics }) => rowMetrics.isInPrep)
+    .sort((left, right) => toMillis(left.row.pickupAt) - toMillis(right.row.pickupAt))
+    .map(({ liveOrder }) => liveOrder);
 
   const readyToPickupOrders = classifiedRows
-    .filter(({ classification }) => classification.isReadyToPickup)
-    .map(({ row }) => row)
-    .sort((left, right) => toMillis(left.pickupAt) - toMillis(right.pickupAt))
-    .map((row) => toLiveOrder(row, nowIso));
+    .filter(({ metrics: rowMetrics }) => rowMetrics.isReadyToPickup)
+    .sort((left, right) => toMillis(left.row.pickupAt) - toMillis(right.row.pickupAt))
+    .map(({ liveOrder }) => liveOrder);
 
-  const pickerCountRow = db.prepare<[string, string, string, string, number], {
-    todayCount: number;
-    activePreparingCount: number;
-    recentActiveCount: number;
-  }>(`
-    SELECT
-      COUNT(DISTINCT CASE WHEN shopperId IS NOT NULL THEN shopperId END) AS todayCount,
-      COUNT(DISTINCT CASE WHEN shopperId IS NOT NULL AND isActiveNow = 1 AND isUnassigned = 0 AND status <> 'READY_FOR_PICKUP' THEN shopperId END) AS activePreparingCount,
-      COUNT(DISTINCT CASE WHEN shopperId IS NOT NULL AND lastActiveSeenAt IS NOT NULL AND lastActiveSeenAt <= ? AND lastActiveSeenAt >= ? THEN shopperId END) AS recentActiveCount
-    FROM orders_mirror
-    WHERE dayKey = ? AND globalEntityId = ? AND vendorId = ?
-  `).get(nowIso, recentActiveStartIso, dayKey, params.globalEntityId, params.vendorId) ?? {
-    todayCount: 0,
-    activePreparingCount: 0,
-    recentActiveCount: 0,
-  };
+  const pickerSummaryById = new Map<number, {
+    shopperId: number;
+    shopperFirstName: string;
+    ordersToday: number;
+    firstPickupAt: string | null;
+    lastPickupAt: string | null;
+    recentlyActive: boolean;
+    activePreparing: boolean;
+  }>();
 
-  let items: BranchPickerSummaryItem[] = [];
-  if (params.includePickerItems !== false) {
-    const pickerRows = db.prepare<[string, string, string, string, number], {
-      shopperId: number;
-      shopperFirstName: string | null;
-      ordersToday: number;
-      firstPickupAt: string | null;
-      lastPickupAt: string | null;
-      recentlyActive: number;
-    }>(`
-      SELECT
-        shopperId,
-        (
-          SELECT shopperFirstName
-          FROM orders_mirror latest
-          WHERE latest.dayKey = mirror.dayKey
-            AND latest.globalEntityId = mirror.globalEntityId
-            AND latest.vendorId = mirror.vendorId
-            AND latest.shopperId = mirror.shopperId
-            AND latest.shopperFirstName IS NOT NULL
-            AND TRIM(latest.shopperFirstName) <> ''
-          ORDER BY COALESCE(latest.pickupAt, latest.placedAt, latest.lastSeenAt) DESC
-          LIMIT 1
-        ) AS shopperFirstName,
-        COUNT(*) AS ordersToday,
-        MIN(CASE WHEN pickupAt IS NOT NULL THEN pickupAt END) AS firstPickupAt,
-        MAX(CASE WHEN pickupAt IS NOT NULL THEN pickupAt END) AS lastPickupAt,
-        MAX(CASE WHEN lastActiveSeenAt IS NOT NULL AND lastActiveSeenAt <= ? AND lastActiveSeenAt >= ? THEN 1 ELSE 0 END) AS recentlyActive
-      FROM orders_mirror mirror
-      WHERE dayKey = ? AND globalEntityId = ? AND vendorId = ? AND shopperId IS NOT NULL
-      GROUP BY shopperId
-      ORDER BY ordersToday DESC,
-        CASE WHEN lastPickupAt IS NULL THEN 1 ELSE 0 END ASC,
-        lastPickupAt DESC,
-        LOWER(COALESCE(shopperFirstName, '')) ASC
-    `).all(nowIso, recentActiveStartIso, dayKey, params.globalEntityId, params.vendorId);
+  for (const { row, metrics: rowMetrics } of classifiedRows) {
+    if (row.shopperId == null) continue;
 
-    items = pickerRows.map((row) => ({
+    const existing = pickerSummaryById.get(row.shopperId) ?? {
       shopperId: row.shopperId,
       shopperFirstName: buildPickerFallbackName(row.shopperId, row.shopperFirstName),
+      ordersToday: 0,
+      firstPickupAt: null,
+      lastPickupAt: null,
+      recentlyActive: false,
+      activePreparing: false,
+    };
+
+    existing.ordersToday += 1;
+    if (row.shopperFirstName?.trim()) {
+      existing.shopperFirstName = row.shopperFirstName.trim();
+    }
+    if (row.pickupAt) {
+      if (!existing.firstPickupAt || toMillis(row.pickupAt) < toMillis(existing.firstPickupAt)) {
+        existing.firstPickupAt = row.pickupAt;
+      }
+      if (!existing.lastPickupAt || toMillis(row.pickupAt) > toMillis(existing.lastPickupAt)) {
+        existing.lastPickupAt = row.pickupAt;
+      }
+    }
+    existing.activePreparing = existing.activePreparing || rowMetrics.isInPrep;
+    if (row.lastActiveSeenAt) {
+      const lastActiveSeenAtMs = toMillis(row.lastActiveSeenAt);
+      const recentActiveStartMs = toMillis(recentActiveStartIso);
+      const nowMs = toMillis(nowIso);
+      if (
+        Number.isFinite(lastActiveSeenAtMs) &&
+        Number.isFinite(recentActiveStartMs) &&
+        Number.isFinite(nowMs) &&
+        lastActiveSeenAtMs >= recentActiveStartMs &&
+        lastActiveSeenAtMs <= nowMs
+      ) {
+        existing.recentlyActive = true;
+      }
+    }
+
+    pickerSummaryById.set(row.shopperId, existing);
+  }
+
+  let items: BranchPickerSummaryItem[] = [];
+  const pickerSummaries = Array.from(pickerSummaryById.values())
+    .sort((left, right) =>
+      right.ordersToday - left.ordersToday ||
+      (left.lastPickupAt ? 0 : 1) - (right.lastPickupAt ? 0 : 1) ||
+      toMillis(right.lastPickupAt) - toMillis(left.lastPickupAt) ||
+      left.shopperFirstName.localeCompare(right.shopperFirstName)
+    );
+
+  if (params.includePickerItems !== false) {
+    items = pickerSummaries.map((row) => ({
+      shopperId: row.shopperId,
+      shopperFirstName: row.shopperFirstName,
       ordersToday: row.ordersToday,
       firstPickupAt: row.firstPickupAt,
       lastPickupAt: row.lastPickupAt,
-      recentlyActive: row.recentlyActive === 1,
+      recentlyActive: row.recentlyActive,
     }));
   }
 
   return {
     metrics,
     fetchedAt,
+    snapshotVersion,
+    staleAgeSeconds,
     unassignedOrders,
     preparingOrders,
     readyToPickupOrders,
     pickers: {
-      todayCount: pickerCountRow.todayCount ?? 0,
-      activePreparingCount: pickerCountRow.activePreparingCount ?? 0,
-      recentActiveCount: pickerCountRow.recentActiveCount ?? 0,
+      todayCount: pickerSummaries.length,
+      activePreparingCount: pickerSummaries.reduce((count, row) => count + (row.activePreparing ? 1 : 0), 0),
+      recentActiveCount: pickerSummaries.reduce((count, row) => count + (row.recentlyActive ? 1 : 0), 0),
       items,
     },
     cacheState,

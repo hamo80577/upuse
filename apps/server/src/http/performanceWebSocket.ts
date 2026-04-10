@@ -82,7 +82,9 @@ export function attachPerformanceWebSocketServer(options: {
     globalLimitMessage: "Too many active performance streams.",
   });
   let unsubscribeSync = () => {};
+  let unsubscribeEngine = () => {};
   let syncSubscribed = false;
+  let engineSubscribed = false;
   let lastSummarySnapshot: PerformanceSummaryResponse | null = null;
   let summaryBuildPromise: Promise<PerformanceSummaryResponse | null> | null = null;
   let pendingSummaryBroadcast = false;
@@ -151,6 +153,14 @@ export function attachPerformanceWebSocketServer(options: {
     pendingSummaryBroadcast = false;
   };
 
+  const releaseEngineSubscriptionIfIdle = () => {
+    if (!engineSubscribed || activeSockets.size > 0) return;
+    unsubscribeEngine();
+    unsubscribeEngine = () => {};
+    engineSubscribed = false;
+    pendingSummaryBroadcast = false;
+  };
+
   const ensureSyncSubscription = () => {
     if (syncSubscribed || !activeSockets.size) return;
 
@@ -164,6 +174,15 @@ export function attachPerformanceWebSocketServer(options: {
       void refreshSummaryAndBroadcast();
     });
     syncSubscribed = true;
+  };
+
+  const ensureEngineSubscription = () => {
+    if (engineSubscribed || !activeSockets.size) return;
+
+    unsubscribeEngine = options.engine.subscribe(() => {
+      void refreshSummaryAndBroadcast();
+    });
+    engineSubscribed = true;
   };
 
   const sendInitialSummarySnapshot = async (ws: WebSocket) => {
@@ -220,6 +239,7 @@ export function attachPerformanceWebSocketServer(options: {
 
     try {
       ensureSyncSubscription();
+      ensureEngineSubscription();
     } catch (error) {
       console.error("Performance WebSocket subscription failed", error);
       activeSockets.delete(ws);
@@ -257,6 +277,7 @@ export function attachPerformanceWebSocketServer(options: {
       activeSockets.delete(ws);
       clearInterval(heartbeat);
       releaseSyncSubscriptionIfIdle();
+      releaseEngineSubscriptionIfIdle();
       connectionQuota.release(user.id);
     };
 
