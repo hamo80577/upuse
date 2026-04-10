@@ -3,7 +3,6 @@ import type { PropsWithChildren } from "react";
 import { BrowserRouter } from "react-router-dom";
 import { theme } from "../../theme";
 import { AuthProvider } from "./AuthProvider";
-import { MonitorStatusProvider } from "./MonitorStatusProvider";
 
 export function AppProviders(props: PropsWithChildren) {
   return (
@@ -11,7 +10,7 @@ export function AppProviders(props: PropsWithChildren) {
       <CssBaseline />
       <BrowserRouter>
         <AuthProvider>
-          <MonitorStatusProvider>{props.children}</MonitorStatusProvider>
+          {props.children}
         </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>

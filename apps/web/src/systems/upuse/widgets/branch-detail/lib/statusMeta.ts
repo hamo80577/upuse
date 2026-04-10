@@ -1,0 +1,94 @@
+import type { BranchSnapshot } from "../../../api/types";
+import { formatSourceClosedReason, isExternalManualSourceClose } from "../../../shared/lib/branch/sourceClosedReason";
+
+export function statusChip(branch: BranchSnapshot) {
+  if (!branch.monitorEnabled) return { label: "Paused", sx: { bgcolor: "#eef2ff", color: "#4338ca" } };
+  if (branch.status === "OPEN") return { label: "Open", sx: { bgcolor: "#e7f7ed", color: "#166534" } };
+  if (branch.status === "TEMP_CLOSE") return { label: "Temporary Close", sx: { bgcolor: "#fff1f2", color: "#be123c" } };
+  if (branch.status === "CLOSED") return { label: "Closed", sx: { bgcolor: "#fff7d6", color: "#92400e" } };
+  return { label: "Unknown", sx: { bgcolor: "#f1f5f9", color: "#475569" } };
+}
+
+export function closeReasonMeta(reason?: BranchSnapshot["closeReason"]) {
+  if (reason === "LATE") return { label: "Late Trigger", tone: "#9a3412", background: "rgba(255,237,213,0.94)", border: "rgba(251,146,60,0.22)" };
+  if (reason === "UNASSIGNED") return { label: "Unassigned Trigger", tone: "#b91c1c", background: "rgba(254,226,226,0.94)", border: "rgba(248,113,113,0.22)" };
+  if (reason === "READY_TO_PICKUP") return { label: "Ready To Pickup Trigger", tone: "#1d4ed8", background: "rgba(219,234,254,0.94)", border: "rgba(96,165,250,0.24)" };
+  if (reason === "CAPACITY") return { label: "Capacity Trigger", tone: "#155e75", background: "rgba(236,254,255,0.96)", border: "rgba(34,211,238,0.22)" };
+  if (reason === "CAPACITY_HOUR") return { label: "Capacity / Hour Trigger", tone: "#1d4ed8", background: "rgba(239,246,255,0.96)", border: "rgba(96,165,250,0.24)" };
+  return null;
+}
+
+export function statusPanelMeta(branch: BranchSnapshot) {
+  if (!branch.monitorEnabled) {
+    return {
+      title: "Paused from Monitor",
+      caption: "This branch is excluded from live monitor cycles until it is turned back on.",
+      tone: "#4338ca",
+      sourceLabel: null,
+      showTimer: false,
+      footerCaption: null,
+    };
+  }
+
+  if (branch.status === "OPEN") {
+    return {
+      title: "Live and Open",
+      caption: "No temporary closure is active.",
+      tone: "#166534",
+      sourceLabel: null,
+      showTimer: false,
+      footerCaption: null,
+    };
+  }
+
+  if (branch.status === "TEMP_CLOSE") {
+    const isUpuseControlled = branch.closureSource === "UPUSE" || branch.closedByUpuse;
+    const canAutoReopen = Boolean(isUpuseControlled && branch.autoReopen && branch.changeable !== false);
+    const sourceReason = formatSourceClosedReason(branch.sourceClosedReason);
+    if (isExternalManualSourceClose(branch)) {
+      return {
+        title: "Source Temporary Close",
+        caption: sourceReason
+          ? `${sourceReason} is selected in source with no reopen time. The monitor will not reopen it automatically.`
+          : "Observed from source with no reopen time. The monitor will not reopen it automatically.",
+        tone: "#92400e",
+        sourceLabel: "External Source",
+        showTimer: false,
+        footerCaption:
+          "No reopen timer is available. This branch stays closed until someone reopens it manually or source reaches normal closed hours.",
+      };
+    }
+    return {
+      title: isUpuseControlled ? "UPuse Temporary Close" : "Source Temporary Close",
+      caption: canAutoReopen
+        ? "Auto reopen is armed when the trigger recovers."
+        : isUpuseControlled
+          ? "Timer is tracked, but the source is not changeable right now."
+          : "Observed from source. The monitor will not reopen it automatically.",
+      tone: "#166534",
+      sourceLabel: isUpuseControlled ? "UPuse Control" : "External Source",
+      showTimer: true,
+      footerCaption: null,
+    };
+  }
+
+  if (branch.status === "CLOSED") {
+    return {
+      title: "Closed from Source",
+      caption: "No temporary timer is active for this branch.",
+      tone: "#92400e",
+      sourceLabel: "Source Closed",
+      showTimer: false,
+      footerCaption: null,
+    };
+  }
+
+  return {
+    title: "Waiting for Availability",
+    caption: "The latest availability snapshot is still syncing.",
+    tone: "#475569",
+    sourceLabel: null,
+    showTimer: false,
+    footerCaption: null,
+  };
+}

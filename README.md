@@ -248,16 +248,31 @@ If you want one Windows command that loads `.env`, builds, and starts production
 4) After the server logs that stored settings were re-encrypted, remove the old secret from `UPUSE_SECRET_PREVIOUS`.
 5) If you still use `start.ps1` and an old `apps/server/data/.dev-secret` file exists from a previous setup, either delete it or replace it with the current secret so the compatibility fallback is not re-added on the next start.
 
-## Refactor structure (progressive feature-sliced)
-- Web:
-  - `apps/web/src/app`: router + providers
-  - `apps/web/src/pages/*/ui`: canonical page entrypoints (`dashboard`, `login`, `branches`, `thresholds`, `settings`, `users`)
-  - `apps/web/src/features/branch-mapping`: shared branch/threshold state + pure helpers used by both `BranchesPage` and `ThresholdsPage`
-  - `apps/web/src/features/reports/ui`: report download UI
-  - `apps/web/src/widgets`: composed UI blocks (`top-bar`, `branch-detail`, `operations-summary`)
-  - `apps/web/src/entities`: shared domain UI/model (`branch`, `monitoring`)
-  - `apps/web/src/shared`: cross-cutting API + lib helpers
-- Server:
+## System modular architecture
+- Web platform/shared layers:
+  - `apps/web/src/app`: bootstrap, providers, shell, router
+  - `apps/web/src/core/systems`: registry, navigation, permissions, system contracts
+  - `apps/web/src/shared`: shared API transport, lib helpers, shared UI
+- Web system ownership:
+  - `apps/web/src/systems/upuse/*`
+  - `apps/web/src/systems/scano/*`
+- Server platform/shared layers:
+  - `apps/server/src/app`: bootstrap, middleware, error handling, server composition
+  - `apps/server/src/core/systems`: system contracts and cross-system registries
+  - `apps/server/src/shared`: shared auth/session persistence, shared HTTP helpers, security primitives
+- Server system ownership:
+  - `apps/server/src/systems/upuse/*`
+  - `apps/server/src/systems/scano/*`
+
+Key points:
+- Shared shell/router/bootstrap code stays outside systems.
+- System switching is registry-driven, not hardcoded to only `UPuse` and `Scano`.
+- New system-specific pages, routes, services, widgets, and policies should be added under the owning `systems/<system-id>` folder.
+- Legacy top-level paths may remain as thin compatibility re-exports during migration, but new work should target the owning module directly.
+
+Reference docs:
+- `docs/architecture/system-modular-structure.md`
+- `docs/architecture/refactor-file-mapping.md`
   - `apps/server/src/monitor`: monitor engine entrypoint
   - `apps/server/src/services/orders`: aggregate/detail/pagination/http split
   - `apps/server/src/services/reports`: CSV/range/action events split

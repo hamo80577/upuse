@@ -43,7 +43,7 @@ vi.mock("./providers/AuthProvider", () => ({
   useAuth: mockUseAuth,
 }));
 
-vi.mock("../pages/dashboard/ui/DashboardPage", () => ({
+vi.mock("../systems/upuse/pages/dashboard/ui/DashboardPage", () => ({
   DashboardPage: () => <div>dashboard-route</div>,
 }));
 
@@ -51,47 +51,47 @@ vi.mock("../pages/login/ui/LoginPage", () => ({
   LoginPage: () => <div>login-route</div>,
 }));
 
-vi.mock("../pages/settings/ui/SettingsPage", () => ({
+vi.mock("../systems/upuse/pages/settings/ui/SettingsPage", () => ({
   SettingsPage: () => <div>settings-route</div>,
 }));
 
-vi.mock("../pages/performance/ui/PerformancePage", () => ({
+vi.mock("../systems/upuse/pages/performance/ui/PerformancePage", () => ({
   PerformancePage: () => <div>performance-route</div>,
 }));
 
-vi.mock("../pages/scano/ui/ScanoPage", () => ({
+vi.mock("../systems/scano/pages/scano/ui/ScanoPage", () => ({
   ScanoPage: () => <div>scano-assign-route</div>,
 }));
 
-vi.mock("../pages/scano/ui/ScanoMyTasksPage", () => ({
+vi.mock("../systems/scano/pages/scano/ui/ScanoMyTasksPage", () => ({
   ScanoMyTasksPage: () => <div>scano-my-tasks-route</div>,
 }));
 
-vi.mock("../pages/scano/ui/ScanoTaskProfilePage", () => ({
+vi.mock("../systems/scano/pages/scano/ui/ScanoTaskProfilePage", () => ({
   ScanoTaskProfilePage: () => <div>scano-task-profile-route</div>,
 }));
 
-vi.mock("../pages/scano/ui/ScanoTaskRunnerPage", () => ({
+vi.mock("../systems/scano/pages/scano/ui/ScanoTaskRunnerPage", () => ({
   ScanoTaskRunnerPage: () => <div>scano-task-runner-route</div>,
 }));
 
-vi.mock("../pages/scano/ui/ScanoSettingsPage", () => ({
+vi.mock("../systems/scano/pages/scano/ui/ScanoSettingsPage", () => ({
   ScanoSettingsPage: () => <div>scano-settings-route</div>,
 }));
 
-vi.mock("../pages/scano/ui/ScanoMasterProductPage", () => ({
+vi.mock("../systems/scano/pages/scano/ui/ScanoMasterProductPage", () => ({
   ScanoMasterProductPage: () => <div>scano-master-product-route</div>,
 }));
 
-vi.mock("../pages/branches/ui/BranchesPage", () => ({
+vi.mock("../systems/upuse/pages/branches/ui/BranchesPage", () => ({
   BranchesPage: () => <div>branches-route</div>,
 }));
 
-vi.mock("../pages/thresholds/ui/ThresholdsPage", () => ({
+vi.mock("../systems/upuse/pages/thresholds/ui/ThresholdsPage", () => ({
   ThresholdsPage: () => <div>thresholds-route</div>,
 }));
 
-vi.mock("../pages/users/ui/UsersPage", () => ({
+vi.mock("../systems/upuse/pages/users/ui/UsersPage", () => ({
   UsersPage: () => <div>users-route</div>,
 }));
 

@@ -2,6 +2,15 @@
 
 ## 2026-04-10
 
+- Refactored the repo around explicit system modules:
+  - web routing now composes registered `UPuse` and `Scano` system modules instead of hardcoded workspace branches
+  - shell navigation is derived from the system registry
+  - UPuse-only monitor status state moved under the UPuse route shell
+  - server startup now registers shared routes, system routes, and system websockets through composition modules
+- Split shared auth persistence from system-specific access sync:
+  - session helpers and user mapping moved under `apps/server/src/shared/persistence/auth`
+  - Scano team membership sync/revocation checks moved into a Scano-owned access synchronizer
+- Added architecture documentation for the new system-based structure and file-mapping guidance for migrated hotspots.
 - Hardened UPuse live-stream authorization so `/api/ws/dashboard` and `/api/ws/performance` now reject authenticated users who do not have `upuseAccess`, matching the protected HTTP dashboard/performance routes.
 - Revoked active browser sessions on user password change and aligned user-management password validation with the bootstrap-admin minimum of 12 characters.
 - Hashed Scano runner bearer tokens at rest in SQLite and added a compatibility path that rewrites short-lived legacy raw runner-token rows on successful reads.
