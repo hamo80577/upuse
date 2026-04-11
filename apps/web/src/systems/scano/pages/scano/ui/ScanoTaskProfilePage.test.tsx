@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScanoTaskDetail, ScanoTaskListItem, ScanoTaskProduct } from "../../../api/types";
+import { SCANO_TASKS_MANAGE_CAPABILITY } from "../../../routes/capabilities";
 import { ScanoTaskProfilePage } from "./ScanoTaskProfilePage";
 
 const TASK_7 = "77777777-7777-4777-8777-777777777777";
@@ -155,7 +156,9 @@ describe("ScanoTaskProfilePage", () => {
     mockNavigate.mockReset();
     mockUseParams.mockReturnValue({ id: TASK_7 });
     mockUseAuth.mockReturnValue({
-      canManageScanoTasks: true,
+      hasSystemCapability: (systemId: string, capability: string) => (
+        systemId === "scano" && capability === SCANO_TASKS_MANAGE_CAPABILITY
+      ),
     });
     mockListScanoTaskProducts.mockResolvedValue({
       items: [],
@@ -342,7 +345,7 @@ describe("ScanoTaskProfilePage", () => {
 
   it("does not load assignee management for scanners", async () => {
     mockUseAuth.mockReturnValue({
-      canManageScanoTasks: false,
+      hasSystemCapability: () => false,
     });
     mockGetScanoTask.mockResolvedValue({
       item: createTaskDetail({

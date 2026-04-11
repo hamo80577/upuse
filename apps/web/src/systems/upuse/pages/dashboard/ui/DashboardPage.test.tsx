@@ -1,6 +1,10 @@
 import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardSnapshot } from "../../../api/types";
+import {
+  UPUSE_MONITOR_MANAGE_CAPABILITY,
+  UPUSE_MONITOR_ORDERS_REFRESH_CAPABILITY,
+} from "../../../routes/capabilities";
 
 const mockBranchDetail = vi.hoisted(() => vi.fn());
 const mockUseDashboardPageState = vi.hoisted(() => vi.fn());
@@ -13,8 +17,10 @@ vi.mock("../../../api/client", () => ({
 
 vi.mock("../../../app/providers/AuthProvider", () => ({
   useAuth: () => ({
-    canManageMonitor: true,
-    canRefreshOrdersNow: true,
+    hasSystemCapability: (systemId: string, capability: string) => (
+      systemId === "upuse"
+        && [UPUSE_MONITOR_MANAGE_CAPABILITY, UPUSE_MONITOR_ORDERS_REFRESH_CAPABILITY].includes(capability)
+    ),
   }),
 }));
 

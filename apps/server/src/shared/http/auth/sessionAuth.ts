@@ -1,7 +1,7 @@
 import type { RequestHandler } from "express";
 import { getSessionUserByToken } from "../../../services/authStore.js";
 import { readAuthSessionToken, readAuthSessionTokenFromCookieHeader } from "../../../http/sessionCookie.js";
-import { canUserAccessSystem } from "../../../core/systems/auth/accessRegistry.js";
+import { canUserAccessSystem } from "../../../core/systems/auth/registry/index.js";
 import type { AppUser } from "../../../types/models.js";
 
 const PUBLIC_API_PATHS = new Set([

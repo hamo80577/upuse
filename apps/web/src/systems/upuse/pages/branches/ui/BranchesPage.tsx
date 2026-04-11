@@ -30,6 +30,11 @@ import type { BranchMappingItem } from "../../../api/types";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useMonitorStatus } from "../../../app/providers/MonitorStatusProvider";
 import {
+  UPUSE_BRANCHES_DELETE_CAPABILITY,
+  UPUSE_BRANCHES_MANAGE_CAPABILITY,
+  UPUSE_MONITOR_MANAGE_CAPABILITY,
+} from "../../../routes/capabilities";
+import {
   buildSavedChainGroups,
   formatBranchCount,
   matchesBranchQuery,
@@ -41,7 +46,10 @@ import { useBranchMappingState } from "../../../features/branch-mapping/model/us
 import { TopBar } from "../../../widgets/top-bar/ui/TopBar";
 
 export function BranchesPage() {
-  const { canManageBranches, canDeleteBranches, canManageMonitor } = useAuth();
+  const { hasSystemCapability } = useAuth();
+  const canManageBranches = hasSystemCapability("upuse", UPUSE_BRANCHES_MANAGE_CAPABILITY);
+  const canDeleteBranches = hasSystemCapability("upuse", UPUSE_BRANCHES_DELETE_CAPABILITY);
+  const canManageMonitor = hasSystemCapability("upuse", UPUSE_MONITOR_MANAGE_CAPABILITY);
   const { monitoring, startMonitoring, stopMonitoring } = useMonitorStatus();
   const {
     settings,

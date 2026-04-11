@@ -1,6 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
+import {
+  UPUSE_BRANCHES_DELETE_CAPABILITY,
+  UPUSE_BRANCHES_MANAGE_CAPABILITY,
+  UPUSE_MONITOR_MANAGE_CAPABILITY,
+} from "../systems/upuse/routes/capabilities";
 
 const mockApi = vi.hoisted(() => ({
   dashboard: vi.fn(),
@@ -14,18 +19,43 @@ const mockApi = vi.hoisted(() => ({
   deleteBranch: vi.fn(),
 }));
 
-vi.mock("../api/client", () => ({
+vi.mock("../systems/upuse/api/client", () => ({
   api: mockApi,
   describeApiError: (error: unknown, fallback = "Request failed") => (error instanceof Error ? error.message : fallback),
 }));
 
 vi.mock("../app/providers/AuthProvider", () => ({
   useAuth: () => ({
-    canManageBranches: true,
-    canDeleteBranches: true,
-    canManageMonitor: true,
-    canManageThresholds: false,
-    canManageSettings: false,
+    user: { name: "Test User" },
+    logout: vi.fn(),
+    hasSystemAccess: (systemId: string) => systemId === "upuse",
+    hasSystemCapability: (systemId: string, capability: string) => (
+      systemId === "upuse"
+        && [
+          UPUSE_BRANCHES_MANAGE_CAPABILITY,
+          UPUSE_BRANCHES_DELETE_CAPABILITY,
+          UPUSE_MONITOR_MANAGE_CAPABILITY,
+        ].includes(capability)
+    ),
+    getSystemAccess: (systemId: string) => (
+      systemId === "upuse"
+        ? {
+            enabled: true,
+            role: "user",
+            roleLabel: "User",
+            capabilities: [
+              UPUSE_BRANCHES_MANAGE_CAPABILITY,
+              UPUSE_BRANCHES_DELETE_CAPABILITY,
+              UPUSE_MONITOR_MANAGE_CAPABILITY,
+            ],
+          }
+        : {
+            enabled: false,
+            role: null,
+            roleLabel: null,
+            capabilities: [],
+          }
+    ),
   }),
 }));
 
@@ -37,7 +67,7 @@ vi.mock("../app/providers/MonitorStatusProvider", () => ({
   }),
 }));
 
-vi.mock("../widgets/top-bar/ui/TopBar", () => ({
+vi.mock("../systems/upuse/widgets/top-bar/ui/TopBar", () => ({
   TopBar: () => null,
 }));
 

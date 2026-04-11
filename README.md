@@ -70,6 +70,7 @@ If you want one Windows command that loads `.env`, builds, and starts production
   - `UPuse admin`
   - implicit `Scano admin` capabilities
 - Non-primary users gain Scano through a linked Scano team membership, not by their UPuse role
+- Internally, server-side workspace authorization now resolves through the registered system auth registry, and the shared web auth layer exposes generic `hasSystemAccess(systemId)`, `hasSystemCapability(systemId, capability)`, and `getSystemAccess(systemId)` helpers instead of workspace-specific shared flags.
 
 ## Workspace switching and redirects
 - The system switcher appears only for users who can access both workspaces

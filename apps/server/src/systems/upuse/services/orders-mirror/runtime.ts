@@ -1,6 +1,6 @@
 import { listResolvedBranches } from "../../../../services/branchStore.js";
 import { getSettings } from "../../../../services/settingsStore.js";
-import { syncOrdersMirror } from "./index.js";
+import { syncOrdersMirror } from "./syncOrchestrator.js";
 
 let runtimeStarted = false;
 let runtimeTimer: NodeJS.Timeout | null = null;

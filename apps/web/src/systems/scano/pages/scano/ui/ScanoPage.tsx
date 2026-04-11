@@ -45,6 +45,7 @@ import type {
   ScanoTeamMember,
 } from "../../../api/types";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import { SCANO_TASKS_MANAGE_CAPABILITY } from "../../../routes/capabilities";
 import { TopBar } from "../../../widgets/top-bar/ui/TopBar";
 import { ScanoAssigneeChips } from "./ScanoAssigneeChips";
 import { ScanoDateRangeField } from "./ScanoDateRangeField";
@@ -96,7 +97,8 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
 
 export function ScanoPage() {
   const navigate = useNavigate();
-  const { canManageScanoTasks } = useAuth();
+  const { hasSystemCapability } = useAuth();
+  const canManageScanoTasks = hasSystemCapability("scano", SCANO_TASKS_MANAGE_CAPABILITY);
   const [tasks, setTasks] = useState<ScanoTaskListItem[]>([]);
   const [tasksLoading, setTasksLoading] = useState(true);
   const [pageError, setPageError] = useState("");

@@ -1,6 +1,10 @@
 import { Alert, Backdrop, Box, Button, CircularProgress, Container, Snackbar, Stack, Typography } from "@mui/material";
 import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import {
+  UPUSE_MONITOR_MANAGE_CAPABILITY,
+  UPUSE_MONITOR_ORDERS_REFRESH_CAPABILITY,
+} from "../../../routes/capabilities";
 import { ChainGroupsSection } from "../../../features/dashboard/ChainGroupsSection";
 import { DashboardToolbarControls } from "../../../features/dashboard/DashboardToolbarControls";
 import { OperationsSummaryCard } from "../../../widgets/operations-summary/ui/OperationsSummaryCard";
@@ -96,7 +100,9 @@ function getOrdersStaleSummary(staleBranchCount: number) {
 }
 
 export function DashboardPage() {
-  const { canManageMonitor, canRefreshOrdersNow } = useAuth();
+  const { hasSystemCapability } = useAuth();
+  const canManageMonitor = hasSystemCapability("upuse", UPUSE_MONITOR_MANAGE_CAPABILITY);
+  const canRefreshOrdersNow = hasSystemCapability("upuse", UPUSE_MONITOR_ORDERS_REFRESH_CAPABILITY);
   const {
     snap,
     connectionState,

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScanoTaskListItem, ScanoTaskStatus } from "../../../api/types";
+import { SCANO_TASKS_MANAGE_CAPABILITY } from "../../../routes/capabilities";
 import { ScanoPage } from "./ScanoPage";
 
 const TASK_1 = "11111111-1111-4111-8111-111111111111";
@@ -108,9 +109,9 @@ describe("ScanoPage", () => {
   beforeEach(() => {
     mockNavigate.mockReset();
     mockUseAuth.mockReturnValue({
-      isAdmin: false,
-      canManageScanoTasks: true,
-      canManageScanoSettings: false,
+      hasSystemCapability: (systemId: string, capability: string) => (
+        systemId === "scano" && capability === SCANO_TASKS_MANAGE_CAPABILITY
+      ),
     });
     mockListScanoTasks.mockResolvedValue({ items: [] });
     mockListScanoTeam.mockResolvedValue({
@@ -343,9 +344,7 @@ describe("ScanoPage", () => {
 
   it("hides manager actions for scanners", async () => {
     mockUseAuth.mockReturnValue({
-      isAdmin: false,
-      canManageScanoTasks: false,
-      canManageScanoSettings: false,
+      hasSystemCapability: () => false,
     });
     mockListScanoTasks.mockResolvedValue({
       items: [createTask({

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { BranchDetailResult, BranchPickersSummary, BranchSnapshot } from "../../../api/types";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useBranchDetailState } from "../../../features/branches/useBranchDetailState";
+import { UPUSE_LOGS_CLEAR_CAPABILITY } from "../../../routes/capabilities";
 import { BranchDetailHeader } from "./BranchDetailHeader";
 import { BranchDetailOverview } from "./BranchDetailOverview";
 import { BranchDetailSegmentedNav } from "./BranchDetailSegmentedNav";
@@ -112,7 +113,9 @@ export function BranchDetailDialog(props: {
 }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-  const { canManage } = useAuth();
+  const { getSystemAccess, hasSystemCapability } = useAuth();
+  const canClearLogs = getSystemAccess("upuse").role === "admin"
+    || hasSystemCapability("upuse", UPUSE_LOGS_CLEAR_CAPABILITY);
   const [pickersRequested, setPickersRequested] = useState(false);
   const [logsRequested, setLogsRequested] = useState(false);
   const {
@@ -399,7 +402,7 @@ export function BranchDetailDialog(props: {
                     hasMoreLogs={hasMoreLogs}
                     logError={logError}
                     clearingLog={clearingLog}
-                    canClear={canManage}
+                    canClear={canClearLogs}
                     onLoadMore={loadMoreLogs}
                     onClear={clearLog}
                   />

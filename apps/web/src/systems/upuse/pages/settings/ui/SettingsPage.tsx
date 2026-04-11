@@ -8,6 +8,12 @@ import { useAuth } from "../../../app/providers/AuthProvider";
 import { useMonitorStatus } from "../../../app/providers/MonitorStatusProvider";
 import type { SettingsMasked, SettingsTokenTestSnapshot } from "../../../api/types";
 import { TopBar } from "../../../widgets/top-bar/ui/TopBar";
+import {
+  UPUSE_MONITOR_MANAGE_CAPABILITY,
+  UPUSE_SETTINGS_MANAGE_CAPABILITY,
+  UPUSE_SETTINGS_TOKENS_MANAGE_CAPABILITY,
+  UPUSE_SETTINGS_TOKENS_TEST_CAPABILITY,
+} from "../../../routes/capabilities";
 import { TokenTestResults } from "./TokenTestResults";
 
 type SettingsFormState = Pick<
@@ -22,7 +28,11 @@ export function SettingsPage() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const navigate = useNavigate();
-  const { canManageMonitor, canManageSettings, canManageTokens, canTestTokens } = useAuth();
+  const { hasSystemCapability } = useAuth();
+  const canManageMonitor = hasSystemCapability("upuse", UPUSE_MONITOR_MANAGE_CAPABILITY);
+  const canManageSettings = hasSystemCapability("upuse", UPUSE_SETTINGS_MANAGE_CAPABILITY);
+  const canManageTokens = hasSystemCapability("upuse", UPUSE_SETTINGS_TOKENS_MANAGE_CAPABILITY);
+  const canTestTokens = hasSystemCapability("upuse", UPUSE_SETTINGS_TOKENS_TEST_CAPABILITY);
   const { monitoring, startMonitoring, stopMonitoring } = useMonitorStatus();
 
   const [s, setS] = useState<SettingsMasked | null>(null);
@@ -152,7 +162,12 @@ export function SettingsPage() {
     }
     try {
       clearTestPollTimer();
-      const started = await api.startTokenTest();
+      const ordersToken = String(form.ordersToken ?? "").trim();
+      const availabilityToken = String(form.availabilityToken ?? "").trim();
+      const started = await api.startTokenTest({
+        ...(ordersToken ? { ordersToken } : {}),
+        ...(availabilityToken ? { availabilityToken } : {}),
+      });
       setTestJobId(started.jobId);
       setTest(started.snapshot);
     } catch (error) {

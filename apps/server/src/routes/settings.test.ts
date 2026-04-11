@@ -77,7 +77,7 @@ describe("testTokensRoute", () => {
     });
 
     const res = createResponse();
-    await testTokensRoute({} as any, res);
+    await testTokensRoute({ body: {}, authUser: { role: "user" } } as any, res);
 
     expect(res.statusCode).toBe(202);
     expect(res.body).toEqual({
@@ -96,6 +96,47 @@ describe("testTokensRoute", () => {
         }),
       }),
     });
+  });
+
+  it("tests the trimmed token values currently entered in settings", async () => {
+    mockStartSettingsTokenTestJob.mockReturnValue({
+      jobId: "job-456",
+      snapshot: {
+        jobId: "job-456",
+        status: "pending",
+        createdAt: "2026-03-13T00:00:00.000Z",
+        progress: {
+          totalBranches: 0,
+          processedBranches: 0,
+          passedBranches: 0,
+          failedBranches: 0,
+          percent: 0,
+        },
+        availability: { configured: true, ok: false, status: null },
+        orders: {
+          configValid: false,
+          ok: false,
+          probe: { configured: false, ok: false, status: null },
+          enabledBranchCount: 0,
+          passedBranchCount: 0,
+          failedBranchCount: 0,
+          branches: [],
+        },
+      },
+    });
+
+    const res = createResponse();
+    await testTokensRoute({
+      authUser: { role: "user" },
+      body: {
+        availabilityToken: "  next-availability-token  ",
+      },
+    } as any, res);
+
+    expect(mockStartSettingsTokenTestJob).toHaveBeenCalledWith({
+      availabilityToken: "next-availability-token",
+    });
+    expect(res.statusCode).toBe(202);
   });
 
   it("returns a stored token test snapshot by job id", () => {

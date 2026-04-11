@@ -2,15 +2,8 @@ import axios from "axios";
 import { z } from "zod";
 import type { AvailabilityRecord } from "../types/models.js";
 
-const READ_BASE = "https://vendor-api-eg.me.restaurant-partners.com";
 const WRITE_BASE = "https://vss.me.restaurant-partners.com";
-const FALLBACK_STATUS_URL = `${WRITE_BASE}/api/v1/vendors/status`;
-
-const AvailabilityRecordSchema = z.object({
-  platformKey: z.string().min(1),
-  changeable: z.boolean(),
-  availabilityState: z.enum(["OPEN", "CLOSED_UNTIL", "CLOSED", "CLOSED_TODAY", "UNKNOWN"]), platformRestaurantId: z.string().min(1),
-}).passthrough();
+const VSS_STATUS_URL = `${WRITE_BASE}/api/v1/vendors/status`;
 
 const FallbackAvailabilityRootSchema = z.object({
   vendors: z.record(z.unknown()),
@@ -34,33 +27,6 @@ function createMalformedAvailabilityPayloadError(message: string) {
   return error;
 }
 
-function normalizeAvailabilityRecord(value: z.infer<typeof AvailabilityRecordSchema>): AvailabilityRecord {
-  return {
-    platformKey: value.platformKey,
-    changeable: value.changeable,
-    availabilityState: value.availabilityState,
-    platformRestaurantId: value.platformRestaurantId,
-    currentSlotEndAt: typeof value.currentSlotEndAt === "string" ? value.currentSlotEndAt : undefined,
-    closedUntil: typeof value.closedUntil === "string" ? value.closedUntil : undefined,
-    closedReason: typeof value.closedReason === "string" ? value.closedReason : undefined,
-    modifiedBy: typeof value.modifiedBy === "string" ? value.modifiedBy : undefined,
-    preptimeAdjustment:
-      value.preptimeAdjustment &&
-        typeof value.preptimeAdjustment === "object" &&
-        typeof (value.preptimeAdjustment as any).adjustmentMinutes === "number" &&
-        typeof (value.preptimeAdjustment as any).interval?.startTime === "string" &&
-        typeof (value.preptimeAdjustment as any).interval?.endTime === "string"
-        ? {
-          adjustmentMinutes: (value.preptimeAdjustment as any).adjustmentMinutes,
-          interval: {
-            startTime: (value.preptimeAdjustment as any).interval.startTime,
-            endTime: (value.preptimeAdjustment as any).interval.endTime,
-          },
-        }
-        : undefined,
-  };
-}
-
 function normalizeExpectedVendorIds(expectedVendorIds?: Iterable<string>) {
   if (!expectedVendorIds) return [];
 
@@ -73,22 +39,6 @@ function normalizeExpectedVendorIds(expectedVendorIds?: Iterable<string>) {
   }
 
   return Array.from(normalized);
-}
-
-function normalizeAvailabilityPayload(payload: unknown): AvailabilityRecord[] {
-  if (!Array.isArray(payload)) {
-    throw createMalformedAvailabilityPayloadError("expected an array response");
-  }
-
-  return payload.map((item, index) => {
-    const parsed = AvailabilityRecordSchema.safeParse(item);
-    if (!parsed.success) {
-      const issue = parsed.error.issues[0];
-      const path = issue?.path?.length ? issue.path.join(".") : "record";
-      throw createMalformedAvailabilityPayloadError(`item ${index} ${path}: ${issue?.message ?? "invalid shape"}`);
-    }
-    return normalizeAvailabilityRecord(parsed.data);
-  });
 }
 
 function collectFallbackVendorStatusGroups(node: unknown, path: string[] = []): Array<{ path: string[]; items: unknown[] }> {
@@ -230,7 +180,7 @@ async function putWithRetry(url: string, payload: any, headers: Record<string, s
   throw lastErr;
 }
 
-async function fetchFallbackAvailabilities(token: string, expectedVendorIds: string[]) {
+async function fetchVssAvailabilities(token: string, expectedVendorIds: string[]) {
   const headers = {
     Authorization: `Bearer ${token}`,
     Accept: "application/json, text/plain, */*",
@@ -238,7 +188,7 @@ async function fetchFallbackAvailabilities(token: string, expectedVendorIds: str
     Referer: "https://partner-app.talabat.com/",
   };
 
-  const res = await getWithRetry(FALLBACK_STATUS_URL, headers, 1);
+  const res = await getWithRetry(VSS_STATUS_URL, headers, 1);
   const fallbackRows = normalizeFallbackAvailabilityPayload(res.data);
   if (!expectedVendorIds.length) {
     return fallbackRows;
@@ -249,34 +199,9 @@ async function fetchFallbackAvailabilities(token: string, expectedVendorIds: str
 }
 
 export async function fetchAvailabilities(token: string, options: FetchAvailabilitiesOptions = {}): Promise<AvailabilityRecord[]> {
-  const url = `${READ_BASE}/api/1/platforms/restaurants/availabilities`;
-  const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
-  const res = await getWithRetry(url, headers, 2);
-  const primaryRows = normalizeAvailabilityPayload(res.data);
   const expectedVendorIds = normalizeExpectedVendorIds(options.expectedVendorIds);
-
-  if (!expectedVendorIds.length) {
-    return primaryRows;
-  }
-
-  const merged = new Map(primaryRows.map((row) => [row.platformRestaurantId, row]));
-  const missingVendorIds = expectedVendorIds.filter((vendorId) => !merged.has(vendorId));
-  if (!missingVendorIds.length) {
-    return primaryRows;
-  }
-
-  try {
-    const fallbackRows = await fetchFallbackAvailabilities(token, missingVendorIds);
-    for (const row of fallbackRows) {
-      if (!merged.has(row.platformRestaurantId)) {
-        merged.set(row.platformRestaurantId, row);
-      }
-    }
-  } catch {
-    // The fallback endpoint is supplementary; primary data remains authoritative.
-  }
-
-  return Array.from(merged.values());
+  // Temporarily pin all availability reads to VSS until the legacy vendor-api endpoint is revalidated.
+  return fetchVssAvailabilities(token, expectedVendorIds);
 }
 
 export async function setAvailability(params: {

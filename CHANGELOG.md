@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-04-11
+
+- Finalized the internal system architecture hardening without changing product behavior:
+  - server session auth now resolves workspace access exclusively through the registered system-auth registry
+  - the shared web auth surface now centers on generic system/capability helpers instead of legacy per-workspace boolean flags
+  - the Scano task-runner experience was split into focused orchestration hooks/helpers so the page component is primarily composition
+  - the UPuse orders-mirror service was decomposed into responsibility-based modules while keeping the legacy compatibility barrel thin
+  - architecture guardrail tests now lock these boundaries so a third system can be added without reintroducing shared leaks or oversized orchestration files
+
 ## 2026-04-10
 
 - Refactored the repo around explicit system modules:

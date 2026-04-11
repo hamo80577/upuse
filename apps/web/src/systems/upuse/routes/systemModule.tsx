@@ -11,6 +11,18 @@ import type { SystemCapability, WebSystemModule } from "../../../core/systems/ty
 import { getAppPermissionsForAccess } from "../../../core/systems/permissions/upusePermissions";
 import { CapabilityRoute, SystemRoute } from "../../../app/router/guards";
 import { UpuseRouteShell } from "./UpuseRouteShell";
+import {
+  UPUSE_BRANCHES_DELETE_CAPABILITY,
+  UPUSE_BRANCHES_MANAGE_CAPABILITY,
+  UPUSE_LOGS_CLEAR_CAPABILITY,
+  UPUSE_MONITOR_MANAGE_CAPABILITY,
+  UPUSE_MONITOR_ORDERS_REFRESH_CAPABILITY,
+  UPUSE_SETTINGS_MANAGE_CAPABILITY,
+  UPUSE_SETTINGS_TOKENS_MANAGE_CAPABILITY,
+  UPUSE_SETTINGS_TOKENS_TEST_CAPABILITY,
+  UPUSE_THRESHOLDS_MANAGE_CAPABILITY,
+  UPUSE_USERS_MANAGE_CAPABILITY,
+} from "./capabilities";
 
 const DashboardPage = lazy(() =>
   import("../pages/dashboard/ui/DashboardPage").then((module) => ({ default: module.DashboardPage })),
@@ -36,16 +48,16 @@ function isActivePath(pathname: string, path: string) {
 }
 
 const upuseCapabilityByPermission = {
-  canManageUsers: "users.manage",
-  canManageMonitor: "monitor.manage",
-  canRefreshOrdersNow: "monitor.orders.refresh",
-  canManageBranches: "branches.manage",
-  canDeleteBranches: "branches.delete",
-  canManageThresholds: "thresholds.manage",
-  canManageSettings: "settings.manage",
-  canManageTokens: "settings.tokens.manage",
-  canTestTokens: "settings.tokens.test",
-  canClearLogs: "logs.clear",
+  canManageUsers: UPUSE_USERS_MANAGE_CAPABILITY,
+  canManageMonitor: UPUSE_MONITOR_MANAGE_CAPABILITY,
+  canRefreshOrdersNow: UPUSE_MONITOR_ORDERS_REFRESH_CAPABILITY,
+  canManageBranches: UPUSE_BRANCHES_MANAGE_CAPABILITY,
+  canDeleteBranches: UPUSE_BRANCHES_DELETE_CAPABILITY,
+  canManageThresholds: UPUSE_THRESHOLDS_MANAGE_CAPABILITY,
+  canManageSettings: UPUSE_SETTINGS_MANAGE_CAPABILITY,
+  canManageTokens: UPUSE_SETTINGS_TOKENS_MANAGE_CAPABILITY,
+  canTestTokens: UPUSE_SETTINGS_TOKENS_TEST_CAPABILITY,
+  canClearLogs: UPUSE_LOGS_CLEAR_CAPABILITY,
 } satisfies Record<string, SystemCapability>;
 
 function getUpuseRoleLabel(role?: AppUserRole | null) {
@@ -73,17 +85,6 @@ export const upuseSystemModule: WebSystemModule = {
       role: user?.role ?? null,
       roleLabel: getUpuseRoleLabel(user?.role),
       capabilities,
-    };
-  },
-  resolveLegacyAuth: ({ user, systems }) => {
-    const upuseAccess = systems.upuse?.enabled === true;
-    const permissions = getAppPermissionsForAccess(user?.role, upuseAccess);
-
-    return {
-      permissions,
-      isAdmin: permissions.isAdmin,
-      canAccessUpuse: upuseAccess,
-      canManageMonitor: permissions.canManageMonitor,
     };
   },
   canAccess: (auth) => auth.hasSystemAccess("upuse"),
@@ -130,7 +131,7 @@ export const upuseSystemModule: WebSystemModule = {
       isActive: location.pathname === "/settings",
     },
   ],
-  getAccountNavigation: (auth, location) => auth.hasSystemCapability("upuse", "users.manage")
+  getAccountNavigation: (auth, location) => auth.hasSystemCapability("upuse", UPUSE_USERS_MANAGE_CAPABILITY)
     ? [{
         key: "users",
         label: "User Management",
@@ -138,7 +139,7 @@ export const upuseSystemModule: WebSystemModule = {
         path: "/users",
         icon: <ManageAccountsRoundedIcon fontSize="small" />,
         isActive: location.pathname === "/users",
-        requiredCapability: "users.manage",
+        requiredCapability: UPUSE_USERS_MANAGE_CAPABILITY,
       }]
     : [],
   getRoutes: () => [
@@ -159,7 +160,7 @@ export const upuseSystemModule: WebSystemModule = {
       <Route
         path="/users"
         element={(
-          <CapabilityRoute systemId="upuse" capability="users.manage" fallbackPath="/">
+          <CapabilityRoute systemId="upuse" capability={UPUSE_USERS_MANAGE_CAPABILITY} fallbackPath="/">
             <UsersPage />
           </CapabilityRoute>
         )}

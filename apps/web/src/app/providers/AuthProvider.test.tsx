@@ -1,5 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  SCANO_SETTINGS_MANAGE_CAPABILITY,
+  SCANO_TASKS_MANAGE_CAPABILITY,
+} from "../../systems/scano/routes/capabilities";
 import { AuthProvider, useAuth } from "./AuthProvider";
 
 const mockApi = vi.hoisted(() => ({
@@ -21,11 +25,10 @@ vi.mock("../../api/client", () => ({
 
 function Probe() {
   const {
-    isAdmin,
     status,
     bootstrapError,
-    canManageScanoTasks,
-    canManageScanoSettings,
+    getSystemAccess,
+    hasSystemCapability,
     refreshAuth,
     retryBootstrap,
   } = useAuth();
@@ -33,10 +36,10 @@ function Probe() {
   return (
     <>
       <div data-testid="status">{status}</div>
-      <div data-testid="is-admin">{String(isAdmin)}</div>
+      <div data-testid="upuse-role">{String(getSystemAccess("upuse").role ?? "")}</div>
       <div data-testid="bootstrap-error">{bootstrapError ?? ""}</div>
-      <div data-testid="can-manage-scano-tasks">{String(canManageScanoTasks)}</div>
-      <div data-testid="can-manage-scano-settings">{String(canManageScanoSettings)}</div>
+      <div data-testid="can-manage-scano-tasks">{String(hasSystemCapability("scano", SCANO_TASKS_MANAGE_CAPABILITY))}</div>
+      <div data-testid="can-manage-scano-settings">{String(hasSystemCapability("scano", SCANO_SETTINGS_MANAGE_CAPABILITY))}</div>
       <button type="button" onClick={() => void refreshAuth()}>
         Refresh auth
       </button>
@@ -139,13 +142,13 @@ describe("AuthProvider", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("is-admin")).toHaveTextContent("true");
+      expect(screen.getByTestId("upuse-role")).toHaveTextContent("admin");
     });
 
     window.dispatchEvent(new Event("upuse:auth:forbidden"));
 
     await waitFor(() => {
-      expect(screen.getByTestId("is-admin")).toHaveTextContent("false");
+      expect(screen.getByTestId("upuse-role")).toHaveTextContent("user");
     });
 
     expect(mockApi.me).toHaveBeenCalledTimes(2);
@@ -178,7 +181,7 @@ describe("AuthProvider", () => {
 
     expect(screen.getByTestId("can-manage-scano-tasks")).toHaveTextContent("true");
     expect(screen.getByTestId("can-manage-scano-settings")).toHaveTextContent("false");
-    expect(screen.getByTestId("is-admin")).toHaveTextContent("false");
+    expect(screen.getByTestId("upuse-role")).toHaveTextContent("user");
   });
 
   it("keeps the newest refreshAuth result when concurrent requests resolve out of order", async () => {
@@ -226,7 +229,7 @@ describe("AuthProvider", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("is-admin")).toHaveTextContent("true");
+      expect(screen.getByTestId("upuse-role")).toHaveTextContent("admin");
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh auth" }));
@@ -246,7 +249,7 @@ describe("AuthProvider", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("is-admin")).toHaveTextContent("false");
+      expect(screen.getByTestId("upuse-role")).toHaveTextContent("user");
     });
 
     resolveFirstRefresh({
@@ -266,6 +269,6 @@ describe("AuthProvider", () => {
       expect(mockApi.me).toHaveBeenCalledTimes(3);
     });
 
-    expect(screen.getByTestId("is-admin")).toHaveTextContent("false");
+    expect(screen.getByTestId("upuse-role")).toHaveTextContent("user");
   });
 });

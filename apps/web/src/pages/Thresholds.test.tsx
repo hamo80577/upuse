@@ -2,6 +2,10 @@ import type { ReactNode } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
+import {
+  UPUSE_MONITOR_MANAGE_CAPABILITY,
+  UPUSE_THRESHOLDS_MANAGE_CAPABILITY,
+} from "../systems/upuse/routes/capabilities";
 
 const mockApi = vi.hoisted(() => ({
   dashboard: vi.fn(),
@@ -36,18 +40,41 @@ vi.mock("motion/react", () => ({
   useReducedMotion: () => true,
 }));
 
-vi.mock("../api/client", () => ({
+vi.mock("../systems/upuse/api/client", () => ({
   api: mockApi,
   describeApiError: (error: unknown, fallback = "Request failed") => (error instanceof Error ? error.message : fallback),
 }));
 
 vi.mock("../app/providers/AuthProvider", () => ({
   useAuth: () => ({
-    ...authState,
-    canManageSettings: true,
-    canManageTokens: true,
-    canTestTokens: true,
-    canManage: true,
+    user: { name: "Test User" },
+    logout: vi.fn(),
+    hasSystemAccess: (systemId: string) => systemId === "upuse",
+    hasSystemCapability: (systemId: string, capability: string) => (
+      systemId === "upuse"
+        && [
+          ...(authState.canManageMonitor ? [UPUSE_MONITOR_MANAGE_CAPABILITY] : []),
+          ...(authState.canManageThresholds ? [UPUSE_THRESHOLDS_MANAGE_CAPABILITY] : []),
+        ].includes(capability)
+    ),
+    getSystemAccess: (systemId: string) => (
+      systemId === "upuse"
+        ? {
+            enabled: true,
+            role: "user",
+            roleLabel: "User",
+            capabilities: [
+              ...(authState.canManageMonitor ? [UPUSE_MONITOR_MANAGE_CAPABILITY] : []),
+              ...(authState.canManageThresholds ? [UPUSE_THRESHOLDS_MANAGE_CAPABILITY] : []),
+            ],
+          }
+        : {
+            enabled: false,
+            role: null,
+            roleLabel: null,
+            capabilities: [],
+          }
+    ),
   }),
 }));
 
@@ -60,11 +87,11 @@ vi.mock("../app/providers/MonitorStatusProvider", () => ({
   }),
 }));
 
-vi.mock("../widgets/top-bar/ui/TopBar", () => ({
+vi.mock("../systems/upuse/widgets/top-bar/ui/TopBar", () => ({
   TopBar: () => null,
 }));
 
-vi.mock("../features/settings/ChainThresholdManager", () => ({
+vi.mock("../systems/upuse/features/settings/ChainThresholdManager", () => ({
   ChainThresholdManager: (props: any) => (
     <div data-testid="chains-studio">
       <div>{props.readOnly ? "chains-read-only" : "chains-editable"}</div>
@@ -76,7 +103,7 @@ vi.mock("../features/settings/ChainThresholdManager", () => ({
   ),
 }));
 
-vi.mock("../features/settings/BranchThresholdOverrideManager", () => ({
+vi.mock("../systems/upuse/features/settings/BranchThresholdOverrideManager", () => ({
   BranchThresholdOverrideManager: (props: any) => (
     <div data-testid="overrides-studio">
       <div>{props.readOnly ? "overrides-read-only" : "overrides-editable"}</div>

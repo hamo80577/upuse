@@ -45,6 +45,13 @@ const SettingsPatch = z
   })
   .strict();
 
+const SettingsTokenTestPayload = z
+  .object({
+    ordersToken: z.string().trim().optional(),
+    availabilityToken: z.string().trim().optional(),
+  })
+  .strict();
+
 export function getSettingsRoute(_req: Request, res: Response) {
   const s = getSettings();
   res.json({ ...s, ordersToken: mask(s.ordersToken), availabilityToken: mask(s.availabilityToken) });
@@ -105,8 +112,22 @@ export function putSettingsRoute(req: Request, res: Response) {
   res.json({ ok: true, settings: { ...updated, ordersToken: mask(updated.ordersToken), availabilityToken: mask(updated.availabilityToken) } });
 }
 
-export async function testTokensRoute(_req: Request, res: Response) {
-  const job = startSettingsTokenTestJob();
+export async function testTokensRoute(req: Request, res: Response) {
+  const payload = SettingsTokenTestPayload.parse(req.body ?? {});
+  const overrides = {
+    ...(payload.ordersToken ? { ordersToken: payload.ordersToken } : {}),
+    ...(payload.availabilityToken ? { availabilityToken: payload.availabilityToken } : {}),
+  };
+  const role = req.authUser?.role;
+
+  if (Object.keys(overrides).length > 0 && !hasCapability(role, "manage_settings_tokens")) {
+    return res.status(403).json({
+      ok: false,
+      message: "Forbidden",
+    });
+  }
+
+  const job = startSettingsTokenTestJob(Object.keys(overrides).length > 0 ? overrides : undefined);
   res.status(202).json({
     ok: true,
     jobId: job.jobId,

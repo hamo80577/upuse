@@ -5,6 +5,12 @@ import { lazy } from "react";
 import { Navigate, Route } from "react-router-dom";
 import type { WebSystemModule } from "../../../core/systems/types";
 import { CapabilityRoute, SystemRoute } from "../../../app/router/guards";
+import {
+  SCANO_MASTER_PRODUCTS_MANAGE_CAPABILITY,
+  SCANO_SETTINGS_MANAGE_CAPABILITY,
+  SCANO_TASKS_MANAGE_CAPABILITY,
+  SCANO_TASKS_RUN_ASSIGNED_CAPABILITY,
+} from "./capabilities";
 
 const ScanoPage = lazy(() =>
   import("../pages/scano/ui/ScanoPage").then((module) => ({ default: module.ScanoPage })),
@@ -24,10 +30,6 @@ const ScanoSettingsPage = lazy(() =>
 const ScanoMasterProductPage = lazy(() =>
   import("../pages/scano/ui/ScanoMasterProductPage").then((module) => ({ default: module.ScanoMasterProductPage })),
 );
-
-const SCANO_TASK_MANAGER_CAPABILITY = "tasks.manage";
-const SCANO_TASK_RUNNER_CAPABILITY = "tasks.run_assigned";
-const SCANO_SETTINGS_CAPABILITY = "settings.manage";
 
 function hasCapability(auth: Parameters<WebSystemModule["getNavigation"]>[0], capability: string) {
   return auth.hasSystemCapability("scano", capability);
@@ -55,9 +57,9 @@ export const scanoSystemModule: WebSystemModule = {
     const role = user?.scanoRole ?? null;
     const canManageTasks = isPrimaryAdmin || role === "team_lead";
     const capabilities = [
-      ...(canManageTasks ? [SCANO_TASK_MANAGER_CAPABILITY, "master-products.manage"] : []),
-      ...(role === "scanner" ? [SCANO_TASK_RUNNER_CAPABILITY] : []),
-      ...(isPrimaryAdmin ? [SCANO_SETTINGS_CAPABILITY] : []),
+      ...(canManageTasks ? [SCANO_TASKS_MANAGE_CAPABILITY, SCANO_MASTER_PRODUCTS_MANAGE_CAPABILITY] : []),
+      ...(role === "scanner" ? [SCANO_TASKS_RUN_ASSIGNED_CAPABILITY] : []),
+      ...(isPrimaryAdmin ? [SCANO_SETTINGS_MANAGE_CAPABILITY] : []),
     ];
 
     return {
@@ -73,16 +75,10 @@ export const scanoSystemModule: WebSystemModule = {
       capabilities,
     };
   },
-  resolveLegacyAuth: ({ user, systems }) => ({
-    scanoRole: user?.scanoRole ?? null,
-    canAccessScano: systems.scano?.enabled === true,
-    canManageScanoTasks: systems.scano?.capabilities.includes(SCANO_TASK_MANAGER_CAPABILITY) ?? false,
-    canManageScanoSettings: systems.scano?.capabilities.includes(SCANO_SETTINGS_CAPABILITY) ?? false,
-  }),
   canAccess: (auth) => auth.hasSystemAccess("scano"),
-  resolveHomePath: (auth) => resolveScanoHomePath(hasCapability(auth, SCANO_TASK_MANAGER_CAPABILITY)),
+  resolveHomePath: (auth) => resolveScanoHomePath(hasCapability(auth, SCANO_TASKS_MANAGE_CAPABILITY)),
   getNavigation: (auth, location) => [
-    ...(hasCapability(auth, SCANO_TASK_MANAGER_CAPABILITY) ? [{
+    ...(hasCapability(auth, SCANO_TASKS_MANAGE_CAPABILITY) ? [{
       key: "assign-task",
       label: "Assign Task",
       caption: "Scano tasks",
@@ -97,7 +93,7 @@ export const scanoSystemModule: WebSystemModule = {
       icon: <Inventory2RoundedIcon fontSize="small" />,
       isActive: location.pathname === "/scano/master-product",
     }] : []),
-    ...(!hasCapability(auth, SCANO_TASK_MANAGER_CAPABILITY) && hasCapability(auth, SCANO_TASK_RUNNER_CAPABILITY) ? [{
+    ...(!hasCapability(auth, SCANO_TASKS_MANAGE_CAPABILITY) && hasCapability(auth, SCANO_TASKS_RUN_ASSIGNED_CAPABILITY) ? [{
       key: "my-tasks",
       label: "My Tasks",
       caption: "Assigned work",
@@ -105,7 +101,7 @@ export const scanoSystemModule: WebSystemModule = {
       icon: <QrCodeScannerRoundedIcon fontSize="small" />,
       isActive: location.pathname === "/scano/my-tasks" || activeGroup(location.pathname, "/scano/tasks"),
     }] : []),
-    ...(hasCapability(auth, SCANO_SETTINGS_CAPABILITY) ? [{
+    ...(hasCapability(auth, SCANO_SETTINGS_MANAGE_CAPABILITY) ? [{
       key: "settings",
       label: "Scano Settings",
       caption: "Catalog token",
@@ -120,7 +116,7 @@ export const scanoSystemModule: WebSystemModule = {
       path="/scano"
       element={(
         <SystemRoute systemId="scano">
-          <Navigate to={resolveScanoHomePath(hasCapability(context.auth, SCANO_TASK_MANAGER_CAPABILITY))} replace />
+          <Navigate to={resolveScanoHomePath(hasCapability(context.auth, SCANO_TASKS_MANAGE_CAPABILITY))} replace />
         </SystemRoute>
       )}
     />,
@@ -129,7 +125,7 @@ export const scanoSystemModule: WebSystemModule = {
       path="/scano/assign-task"
       element={(
         <SystemRoute systemId="scano">
-          <CapabilityRoute systemId="scano" capability={SCANO_TASK_MANAGER_CAPABILITY} fallbackPath="/scano/my-tasks">
+          <CapabilityRoute systemId="scano" capability={SCANO_TASKS_MANAGE_CAPABILITY} fallbackPath="/scano/my-tasks">
             <ScanoPage />
           </CapabilityRoute>
         </SystemRoute>
@@ -140,7 +136,7 @@ export const scanoSystemModule: WebSystemModule = {
       path="/scano/master-product"
       element={(
         <SystemRoute systemId="scano">
-          <CapabilityRoute systemId="scano" capability={SCANO_TASK_MANAGER_CAPABILITY} fallbackPath="/scano/my-tasks">
+          <CapabilityRoute systemId="scano" capability={SCANO_TASKS_MANAGE_CAPABILITY} fallbackPath="/scano/my-tasks">
             <ScanoMasterProductPage />
           </CapabilityRoute>
         </SystemRoute>
@@ -151,7 +147,7 @@ export const scanoSystemModule: WebSystemModule = {
       path="/scano/my-tasks"
       element={(
         <SystemRoute systemId="scano">
-          <CapabilityRoute systemId="scano" capability={SCANO_TASK_RUNNER_CAPABILITY} fallbackPath={resolveScanoHomePath(hasCapability(context.auth, SCANO_TASK_MANAGER_CAPABILITY))}>
+          <CapabilityRoute systemId="scano" capability={SCANO_TASKS_RUN_ASSIGNED_CAPABILITY} fallbackPath={resolveScanoHomePath(hasCapability(context.auth, SCANO_TASKS_MANAGE_CAPABILITY))}>
             <ScanoMyTasksPage />
           </CapabilityRoute>
         </SystemRoute>
@@ -171,7 +167,7 @@ export const scanoSystemModule: WebSystemModule = {
       path="/scano/tasks/:id/run"
       element={(
         <SystemRoute systemId="scano">
-          <CapabilityRoute systemId="scano" capability={SCANO_TASK_RUNNER_CAPABILITY} fallbackPath={resolveScanoHomePath(hasCapability(context.auth, SCANO_TASK_MANAGER_CAPABILITY))}>
+          <CapabilityRoute systemId="scano" capability={SCANO_TASKS_RUN_ASSIGNED_CAPABILITY} fallbackPath={resolveScanoHomePath(hasCapability(context.auth, SCANO_TASKS_MANAGE_CAPABILITY))}>
             <ScanoTaskRunnerPage />
           </CapabilityRoute>
         </SystemRoute>
@@ -182,7 +178,7 @@ export const scanoSystemModule: WebSystemModule = {
       path="/scano/settings"
       element={(
         <SystemRoute systemId="scano">
-          <CapabilityRoute systemId="scano" capability={SCANO_SETTINGS_CAPABILITY} fallbackPath={resolveScanoHomePath(hasCapability(context.auth, SCANO_TASK_MANAGER_CAPABILITY))}>
+          <CapabilityRoute systemId="scano" capability={SCANO_SETTINGS_MANAGE_CAPABILITY} fallbackPath={resolveScanoHomePath(hasCapability(context.auth, SCANO_TASKS_MANAGE_CAPABILITY))}>
             <ScanoSettingsPage />
           </CapabilityRoute>
         </SystemRoute>
@@ -193,7 +189,7 @@ export const scanoSystemModule: WebSystemModule = {
       path="/scano/*"
       element={(
         <SystemRoute systemId="scano">
-          <Navigate to={resolveScanoHomePath(hasCapability(context.auth, SCANO_TASK_MANAGER_CAPABILITY))} replace />
+          <Navigate to={resolveScanoHomePath(hasCapability(context.auth, SCANO_TASKS_MANAGE_CAPABILITY))} replace />
         </SystemRoute>
       )}
     />,

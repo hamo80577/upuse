@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
+import { UPUSE_USERS_MANAGE_CAPABILITY } from "../systems/upuse/routes/capabilities";
 
 const mockApi = vi.hoisted(() => ({
   listUsers: vi.fn(),
@@ -11,6 +12,7 @@ const mockApi = vi.hoisted(() => ({
 
 const mockAuthState = vi.hoisted(() => ({
   value: {
+    status: "authenticated" as const,
     user: {
       id: 1,
       email: "admin@example.com",
@@ -22,10 +24,30 @@ const mockAuthState = vi.hoisted(() => ({
       isPrimaryAdmin: true,
       scanoRole: "team_lead" as const,
     },
+    logout: vi.fn(),
+    hasSystemAccess: (systemId: string) => systemId === "upuse",
+    hasSystemCapability: (systemId: string, capability: string) => (
+      systemId === "upuse" && capability === UPUSE_USERS_MANAGE_CAPABILITY
+    ),
+    getSystemAccess: (systemId: string) => (
+      systemId === "upuse"
+        ? {
+            enabled: true,
+            role: "admin",
+            roleLabel: "Admin",
+            capabilities: [UPUSE_USERS_MANAGE_CAPABILITY],
+          }
+        : {
+            enabled: false,
+            role: null,
+            roleLabel: null,
+            capabilities: [],
+          }
+    ),
   },
 }));
 
-vi.mock("../api/client", () => ({
+vi.mock("../systems/upuse/api/client", () => ({
   api: mockApi,
   describeApiError: (error: unknown, fallback = "Request failed") => (error instanceof Error ? error.message : fallback),
 }));
@@ -42,7 +64,7 @@ vi.mock("../app/providers/MonitorStatusProvider", () => ({
   }),
 }));
 
-vi.mock("../widgets/top-bar/ui/TopBar", () => ({
+vi.mock("../systems/upuse/widgets/top-bar/ui/TopBar", () => ({
   TopBar: () => null,
 }));
 

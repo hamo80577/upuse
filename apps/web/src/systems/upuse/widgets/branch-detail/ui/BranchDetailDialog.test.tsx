@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BranchDetailResult, BranchSnapshot } from "../../../api/types";
+import { UPUSE_LOGS_CLEAR_CAPABILITY } from "../../../routes/capabilities";
 
 const mockRefreshDetail = vi.hoisted(() => vi.fn());
 const mockLoadMoreLogs = vi.hoisted(() => vi.fn());
@@ -14,8 +15,15 @@ vi.mock("../../../api/client", () => ({
 
 vi.mock("../../../app/providers/AuthProvider", () => ({
   useAuth: () => ({
-    canManage: true,
-    canManageBranches: true,
+    getSystemAccess: () => ({
+      enabled: true,
+      role: "admin",
+      roleLabel: "Admin",
+      capabilities: [UPUSE_LOGS_CLEAR_CAPABILITY],
+    }),
+    hasSystemCapability: (systemId: string, capability: string) => (
+      systemId === "upuse" && capability === UPUSE_LOGS_CLEAR_CAPABILITY
+    ),
   }),
 }));
 

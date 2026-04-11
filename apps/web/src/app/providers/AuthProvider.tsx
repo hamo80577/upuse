@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from "react";
 import { AUTH_FORBIDDEN_EVENT, AUTH_UNAUTHORIZED_EVENT, api, describeApiError } from "../../api/client";
 import type { AppUser } from "../../api/types";
-import { getAppPermissionsForAccess, type AppPermissions } from "../permissions";
 import { getWebSystems } from "../../core/systems/registry";
 import type { AuthSystemState, SystemAccessMap, SystemAccessState, SystemCapability, SystemId } from "../../core/systems/types";
 
@@ -13,32 +12,13 @@ function isUnauthorizedBootstrapError(error: unknown) {
 }
 
 interface AuthContextValue {
-  status: AuthStatus;
-  user: AppUser | null;
+  status: AuthSystemState["status"];
+  user: AuthSystemState["user"];
   bootstrapError: string | null;
-  systems: SystemAccessMap;
-  hasSystemAccess: (systemId: SystemId) => boolean;
-  hasSystemCapability: (systemId: SystemId, capability: SystemCapability) => boolean;
-  getSystemAccess: (systemId: SystemId) => SystemAccessState;
-  permissions: AppPermissions;
-  isAdmin: boolean;
-  scanoRole: AppUser["scanoRole"] | null;
-  canAccessUpuse: boolean;
-  canAccessScano: boolean;
-  canManageScanoTasks: boolean;
-  canManageScanoSettings: boolean;
-  canSwitchSystems: boolean;
-  canManage: boolean;
-  canManageUsers: boolean;
-  canManageMonitor: boolean;
-  canRefreshOrdersNow: boolean;
-  canManageBranches: boolean;
-  canDeleteBranches: boolean;
-  canManageThresholds: boolean;
-  canManageSettings: boolean;
-  canManageTokens: boolean;
-  canTestTokens: boolean;
-  canClearLogs: boolean;
+  systems: AuthSystemState["systems"];
+  hasSystemAccess: AuthSystemState["hasSystemAccess"];
+  hasSystemCapability: AuthSystemState["hasSystemCapability"];
+  getSystemAccess: AuthSystemState["getSystemAccess"];
   refreshAuth: () => Promise<void>;
   retryBootstrap: () => void;
   login: (payload: { email: string; password: string }) => Promise<void>;
@@ -154,14 +134,6 @@ export function AuthProvider(props: PropsWithChildren) {
   const value = useMemo<AuthContextValue>(() => {
     const systems = buildSystemAccess(user);
     const accessHelpers = createSystemAccessHelpers(systems);
-    const legacyAuthContext = { user, systems };
-    const legacyAuth = getWebSystems().reduce<Partial<AuthSystemState>>((current, system) => ({
-      ...current,
-      ...system.resolveLegacyAuth?.(legacyAuthContext),
-    }), {});
-    const permissions = legacyAuth.permissions ?? getAppPermissionsForAccess(null, false);
-    const canAccessUpuse = legacyAuth.canAccessUpuse ?? accessHelpers.hasSystemAccess("upuse");
-    const canAccessScano = legacyAuth.canAccessScano ?? accessHelpers.hasSystemAccess("scano");
 
     return {
       status,
@@ -169,25 +141,6 @@ export function AuthProvider(props: PropsWithChildren) {
       bootstrapError,
       systems,
       ...accessHelpers,
-      permissions,
-      isAdmin: permissions.isAdmin,
-      scanoRole: legacyAuth.scanoRole ?? user?.scanoRole ?? null,
-      canAccessUpuse,
-      canAccessScano,
-      canManageScanoTasks: legacyAuth.canManageScanoTasks ?? accessHelpers.hasSystemCapability("scano", "tasks.manage"),
-      canManageScanoSettings: legacyAuth.canManageScanoSettings ?? accessHelpers.hasSystemCapability("scano", "settings.manage"),
-      canSwitchSystems: canAccessUpuse && canAccessScano,
-      canManage: permissions.canManage,
-      canManageUsers: permissions.canManageUsers,
-      canManageMonitor: permissions.canManageMonitor,
-      canRefreshOrdersNow: permissions.canRefreshOrdersNow,
-      canManageBranches: permissions.canManageBranches,
-      canDeleteBranches: permissions.canDeleteBranches,
-      canManageThresholds: permissions.canManageThresholds,
-      canManageSettings: permissions.canManageSettings,
-      canManageTokens: permissions.canManageTokens,
-      canTestTokens: permissions.canTestTokens,
-      canClearLogs: permissions.canClearLogs,
       refreshAuth,
       retryBootstrap: () => {
         setStatus("loading");

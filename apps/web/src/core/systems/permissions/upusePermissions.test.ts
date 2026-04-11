@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getAppPermissions } from "./permissions";
+import { getAppPermissions } from "./upusePermissions";
 
 describe("getAppPermissions", () => {
   it("grants the user role mapping and token capabilities while keeping user management admin-only", () => {

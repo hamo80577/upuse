@@ -12,6 +12,8 @@ describe("server system architecture boundaries", () => {
 
     expect(source).not.toContain("systems/upuse");
     expect(source).not.toContain("systems/scano");
+    expect(source).not.toContain("accessRegistry");
+    expect(source).toContain("core/systems/auth/registry");
     expect(source).toContain("authorizeSystemUpgradeFromCookieHeader");
   });
 
@@ -26,5 +28,16 @@ describe("server system architecture boundaries", () => {
     const source = readSource("services/ordersMirrorStore.ts").trim();
 
     expect(source).toBe('export * from "../systems/upuse/services/orders-mirror/index.js";');
+  });
+
+  it("keeps the orders mirror runtime and public barrel split from orchestration internals", () => {
+    const runtimeSource = readSource("systems/upuse/services/orders-mirror/runtime.ts");
+    const indexSource = readSource("systems/upuse/services/orders-mirror/index.ts");
+
+    expect(runtimeSource).not.toContain('./index.js');
+    expect(runtimeSource).toContain('./syncOrchestrator.js');
+    expect(indexSource).toContain('./syncOrchestrator.js');
+    expect(indexSource).not.toContain("db.prepare");
+    expect(indexSource).not.toContain("getWithRetry");
   });
 });

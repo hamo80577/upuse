@@ -7,6 +7,18 @@ function readSource(relativePath: string) {
 }
 
 describe("web system architecture boundaries", () => {
+  it("keeps shared auth types and provider capability-driven instead of legacy system flags", () => {
+    const typesSource = readSource("core/systems/types.ts");
+    const authProviderSource = readSource("app/providers/AuthProvider.tsx");
+
+    expect(typesSource).not.toContain("resolveLegacyAuth");
+    expect(typesSource).not.toContain("canAccessUpuse");
+    expect(typesSource).not.toContain("canManageScanoTasks");
+    expect(authProviderSource).not.toContain("legacyAuth");
+    expect(authProviderSource).not.toContain("canAccessUpuse");
+    expect(authProviderSource).toContain("createSystemAccessHelpers");
+  });
+
   it("keeps shared endpoint composition free of system-owned API imports", () => {
     const source = readSource("shared/api/endpoints.ts");
 
@@ -28,5 +40,14 @@ describe("web system architecture boundaries", () => {
 
     expect(source).toContain("CapabilityRoute");
     expect(source).not.toContain("UpuseAdminRoute");
+  });
+
+  it("keeps the Scano task runner experience focused on composition instead of direct API orchestration", () => {
+    const source = readSource("systems/scano/features/task-runner/ui/ScanoTaskRunnerExperience.tsx");
+
+    expect(source).not.toContain('from "../../../api/client"');
+    expect(source).toContain("useScanoTaskRunnerProductFlow");
+    expect(source).toContain("useScanoTaskRunnerLifecycle");
+    expect(source).toContain("useScanoTaskRunnerDerivedState");
   });
 });

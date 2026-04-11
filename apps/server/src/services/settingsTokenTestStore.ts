@@ -44,6 +44,8 @@ interface SettingsTokenTestResultRow {
   sampleVendorName: string | null;
 }
 
+type SettingsTokenTestOverrides = Partial<Pick<Settings, "ordersToken" | "availabilityToken">>;
+
 function resolveOrdersTestConcurrency() {
   const raw = Number(process.env.UPUSE_ORDERS_TEST_CONCURRENCY ?? "2");
   if (!Number.isFinite(raw)) return 2;
@@ -375,8 +377,11 @@ async function runSettingsTokenTestJob(jobId: string, settings: Settings, branch
   });
 }
 
-export function startSettingsTokenTestJob() {
-  const settings = getSettings();
+export function startSettingsTokenTestJob(overrides?: SettingsTokenTestOverrides) {
+  const settings = {
+    ...getSettings(),
+    ...overrides,
+  };
   const branches = listResolvedBranches({ enabledOnly: true });
   const jobId = randomUUID();
   const createdAt = new Date().toISOString();

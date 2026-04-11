@@ -17,6 +17,10 @@ import type { BranchMappingItem, ChainThreshold } from "../../../api/types";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useMonitorStatus } from "../../../app/providers/MonitorStatusProvider";
 import {
+  UPUSE_MONITOR_MANAGE_CAPABILITY,
+  UPUSE_THRESHOLDS_MANAGE_CAPABILITY,
+} from "../../../routes/capabilities";
+import {
   emptyBranchThresholdEditor,
   emptyChainEditor,
   normalizeChains,
@@ -51,7 +55,9 @@ function emptyDefaultThresholdEditor(): DefaultThresholdEditorDraft {
 }
 
 export function ThresholdsPage() {
-  const { canManageMonitor, canManageThresholds } = useAuth();
+  const { hasSystemCapability } = useAuth();
+  const canManageMonitor = hasSystemCapability("upuse", UPUSE_MONITOR_MANAGE_CAPABILITY);
+  const canManageThresholds = hasSystemCapability("upuse", UPUSE_THRESHOLDS_MANAGE_CAPABILITY);
   const { monitoring, startMonitoring, stopMonitoring } = useMonitorStatus();
   const shouldReduceMotion = useReducedMotion();
   const {

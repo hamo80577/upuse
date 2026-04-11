@@ -272,7 +272,12 @@ export const upuseApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }),
-  startTokenTest: () => requestJson<SettingsTokenTestStartResponse>("/api/settings/test", { method: "POST" }),
+  startTokenTest: (payload?: { ordersToken?: string; availabilityToken?: string }) =>
+    requestJson<SettingsTokenTestStartResponse>("/api/settings/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload ?? {}),
+    }),
   getTokenTest: (jobId: string) => requestJson<SettingsTokenTestSnapshot>(`/api/settings/test/${encodeURIComponent(jobId)}`),
   listBranches: async () =>
     normalizeBranchItemsResponse(await requestJson<{ items: Array<BranchMappingItem | LegacyBranchMappingItem> }>("/api/branches")),

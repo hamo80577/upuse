@@ -42,6 +42,7 @@ import type {
   ScanoTeamMember,
 } from "../../../api/types";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import { SCANO_TASKS_MANAGE_CAPABILITY } from "../../../routes/capabilities";
 import { TopBar } from "../../../widgets/top-bar/ui/TopBar";
 import { ScanoAssigneeChips } from "./ScanoAssigneeChips";
 import { ScanoConfirmedProductsTable } from "./ScanoConfirmedProductsTable";
@@ -102,7 +103,8 @@ export function ScanoTaskProfilePage() {
   const navigate = useNavigate();
   const params = useParams<{ id: string }>();
   const taskId = params.id?.trim() ?? "";
-  const { canManageScanoTasks } = useAuth();
+  const { hasSystemCapability } = useAuth();
+  const canManageScanoTasks = hasSystemCapability("scano", SCANO_TASKS_MANAGE_CAPABILITY);
   const fallbackPath = canManageScanoTasks ? "/scano/assign-task" : "/scano/my-tasks";
 
   const [task, setTask] = useState<ScanoTaskDetail | null>(null);
