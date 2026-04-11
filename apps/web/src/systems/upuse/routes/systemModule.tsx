@@ -3,10 +3,13 @@ import LeaderboardRoundedIcon from "@mui/icons-material/LeaderboardRounded";
 import SettingsIcon from "@mui/icons-material/Settings";
 import StorefrontIcon from "@mui/icons-material/Storefront";
 import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
+import ManageAccountsRoundedIcon from "@mui/icons-material/ManageAccountsRounded";
 import { lazy } from "react";
 import { Route } from "react-router-dom";
-import type { WebSystemModule } from "../../../core/systems/types";
-import { SystemRoute, UpuseAdminRoute } from "../../../app/router/guards";
+import type { AppUserRole } from "../../../api/types";
+import type { SystemCapability, WebSystemModule } from "../../../core/systems/types";
+import { getAppPermissionsForAccess } from "../../../core/systems/permissions/upusePermissions";
+import { CapabilityRoute, SystemRoute } from "../../../app/router/guards";
 import { UpuseRouteShell } from "./UpuseRouteShell";
 
 const DashboardPage = lazy(() =>
@@ -32,11 +35,58 @@ function isActivePath(pathname: string, path: string) {
   return pathname === path || pathname.startsWith(`${path}/`);
 }
 
+const upuseCapabilityByPermission = {
+  canManageUsers: "users.manage",
+  canManageMonitor: "monitor.manage",
+  canRefreshOrdersNow: "monitor.orders.refresh",
+  canManageBranches: "branches.manage",
+  canDeleteBranches: "branches.delete",
+  canManageThresholds: "thresholds.manage",
+  canManageSettings: "settings.manage",
+  canManageTokens: "settings.tokens.manage",
+  canTestTokens: "settings.tokens.test",
+  canClearLogs: "logs.clear",
+} satisfies Record<string, SystemCapability>;
+
+function getUpuseRoleLabel(role?: AppUserRole | null) {
+  return role === "admin" ? "Admin" : "User";
+}
+
 export const upuseSystemModule: WebSystemModule = {
   id: "upuse",
   label: "UPuse",
   basePath: "/",
-  canAccess: (auth) => auth.canAccessUpuse,
+  switcher: {
+    icon: <HubIcon fontSize="small" />,
+    description: "Operations workspace",
+    loadingTitle: "Returning to UPuse",
+  },
+  resolveAccess: (user) => {
+    const enabled = user?.upuseAccess === true;
+    const permissions = getAppPermissionsForAccess(user?.role, enabled);
+    const capabilities = Object.entries(upuseCapabilityByPermission)
+      .filter(([permissionKey]) => permissions[permissionKey as keyof typeof permissions] === true)
+      .map(([, capability]) => capability);
+
+    return {
+      enabled,
+      role: user?.role ?? null,
+      roleLabel: getUpuseRoleLabel(user?.role),
+      capabilities,
+    };
+  },
+  resolveLegacyAuth: ({ user, systems }) => {
+    const upuseAccess = systems.upuse?.enabled === true;
+    const permissions = getAppPermissionsForAccess(user?.role, upuseAccess);
+
+    return {
+      permissions,
+      isAdmin: permissions.isAdmin,
+      canAccessUpuse: upuseAccess,
+      canManageMonitor: permissions.canManageMonitor,
+    };
+  },
+  canAccess: (auth) => auth.hasSystemAccess("upuse"),
   resolveHomePath: () => "/",
   getNavigation: (_auth, location) => [
     {
@@ -80,6 +130,17 @@ export const upuseSystemModule: WebSystemModule = {
       isActive: location.pathname === "/settings",
     },
   ],
+  getAccountNavigation: (auth, location) => auth.hasSystemCapability("upuse", "users.manage")
+    ? [{
+        key: "users",
+        label: "User Management",
+        caption: "Admin only",
+        path: "/users",
+        icon: <ManageAccountsRoundedIcon fontSize="small" />,
+        isActive: location.pathname === "/users",
+        requiredCapability: "users.manage",
+      }]
+    : [],
   getRoutes: () => [
     <Route
       key="upuse-shell"
@@ -98,9 +159,9 @@ export const upuseSystemModule: WebSystemModule = {
       <Route
         path="/users"
         element={(
-          <UpuseAdminRoute>
+          <CapabilityRoute systemId="upuse" capability="users.manage" fallbackPath="/">
             <UsersPage />
-          </UpuseAdminRoute>
+          </CapabilityRoute>
         )}
       />
     </Route>,

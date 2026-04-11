@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AUTH_FORBIDDEN_EVENT, AUTH_UNAUTHORIZED_EVENT, api, describeApiError } from "../../api/client";
 import type { AppUser } from "../../api/types";
 import { getAppPermissionsForAccess, type AppPermissions } from "../permissions";
+import { getWebSystems } from "../../core/systems/registry";
+import type { AuthSystemState, SystemAccessMap, SystemAccessState, SystemCapability, SystemId } from "../../core/systems/types";
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 const UNAUTHORIZED_MESSAGE = "Sign in again to access protected routes.";
@@ -14,6 +16,10 @@ interface AuthContextValue {
   status: AuthStatus;
   user: AppUser | null;
   bootstrapError: string | null;
+  systems: SystemAccessMap;
+  hasSystemAccess: (systemId: SystemId) => boolean;
+  hasSystemCapability: (systemId: SystemId, capability: SystemCapability) => boolean;
+  getSystemAccess: (systemId: SystemId) => SystemAccessState;
   permissions: AppPermissions;
   isAdmin: boolean;
   scanoRole: AppUser["scanoRole"] | null;
@@ -40,6 +46,32 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+const disabledSystemAccess: SystemAccessState = {
+  enabled: false,
+  role: null,
+  roleLabel: null,
+  capabilities: [],
+};
+
+function buildSystemAccess(user: AppUser | null) {
+  return Object.fromEntries(
+    getWebSystems().map((system) => [system.id, system.resolveAccess(user)]),
+  ) as SystemAccessMap;
+}
+
+function createSystemAccessHelpers(systems: SystemAccessMap) {
+  const getSystemAccess = (systemId: SystemId) => systems[systemId] ?? disabledSystemAccess;
+  const hasSystemAccess = (systemId: SystemId) => getSystemAccess(systemId).enabled;
+  const hasSystemCapability = (systemId: SystemId, capability: SystemCapability) =>
+    getSystemAccess(systemId).capabilities.includes(capability);
+
+  return {
+    getSystemAccess,
+    hasSystemAccess,
+    hasSystemCapability,
+  };
+}
 
 export function AuthProvider(props: PropsWithChildren) {
   const [status, setStatus] = useState<AuthStatus>("loading");
@@ -120,21 +152,30 @@ export function AuthProvider(props: PropsWithChildren) {
   }, [refreshAuth, status]);
 
   const value = useMemo<AuthContextValue>(() => {
-    const canAccessUpuse = user?.upuseAccess === true;
-    const canAccessScano = !!user && (user.isPrimaryAdmin || user.scanoRole === "team_lead" || user.scanoRole === "scanner");
-    const permissions = getAppPermissionsForAccess(user?.role, canAccessUpuse);
+    const systems = buildSystemAccess(user);
+    const accessHelpers = createSystemAccessHelpers(systems);
+    const legacyAuthContext = { user, systems };
+    const legacyAuth = getWebSystems().reduce<Partial<AuthSystemState>>((current, system) => ({
+      ...current,
+      ...system.resolveLegacyAuth?.(legacyAuthContext),
+    }), {});
+    const permissions = legacyAuth.permissions ?? getAppPermissionsForAccess(null, false);
+    const canAccessUpuse = legacyAuth.canAccessUpuse ?? accessHelpers.hasSystemAccess("upuse");
+    const canAccessScano = legacyAuth.canAccessScano ?? accessHelpers.hasSystemAccess("scano");
 
     return {
       status,
       user,
       bootstrapError,
+      systems,
+      ...accessHelpers,
       permissions,
       isAdmin: permissions.isAdmin,
-      scanoRole: user?.scanoRole ?? null,
+      scanoRole: legacyAuth.scanoRole ?? user?.scanoRole ?? null,
       canAccessUpuse,
       canAccessScano,
-      canManageScanoTasks: !!user && (user.isPrimaryAdmin || user.scanoRole === "team_lead"),
-      canManageScanoSettings: user?.isPrimaryAdmin === true,
+      canManageScanoTasks: legacyAuth.canManageScanoTasks ?? accessHelpers.hasSystemCapability("scano", "tasks.manage"),
+      canManageScanoSettings: legacyAuth.canManageScanoSettings ?? accessHelpers.hasSystemCapability("scano", "settings.manage"),
       canSwitchSystems: canAccessUpuse && canAccessScano,
       canManage: permissions.canManage,
       canManageUsers: permissions.canManageUsers,

@@ -1,13 +1,10 @@
-import HubIcon from "@mui/icons-material/Hub";
 import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownRounded";
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
-import ManageAccountsRoundedIcon from "@mui/icons-material/ManageAccountsRounded";
 import {
   AppBar,
   Avatar,
   Box,
   Button,
-  Chip,
   Divider,
   ListItemIcon,
   ListItemText,
@@ -17,14 +14,12 @@ import {
   Toolbar,
   Typography,
 } from "@mui/material";
-import { memo, useState } from "react";
+import { memo, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import type { BranchSnapshot } from "../../api/types";
 import { getWebSystems } from "../../core/systems/registry";
 import { resolveSystemFromPath } from "../../core/systems/navigation";
 import { useAuth } from "../providers/AuthProvider";
 import { BrandLockup } from "../../widgets/top-bar/ui/BrandLockup";
-import { BranchStateTicker } from "../../widgets/top-bar/ui/BranchStateTicker";
 
 function getUserInitials(name?: string | null) {
   const parts = (name ?? "")
@@ -51,25 +46,14 @@ function navMenuItemSx(isActive: boolean) {
 }
 
 function resolveUserRoleLabel(currentSystemId: string, auth: ReturnType<typeof useAuth>) {
-  if (currentSystemId === "scano" && auth.user?.isPrimaryAdmin) {
-    return "Scano Admin";
-  }
-  if (currentSystemId === "scano" && auth.scanoRole) {
-    return auth.scanoRole === "team_lead" ? "Scano Team Lead" : "Scano Scanner";
-  }
-  return auth.user?.role === "admin" ? "Admin" : "User";
+  return auth.getSystemAccess(currentSystemId).roleLabel ?? "Signed in";
 }
 
-function TopBarBase(props: {
-  running?: boolean;
-  degraded?: boolean;
-  degradedLabel?: string;
-  degradedColor?: "warning" | "error";
-  branchSummary?: Array<Pick<BranchSnapshot, "branchId" | "name" | "status">>;
-  onStart?: () => void;
-  onStop?: () => void;
-  canControlMonitor?: boolean;
-}) {
+export interface AppTopBarProps {
+  systemChrome?: ReactNode;
+}
+
+function TopBarBase(props: AppTopBarProps) {
   const nav = useNavigate();
   const location = useLocation();
   const auth = useAuth();
@@ -77,11 +61,8 @@ function TopBarBase(props: {
   const [userMenuAnchor, setUserMenuAnchor] = useState<HTMLElement | null>(null);
   const currentSystem = resolveSystemFromPath(location.pathname);
   const navigationItems = currentSystem.getNavigation(auth, location);
+  const accountNavigationItems = currentSystem.getAccountNavigation?.(auth, location) ?? [];
   const accessibleSystems = getWebSystems().filter((system) => system.canAccess(auth));
-  const running = props.running ?? false;
-  const canControlMonitor = props.canControlMonitor ?? auth.canManageMonitor;
-  const showUpuseControls = currentSystem.id === "upuse";
-  const showMonitorAction = showUpuseControls && typeof props.onStart === "function" && typeof props.onStop === "function";
   const userInitials = getUserInitials(auth.user?.name);
 
   const handleMenuClose = () => setUserMenuAnchor(null);
@@ -129,53 +110,7 @@ function TopBarBase(props: {
 
         <Box sx={{ flex: 1, minWidth: { xs: 0, sm: 24 } }} />
 
-        {showUpuseControls && props.branchSummary ? (
-          <Box sx={{ display: { xs: "none", sm: "block" } }}>
-            <BranchStateTicker branches={props.branchSummary} />
-          </Box>
-        ) : null}
-
-        {showUpuseControls && props.degraded ? (
-          <Chip
-            label={props.degradedLabel ?? "Degraded"}
-            variant="outlined"
-            color={props.degradedColor ?? "warning"}
-            sx={{ height: { xs: 28, sm: 32 }, fontWeight: 800 }}
-          />
-        ) : null}
-
-        {showUpuseControls ? (
-          <>
-            <Chip
-              label={running ? "Running" : "Stopped"}
-              variant={running ? "filled" : "outlined"}
-              color={running ? "success" : "default"}
-              sx={{ height: { xs: 28, sm: 32 }, fontWeight: 800 }}
-            />
-
-            {showMonitorAction ? (
-              canControlMonitor ? (
-                <Button
-                  variant={running ? "outlined" : "contained"}
-                  color={running ? "inherit" : "success"}
-                  onClick={running ? props.onStop : props.onStart}
-                  sx={{ minWidth: { xs: 96, sm: 150 }, px: { xs: 1.5, sm: 2 }, fontWeight: 800 }}
-                >
-                  {running ? "Stop" : "Start"}
-                </Button>
-              ) : (
-                <Button variant="outlined" disabled sx={{ minWidth: { xs: 96, sm: 150 }, px: { xs: 1.5, sm: 2 }, fontWeight: 800 }}>
-                  <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
-                    Locked
-                  </Box>
-                  <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
-                    Read Only
-                  </Box>
-                </Button>
-              )
-            ) : null}
-          </>
-        ) : null}
+        {props.systemChrome}
 
         <Stack
           direction="row"
@@ -290,11 +225,11 @@ function TopBarBase(props: {
                     sx={navMenuItemSx(system.id === currentSystem.id)}
                   >
                     <ListItemIcon sx={{ minWidth: 36, color: system.id === currentSystem.id ? "#1d4ed8" : "#475569" }}>
-                      {system.id === "upuse" ? <HubIcon fontSize="small" /> : <Box component="span">{system.getNavigation(auth, location)[0]?.icon ?? <HubIcon fontSize="small" />}</Box>}
+                      {system.switcher.icon}
                     </ListItemIcon>
                     <ListItemText
                       primary={system.label}
-                      secondary={system.id === "upuse" ? "Operations workspace" : "Standalone workspace"}
+                      secondary={system.switcher.description}
                       primaryTypographyProps={{
                         fontWeight: system.id === currentSystem.id ? 900 : 800,
                         color: "#0f172a",
@@ -348,19 +283,20 @@ function TopBarBase(props: {
 
             <Divider sx={{ mt: 0.8 }} />
 
-            {currentSystem.id === "upuse" && auth.isAdmin ? (
+            {accountNavigationItems.map((item) => (
               <MenuItem
-                onClick={() => handleNavigate("/users")}
-                sx={navMenuItemSx(location.pathname === "/users")}
+                key={item.key}
+                onClick={() => handleNavigate(item.path)}
+                sx={navMenuItemSx(item.isActive)}
               >
-                <ListItemIcon sx={{ minWidth: 36, color: location.pathname === "/users" ? "#1d4ed8" : "#475569" }}>
-                  <ManageAccountsRoundedIcon fontSize="small" />
+                <ListItemIcon sx={{ minWidth: 36, color: item.isActive ? "#1d4ed8" : "#475569" }}>
+                  {item.icon}
                 </ListItemIcon>
                 <ListItemText
-                  primary="User Management"
-                  secondary="Admin only"
+                  primary={item.label}
+                  secondary={item.caption}
                   primaryTypographyProps={{
-                    fontWeight: location.pathname === "/users" ? 900 : 800,
+                    fontWeight: item.isActive ? 900 : 800,
                     color: "#0f172a",
                     fontSize: 14,
                   }}
@@ -370,7 +306,7 @@ function TopBarBase(props: {
                   }}
                 />
               </MenuItem>
-            ) : null}
+            ))}
 
             <MenuItem
               onClick={() => {

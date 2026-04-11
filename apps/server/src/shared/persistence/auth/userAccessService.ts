@@ -1,29 +1,17 @@
-import { listSystemUserAccessSynchronizers } from "../../../core/systems/auth/registry/index.js";
+import {
+  listSystemUserAccessAssignmentResolvers,
+  listSystemUserAccessSynchronizers,
+} from "../../../core/systems/auth/registry/index.js";
 import type { AppUserRole, ScanoRole } from "../../../types/models.js";
+import type { UserAccessAssignmentInput } from "../../../core/systems/auth/types.js";
 
-function buildAssignments(input: {
-  upuseAccess: boolean;
-  upuseRole?: AppUserRole;
-  scanoAccessRole?: ScanoRole;
-}) {
-  return {
-    upuse: input.upuseAccess
-      ? {
-          enabled: true,
-          role: input.upuseRole ?? "user",
-        }
-      : {
-          enabled: false,
-        },
-    scano: input.scanoAccessRole
-      ? {
-          enabled: true,
-          role: input.scanoAccessRole,
-        }
-      : {
-          enabled: false,
-        },
-  };
+function buildAssignments(input: UserAccessAssignmentInput) {
+  return Object.fromEntries(
+    listSystemUserAccessAssignmentResolvers().map((resolver) => [
+      resolver.systemId,
+      resolver.resolveUserAccessAssignment(input),
+    ]),
+  );
 }
 
 export function syncUserAccess(params: {

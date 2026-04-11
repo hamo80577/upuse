@@ -70,9 +70,15 @@ export function SystemRoute(props: { systemId: string; children?: ReactElement }
   return <Outlet />;
 }
 
-export function UpuseAdminRoute(props: { children: ReactElement }) {
+export function CapabilityRoute(props: {
+  systemId: string;
+  capability: string;
+  fallbackPath?: string;
+  children: ReactElement;
+}) {
   const location = useLocation();
   const auth = useAuth();
+  const system = getWebSystemById(props.systemId);
 
   if (auth.status === "loading") {
     return <RouteFallback />;
@@ -82,12 +88,12 @@ export function UpuseAdminRoute(props: { children: ReactElement }) {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
-  if (!auth.canAccessUpuse) {
+  if (!system || !system.canAccess(auth)) {
     return <Navigate to={resolveAccessiblePath(auth)} replace />;
   }
 
-  if (!auth.isAdmin) {
-    return <Navigate to="/" replace />;
+  if (!auth.hasSystemCapability(props.systemId, props.capability)) {
+    return <Navigate to={props.fallbackPath ?? system.resolveHomePath(auth)} replace />;
   }
 
   return props.children;

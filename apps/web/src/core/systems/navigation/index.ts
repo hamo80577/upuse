@@ -38,14 +38,12 @@ export function writeActiveSystem(system: WorkspaceSystem) {
 }
 
 export function resolveSystemFromPath(pathname: string) {
-  const systems = [...getWebSystems()].sort((left, right) => right.basePath.length - left.basePath.length);
-  return systems.find((system) => {
-    if (system.basePath === "/") {
-      return !pathname.startsWith("/scano");
-    }
+  const nonRootSystems = getWebSystems()
+    .filter((system) => system.basePath !== "/")
+    .sort((left, right) => right.basePath.length - left.basePath.length);
 
-    return pathname === system.basePath || pathname.startsWith(`${system.basePath}/`);
-  }) ?? getDefaultWebSystem();
+  return nonRootSystems.find((system) => pathname === system.basePath || pathname.startsWith(`${system.basePath}/`))
+    ?? getDefaultWebSystem();
 }
 
 export function resolveAccessiblePath(auth: AuthSystemState) {

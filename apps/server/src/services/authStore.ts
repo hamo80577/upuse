@@ -227,7 +227,6 @@ export function deleteUserById(input: { id: number; actorUserId?: number | null 
     },
   });
 
-  const archivedAt = nowIso();
   const result = db.transaction(() => {
     const updated = db.prepare<[number]>(`
       UPDATE users
@@ -242,12 +241,6 @@ export function deleteUserById(input: { id: number; actorUserId?: number | null 
       upuseRole: existingUser.role,
       scanoAccessRole: undefined,
     });
-
-    db.prepare<[string, number]>(`
-      UPDATE scano_team_members
-      SET updatedAt = ?
-      WHERE linkedUserId = ?
-    `).run(archivedAt, input.id);
 
     deleteAuthSessionsForUser(input.id);
     return updated.changes > 0;

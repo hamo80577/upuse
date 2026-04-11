@@ -1,7 +1,7 @@
 import type { RequestHandler } from "express";
 import { getSessionUserByToken } from "../../../services/authStore.js";
 import { readAuthSessionToken, readAuthSessionTokenFromCookieHeader } from "../../../http/sessionCookie.js";
-import { hasUpuseAccess } from "../../../systems/upuse/policies/access.js";
+import { canUserAccessSystem } from "../../../core/systems/auth/accessRegistry.js";
 import type { AppUser } from "../../../types/models.js";
 
 const PUBLIC_API_PATHS = new Set([
@@ -39,7 +39,7 @@ export function resolveSessionUserFromCookieHeader(cookieHeader: string | undefi
   };
 }
 
-export type UpuseUpgradeAuthorizationResult =
+export type SystemUpgradeAuthorizationResult =
   | {
       ok: true;
       user: AppUser;
@@ -53,7 +53,7 @@ export type UpuseUpgradeAuthorizationResult =
       errorOrigin: "session" | "authorization";
     };
 
-export function authorizeUpuseUpgradeFromCookieHeader(cookieHeader: string | undefined): UpuseUpgradeAuthorizationResult {
+export function authorizeSystemUpgradeFromCookieHeader(systemId: string, cookieHeader: string | undefined): SystemUpgradeAuthorizationResult {
   const session = resolveSessionUserFromCookieHeader(cookieHeader);
   if (!session) {
     return {
@@ -65,7 +65,7 @@ export function authorizeUpuseUpgradeFromCookieHeader(cookieHeader: string | und
     };
   }
 
-  if (!hasUpuseAccess(session.user)) {
+  if (!canUserAccessSystem(systemId, session.user)) {
     return {
       ok: false,
       statusCode: 403,
@@ -80,6 +80,12 @@ export function authorizeUpuseUpgradeFromCookieHeader(cookieHeader: string | und
     user: session.user,
     sessionToken: session.sessionToken,
   };
+}
+
+export type UpuseUpgradeAuthorizationResult = SystemUpgradeAuthorizationResult;
+
+export function authorizeUpuseUpgradeFromCookieHeader(cookieHeader: string | undefined): UpuseUpgradeAuthorizationResult {
+  return authorizeSystemUpgradeFromCookieHeader("upuse", cookieHeader);
 }
 
 export function createSessionAuthMiddleware(): RequestHandler {

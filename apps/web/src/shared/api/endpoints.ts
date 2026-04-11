@@ -1,5 +1,3 @@
-import { scanoApi } from "../../systems/scano/api/endpoints";
-import { upuseApi } from "../../systems/upuse/api/endpoints";
 import { authApi } from "./authClient";
 import { healthApi } from "./healthClient";
 
@@ -12,6 +10,4 @@ export {
 export const api = {
   ...healthApi,
   ...authApi,
-  ...upuseApi,
-  ...scanoApi,
 };

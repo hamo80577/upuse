@@ -1,6 +1,11 @@
 import { db } from "../../../config/db.js";
-import type { ScanoRole } from "../../../types/models.js";
-import type { SystemUserAccessSynchronizer, UserSystemAssignment } from "../../../core/systems/auth/types.js";
+import type { AppUser, ScanoRole } from "../../../types/models.js";
+import type {
+  SystemUserAccessAssignmentResolver,
+  SystemUserAccessSynchronizer,
+  SystemUserProjection,
+  UserSystemAssignment,
+} from "../../../core/systems/auth/types.js";
 import { AuthStoreError } from "../../../shared/persistence/auth/errors.js";
 import { nowIso } from "../../../shared/persistence/auth/clock.js";
 
@@ -13,6 +18,14 @@ interface ExistingScanoMemberRow {
 function getScanoRole(assignment?: UserSystemAssignment) {
   const role = assignment?.role;
   return role === "team_lead" || role === "scanner" ? role as ScanoRole : undefined;
+}
+
+function getScanoMemberForUser(userId: number) {
+  return db.prepare<[number], { id: number; role: string }>(`
+    SELECT id, role
+    FROM scano_team_members
+    WHERE linkedUserId = ? AND active = 1
+  `).get(userId);
 }
 
 function syncScanoAccessForUser(userId: number, name: string, scanoAccessRole?: ScanoRole) {
@@ -91,5 +104,36 @@ export const scanoUserAccessSynchronizer: SystemUserAccessSynchronizer = {
         override?.code ?? "SCANO_ACCESS_ACTIVE_TASKS",
       );
     }
+  },
+};
+
+export const scanoUserAccessAssignmentResolver: SystemUserAccessAssignmentResolver = {
+  systemId: SCANO_SYSTEM_ID,
+  resolveUserAccessAssignment(input) {
+    return input.scanoAccessRole
+      ? {
+          enabled: true,
+          role: input.scanoAccessRole,
+        }
+      : {
+          enabled: false,
+        };
+  },
+};
+
+export const scanoUserProjection: SystemUserProjection = {
+  systemId: SCANO_SYSTEM_ID,
+  enrichUser(user: AppUser) {
+    const member = getScanoMemberForUser(user.id);
+    const role = getScanoRole(member ? { enabled: true, role: member.role } : undefined);
+    if (!member || !role) {
+      return user;
+    }
+
+    return {
+      ...user,
+      scanoRole: role,
+      scanoMemberId: member.id,
+    };
   },
 };

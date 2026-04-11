@@ -56,12 +56,18 @@ Each system registers a `WebSystemModule` with:
 - `id`
 - `label`
 - `basePath`
+- `switcher` shell metadata
+- `resolveAccess(user)` for system access, role labels, and capabilities
+- `resolveLegacyAuth(context)` only for temporary compatibility aliases
 - `canAccess(auth)`
 - `resolveHomePath(auth)`
 - `getNavigation(auth, location)`
+- `getAccountNavigation(auth, location)` for system-owned account-menu links
 - `getRoutes(context)`
 
 This lets the router, shell, and system switcher remain generic.
+
+Shared app code should use `hasSystemAccess(systemId)` and `hasSystemCapability(systemId, capability)`. Fields such as `canAccessUpuse`, `canAccessScano`, and `scanoRole` are compatibility aliases and should not be the primary model for new code.
 
 ## Server Layout
 
@@ -109,9 +115,13 @@ apps/server/src/
 Each system registers a `ServerSystemModule` with:
 
 - `id`
+- `auth` access projection, assignment resolution, synchronizers, and user projection hooks
+- `db` schema, migrations, seed defaults, and isolated legacy repair hooks
+- `start(deps)` for runtime side effects
 - `registerRoutes(app, deps)`
 - `registerWebSockets(server, deps)` when needed
-- `start(deps)` for runtime side effects
+
+Shared auth and migration code composes registered hooks instead of importing Scano or UPuse policies/schema modules directly.
 
 ## Dependency Direction
 
@@ -155,7 +165,7 @@ Avoid:
 2. Add local `routes`, `services`, `policies`, and runtime code.
 3. Implement a `ServerSystemModule`.
 4. Register it in `core/systems/registry`.
-5. If the system needs user-access sync, add a `SystemUserAccessSynchronizer` and register it in `core/systems/auth/registry`.
+5. If the system needs user-access sync, expose assignment resolvers, synchronizers, projections, and access checks from the system module.
 
 ## Compatibility Policy
 

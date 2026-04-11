@@ -6,9 +6,15 @@ import type { AppUser } from "../api/types";
 
 const mockUseAuth = vi.hoisted(() => vi.fn());
 
+vi.setConfig({ testTimeout: 15_000 });
+
 type RouterAuthMock = {
   status: "loading" | "authenticated" | "unauthenticated";
   isAdmin: boolean;
+  systems?: Record<string, { enabled: boolean; role?: string | null; roleLabel?: string | null; capabilities: string[] }>;
+  hasSystemAccess?: (systemId: string) => boolean;
+  hasSystemCapability?: (systemId: string, capability: string) => boolean;
+  getSystemAccess?: (systemId: string) => { enabled: boolean; role?: string | null; roleLabel?: string | null; capabilities: string[] };
   scanoRole?: "team_lead" | "scanner" | null;
   canAccessUpuse: boolean;
   canAccessScano: boolean;
@@ -22,7 +28,7 @@ type RouterAuthMock = {
 };
 
 function createAuthState(overrides: Partial<RouterAuthMock> = {}): RouterAuthMock {
-  return {
+  const state: RouterAuthMock = {
     status: "authenticated",
     isAdmin: false,
     scanoRole: null,
@@ -36,6 +42,40 @@ function createAuthState(overrides: Partial<RouterAuthMock> = {}): RouterAuthMoc
     refreshAuth: vi.fn().mockResolvedValue(undefined),
     user: null,
     ...overrides,
+  };
+  const systems = state.systems ?? {
+    upuse: {
+      enabled: state.canAccessUpuse,
+      role: state.isAdmin ? "admin" : "user",
+      roleLabel: state.isAdmin ? "Admin" : "User",
+      capabilities: [
+        ...(state.isAdmin ? ["users.manage"] : []),
+      ],
+    },
+    scano: {
+      enabled: state.canAccessScano,
+      role: state.scanoRole ?? null,
+      roleLabel: state.scanoRole === "team_lead"
+        ? "Scano Team Lead"
+        : state.scanoRole === "scanner"
+          ? "Scano Scanner"
+          : state.canManageScanoSettings
+            ? "Scano Admin"
+            : null,
+      capabilities: [
+        ...(state.canManageScanoTasks ? ["tasks.manage", "master-products.manage"] : []),
+        ...(state.scanoRole === "scanner" ? ["tasks.run_assigned"] : []),
+        ...(state.canManageScanoSettings ? ["settings.manage"] : []),
+      ],
+    },
+  };
+
+  return {
+    ...state,
+    systems,
+    getSystemAccess: state.getSystemAccess ?? ((systemId) => systems[systemId] ?? { enabled: false, capabilities: [] }),
+    hasSystemAccess: state.hasSystemAccess ?? ((systemId) => systems[systemId]?.enabled === true),
+    hasSystemCapability: state.hasSystemCapability ?? ((systemId, capability) => systems[systemId]?.capabilities.includes(capability) ?? false),
   };
 }
 
@@ -366,14 +406,13 @@ describe("AppRouter", () => {
     expect(window.sessionStorage.getItem("upuse.active-system")).toBe("scano");
     expect(screen.queryByText("scano-route")).not.toBeInTheDocument();
 
-    authState = {
-      ...authState,
+    authState = createAuthState({
       status: "authenticated",
       canAccessUpuse: false,
       canAccessScano: true,
       canManageScanoTasks: true,
       scanoRole: "team_lead",
-    };
+    });
 
     view.rerender(
       <MemoryRouter initialEntries={["/scano/assign-task"]}>

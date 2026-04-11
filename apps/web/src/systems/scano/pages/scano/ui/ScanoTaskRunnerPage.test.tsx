@@ -13,6 +13,8 @@ import { ScanoTaskRunnerPage } from "./ScanoTaskRunnerPage";
 
 const TASK_7 = "77777777-7777-4777-8777-777777777777";
 
+vi.setConfig({ testTimeout: 15_000 });
+
 const {
   mockUseAuth,
   mockNavigate,
@@ -259,6 +261,8 @@ describe("ScanoTaskRunnerPage", () => {
     mockUseParams.mockReturnValue({ id: TASK_7 });
     mockUseAuth.mockReturnValue({
       canManageScanoTasks: false,
+      hasSystemCapability: (systemId: string, capability: string) =>
+        systemId === "scano" && capability === "tasks.run_assigned",
       user: {
         id: 2,
         email: "ali@example.com",

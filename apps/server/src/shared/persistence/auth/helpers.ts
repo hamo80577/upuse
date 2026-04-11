@@ -1,4 +1,5 @@
 import type { AppUser, AppUserRole } from "../../../types/models.js";
+import { applySystemUserProjections } from "../../../core/systems/auth/registry/index.js";
 import type { UserRow } from "./rows.js";
 
 export function normalizeUserRole(role: string): AppUserRole {
@@ -28,14 +29,7 @@ export function toAppUser(row: Pick<UserRow, "id" | "email" | "name" | "role" | 
     isPrimaryAdmin: normalizeBooleanFlag((row as UserRow).isPrimaryAdmin, false),
   };
 
-  const scanoRole = normalizeScanoRole((row as UserRow).scanoRole);
-  const scanoMemberId = typeof (row as UserRow).scanoMemberId === "number" ? (row as UserRow).scanoMemberId : undefined;
-  if (scanoRole && scanoMemberId) {
-    user.scanoRole = scanoRole;
-    user.scanoMemberId = scanoMemberId;
-  }
-
-  return user;
+  return applySystemUserProjections(user);
 }
 
 export function getUserSelectQuery(whereClause: string) {
@@ -49,12 +43,8 @@ export function getUserSelectQuery(whereClause: string) {
       u.active,
       u.createdAt,
       u.upuseAccess,
-      u.isPrimaryAdmin,
-      stm.id AS scanoMemberId,
-      stm.role AS scanoRole
+      u.isPrimaryAdmin
     FROM users u
-    LEFT JOIN scano_team_members stm
-      ON stm.linkedUserId = u.id AND stm.active = 1
     ${whereClause}
   `;
 }

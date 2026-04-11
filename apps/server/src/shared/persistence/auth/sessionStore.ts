@@ -55,13 +55,9 @@ export function getSessionUserByToken(token: string) {
       u.active,
       u.createdAt,
       u.upuseAccess,
-      u.isPrimaryAdmin,
-      stm.id AS scanoMemberId,
-      stm.role AS scanoRole
+      u.isPrimaryAdmin
     FROM sessions s
     INNER JOIN users u ON u.id = s.userId
-    LEFT JOIN scano_team_members stm
-      ON stm.linkedUserId = u.id AND stm.active = 1
     WHERE s.token = ? AND s.expiresAt > ?
   `).get(persistedToken, nowIso());
 

@@ -8,8 +8,6 @@ export interface UserRow {
   createdAt: string;
   upuseAccess: number;
   isPrimaryAdmin: number;
-  scanoMemberId?: number | null;
-  scanoRole?: string | null;
 }
 
 export interface SessionRow {

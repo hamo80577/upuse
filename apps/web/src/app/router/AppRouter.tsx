@@ -93,7 +93,7 @@ export function AppRouter() {
     return (
       <SystemSwitchLoadingPage
         systemLabel={system.label}
-        title={system.id === "scano" ? `Opening ${system.label}` : `Returning to ${system.label}`}
+        title={system.switcher.loadingTitle ?? `Opening ${system.label}`}
       />
     );
   }

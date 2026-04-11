@@ -7,8 +7,7 @@ import { maybeSeedBootstrapAdmin } from "./seed/bootstrapAdmin.js";
 import { backfillLegacyChainThresholds, ensureDefaultSettingsRow } from "./seed/defaultSettings.js";
 import { buildSharedSchemaSql } from "./schema/sharedSchema.js";
 import { db } from "./connection.js";
-import { applyScanoSchemaMigrations, ensureDefaultScanoSettingsRow } from "../../systems/scano/db/migrations.js";
-import { buildScanoSchemaSql, resetLegacyScanoTaskData } from "../../systems/scano/db/schema.js";
+import { getServerSystems } from "../../core/systems/registry/index.js";
 
 function dropLegacyBranchCatalogTables() {
   db.exec(`
@@ -19,17 +18,26 @@ function dropLegacyBranchCatalogTables() {
 
 export function migrate() {
   db.exec(buildSharedSchemaSql());
-  db.exec(buildScanoSchemaSql());
+  for (const system of getServerSystems()) {
+    const schemaSql = system.db?.buildSchemaSql?.();
+    if (schemaSql) {
+      db.exec(schemaSql);
+    }
+  }
 
   migrateLegacyUserRoles(db);
   migrateBranchesTableToLocalCatalogShape(db);
-  resetLegacyScanoTaskData(db);
+  for (const system of getServerSystems()) {
+    system.db?.runLegacyRepairs?.(db);
+  }
   dropLegacyBranchCatalogTables();
 
   applySharedSchemaMigrations(db);
   ensurePrimaryAdminUser(db);
 
-  applyScanoSchemaMigrations(db);
+  for (const system of getServerSystems()) {
+    system.db?.applyMigrations?.(db);
+  }
   applyOrdersMirrorSchemaMigrations(db);
 
   ensureDefaultSettingsRow({
@@ -37,10 +45,13 @@ export function migrate() {
     cryptoBox,
     env: process.env,
   });
-  ensureDefaultScanoSettingsRow({
-    db,
-    cryptoBox,
-  });
+  for (const system of getServerSystems()) {
+    system.db?.seedDefaults?.({
+      db,
+      cryptoBox,
+      env: process.env,
+    });
+  }
 
   rotateStoredSettingsSecretsToPrimary();
   backfillLegacyChainThresholds(db);

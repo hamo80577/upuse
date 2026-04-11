@@ -4,6 +4,10 @@ import { getEnv } from "./config/env.js";
 import { getServerSystems } from "./core/systems/registry/index.js";
 
 const runtime = initializeRuntime();
+for (const system of getServerSystems()) {
+  system.start?.(runtime);
+}
+
 const app = createApp(runtime);
 const port = Number(getEnv("PORT", "8080"));
 const server = app.listen(port, () => {
