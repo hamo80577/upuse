@@ -381,7 +381,7 @@ function resetDb() {
       rowNumber INTEGER NOT NULL,
       sourceBarcode TEXT NOT NULL,
       normalizedBarcode TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
+      status TEXT NOT NULL DEFAULT 'pending_search',
       attemptCount INTEGER NOT NULL DEFAULT 0,
       nextAttemptAt TEXT,
       lastError TEXT,
@@ -396,6 +396,32 @@ function resetDb() {
       enrichedAt TEXT,
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL,
+      FOREIGN KEY (chainId) REFERENCES scano_master_products(chainId) ON DELETE CASCADE
+    );
+
+    CREATE TABLE scano_master_product_enrichment_candidates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entryId INTEGER NOT NULL,
+      chainId INTEGER NOT NULL,
+      importRevision INTEGER NOT NULL,
+      rowNumber INTEGER NOT NULL,
+      externalProductId TEXT NOT NULL,
+      barcode TEXT NOT NULL,
+      barcodesJson TEXT NOT NULL,
+      itemNameEn TEXT,
+      itemNameAr TEXT,
+      image TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attemptCount INTEGER NOT NULL DEFAULT 0,
+      nextAttemptAt TEXT,
+      lastError TEXT,
+      sku TEXT,
+      price TEXT,
+      chainFlag TEXT,
+      vendorFlag TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (entryId) REFERENCES scano_master_product_enrichment_entries(id) ON DELETE CASCADE,
       FOREIGN KEY (chainId) REFERENCES scano_master_products(chainId) ON DELETE CASCADE
     );
 
@@ -697,7 +723,7 @@ function insertMasterProductEnrichmentEntry(params: {
   rowNumber: number;
   sourceBarcode: string;
   normalizedBarcode?: string;
-  status?: "pending" | "enriched" | "failed" | "ambiguous";
+  status?: "pending_search" | "searching" | "pending_assignment" | "checking_assignment" | "enriched" | "failed" | "ambiguous";
   attemptCount?: number;
   externalProductId?: string | null;
   sku?: string | null;
@@ -755,6 +781,58 @@ function insertMasterProductEnrichmentEntry(params: {
   );
 
   return params.id ?? Number(result.lastInsertRowid);
+}
+
+function insertMasterProductEnrichmentCandidate(params: {
+  entryId: number;
+  chainId: number;
+  rowNumber: number;
+  productId: string;
+  barcode: string;
+  barcodes?: string[];
+  importRevision?: number;
+  status?: "pending" | "checking" | "matched" | "rejected" | "failed";
+  attemptCount?: number;
+  sku?: string | null;
+  price?: string | null;
+  chainFlag?: "yes" | "no" | null;
+  vendorFlag?: "yes" | "no" | null;
+}) {
+  return Number(testDb.prepare(`
+    INSERT INTO scano_master_product_enrichment_candidates (
+      entryId,
+      chainId,
+      importRevision,
+      rowNumber,
+      externalProductId,
+      barcode,
+      barcodesJson,
+      status,
+      attemptCount,
+      nextAttemptAt,
+      lastError,
+      sku,
+      price,
+      chainFlag,
+      vendorFlag,
+      createdAt,
+      updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, '2026-04-05T12:00:00.000Z', '2026-04-05T12:05:00.000Z')
+  `).run(
+    params.entryId,
+    params.chainId,
+    params.importRevision ?? 1,
+    params.rowNumber,
+    params.productId,
+    params.barcode,
+    JSON.stringify(params.barcodes ?? [params.barcode]),
+    params.status ?? "pending",
+    params.attemptCount ?? 0,
+    params.sku ?? null,
+    params.price ?? null,
+    params.chainFlag ?? null,
+    params.vendorFlag ?? null,
+  ).lastInsertRowid);
 }
 
 function insertMasterProductEnrichmentBarcode(params: {
@@ -1370,13 +1448,41 @@ describe("scano routes", () => {
       status: "failed",
       attemptCount: 3,
     });
-    insertMasterProductEnrichmentEntry({
+    const ambiguousEntryId = insertMasterProductEnrichmentEntry({
       chainId: 1037,
       importRevision: 3,
       rowNumber: 3,
       sourceBarcode: "333",
       status: "ambiguous",
       attemptCount: 2,
+    });
+    insertMasterProductEnrichmentCandidate({
+      entryId: ambiguousEntryId,
+      chainId: 1037,
+      importRevision: 3,
+      rowNumber: 3,
+      productId: "product-333-a",
+      barcode: "333",
+      status: "matched",
+      attemptCount: 1,
+      sku: "SKU-333-A",
+      price: "66",
+      chainFlag: "yes",
+      vendorFlag: "yes",
+    });
+    insertMasterProductEnrichmentCandidate({
+      entryId: ambiguousEntryId,
+      chainId: 1037,
+      importRevision: 3,
+      rowNumber: 3,
+      productId: "product-333-b",
+      barcode: "333",
+      status: "matched",
+      attemptCount: 1,
+      sku: "SKU-333-B",
+      price: "67",
+      chainFlag: "yes",
+      vendorFlag: "yes",
     });
 
     const response = await fetch(`${baseUrl}/api/scano/master-products/1037/resume`, {
@@ -1406,8 +1512,17 @@ describe("scano routes", () => {
       ORDER BY rowNumber ASC
     `).all()).toEqual([
       { status: "enriched", attemptCount: 1 },
-      { status: "pending", attemptCount: 0 },
-      { status: "pending", attemptCount: 0 },
+      { status: "pending_search", attemptCount: 0 },
+      { status: "pending_assignment", attemptCount: 0 },
+    ]);
+    expect(testDb.prepare(`
+      SELECT status, attemptCount, sku, price, chainFlag, vendorFlag
+      FROM scano_master_product_enrichment_candidates
+      WHERE entryId = ?
+      ORDER BY externalProductId ASC
+    `).all(ambiguousEntryId)).toEqual([
+      { status: "pending", attemptCount: 0, sku: null, price: null, chainFlag: null, vendorFlag: null },
+      { status: "pending", attemptCount: 0, sku: null, price: null, chainFlag: null, vendorFlag: null },
     ]);
   });
 

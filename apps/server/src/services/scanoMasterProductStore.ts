@@ -659,7 +659,7 @@ export function upsertScanoMasterProduct(input: UpsertScanoMasterProductInput): 
           enrichedAt,
           createdAt,
           updatedAt
-        ) VALUES (?, ?, ?, ?, ?, 'pending', 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, 'pending_search', 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)
       `);
 
       for (const row of enrichmentSeedRows) {
@@ -714,9 +714,39 @@ export function resumeScanoMasterProductEnrichment(chainId: number): ScanoMaster
     const atIso = nowIso();
     db.transaction(() => {
       db.prepare(`
-        UPDATE scano_master_product_enrichment_entries
+        UPDATE scano_master_product_enrichment_candidates
         SET
           status = 'pending',
+          attemptCount = 0,
+          nextAttemptAt = NULL,
+          lastError = NULL,
+          sku = NULL,
+          price = NULL,
+          chainFlag = NULL,
+          vendorFlag = NULL,
+          updatedAt = ?
+        WHERE chainId = ?
+          AND importRevision = ?
+          AND entryId IN (
+            SELECT id
+            FROM scano_master_product_enrichment_entries
+            WHERE chainId = ?
+              AND importRevision = ?
+              AND status <> 'enriched'
+          )
+      `).run(atIso, chainId, item.importRevision, chainId, item.importRevision);
+
+      db.prepare(`
+        UPDATE scano_master_product_enrichment_entries
+        SET
+          status = CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM scano_master_product_enrichment_candidates candidate
+              WHERE candidate.entryId = scano_master_product_enrichment_entries.id
+            ) THEN 'pending_assignment'
+            ELSE 'pending_search'
+          END,
           attemptCount = 0,
           nextAttemptAt = NULL,
           lastError = NULL,

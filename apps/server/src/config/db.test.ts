@@ -264,4 +264,115 @@ describe("db Scano task migration", () => {
     expect(assigneeCount.count).toBe(1);
     expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("Resetting legacy Scano task data"));
   });
+
+  it("normalizes legacy master enrichment statuses and creates the candidate staging table", { timeout: 15_000 }, async () => {
+    const { db, migrate } = await loadDbModule();
+
+    createCurrentUsersTable(db);
+    db.exec(`
+      CREATE TABLE scano_master_products (
+        chainId INTEGER PRIMARY KEY,
+        chainName TEXT NOT NULL,
+        mappingJson TEXT NOT NULL,
+        productCount INTEGER NOT NULL DEFAULT 0,
+        importRevision INTEGER NOT NULL DEFAULT 1,
+        enrichmentStatus TEXT NOT NULL DEFAULT 'queued',
+        enrichmentQueuedAt TEXT,
+        enrichmentStartedAt TEXT,
+        enrichmentPausedAt TEXT,
+        enrichmentCompletedAt TEXT,
+        enrichedCount INTEGER NOT NULL DEFAULT 0,
+        processedCount INTEGER NOT NULL DEFAULT 0,
+        warningCode TEXT,
+        warningMessage TEXT,
+        updatedAt TEXT NOT NULL,
+        updatedByUserId INTEGER NOT NULL,
+        createdAt TEXT NOT NULL,
+        FOREIGN KEY (updatedByUserId) REFERENCES users(id) ON DELETE RESTRICT
+      );
+
+      CREATE TABLE scano_master_product_enrichment_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chainId INTEGER NOT NULL,
+        importRevision INTEGER NOT NULL,
+        rowNumber INTEGER NOT NULL,
+        sourceBarcode TEXT NOT NULL,
+        normalizedBarcode TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        attemptCount INTEGER NOT NULL DEFAULT 0,
+        nextAttemptAt TEXT,
+        lastError TEXT,
+        externalProductId TEXT,
+        sku TEXT,
+        price TEXT,
+        itemNameEn TEXT,
+        itemNameAr TEXT,
+        image TEXT,
+        chainFlag TEXT,
+        vendorFlag TEXT,
+        enrichedAt TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        FOREIGN KEY (chainId) REFERENCES scano_master_products(chainId) ON DELETE CASCADE
+      );
+
+      INSERT INTO scano_master_products (
+        chainId,
+        chainName,
+        mappingJson,
+        productCount,
+        importRevision,
+        enrichmentStatus,
+        enrichmentQueuedAt,
+        updatedAt,
+        updatedByUserId,
+        createdAt
+      ) VALUES (
+        1037,
+        'Carrefour',
+        '{"barcode":"barcode"}',
+        1,
+        3,
+        'queued',
+        '2026-04-08T08:20:00.000Z',
+        '2026-04-08T08:20:00.000Z',
+        1,
+        '2026-04-08T08:15:00.000Z'
+      );
+
+      INSERT INTO scano_master_product_enrichment_entries (
+        chainId,
+        importRevision,
+        rowNumber,
+        sourceBarcode,
+        normalizedBarcode,
+        status,
+        attemptCount,
+        createdAt,
+        updatedAt
+      ) VALUES
+      (1037, 3, 1, '111', '00000000000111', 'pending', 0, '2026-04-08T08:21:00.000Z', '2026-04-08T08:21:00.000Z'),
+      (1037, 3, 2, '222', '00000000000222', 'running', 1, '2026-04-08T08:22:00.000Z', '2026-04-08T08:22:00.000Z');
+    `);
+
+    await migrate();
+
+    const statuses = db.prepare(`
+      SELECT rowNumber, status
+      FROM scano_master_product_enrichment_entries
+      ORDER BY rowNumber ASC
+    `).all() as Array<{ rowNumber: number; status: string }>;
+    const candidateTable = db.prepare(`
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'table'
+        AND name = 'scano_master_product_enrichment_candidates'
+    `).get() as { name: string } | undefined;
+
+    expect(statuses).toEqual([
+      { rowNumber: 1, status: "pending_search" },
+      { rowNumber: 2, status: "pending_search" },
+    ]);
+    expect(candidateTable?.name).toBe("scano_master_product_enrichment_candidates");
+  });
 });

@@ -265,7 +265,7 @@ export function buildScanoSchemaSql() {
       rowNumber INTEGER NOT NULL,
       sourceBarcode TEXT NOT NULL,
       normalizedBarcode TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
+      status TEXT NOT NULL DEFAULT 'pending_search',
       attemptCount INTEGER NOT NULL DEFAULT 0,
       nextAttemptAt TEXT,
       lastError TEXT,
@@ -288,6 +288,38 @@ export function buildScanoSchemaSql() {
 
     CREATE INDEX IF NOT EXISTS idx_scano_master_product_enrichment_entry_queue
       ON scano_master_product_enrichment_entries(chainId, importRevision, status, nextAttemptAt, rowNumber, id);
+
+    CREATE TABLE IF NOT EXISTS scano_master_product_enrichment_candidates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entryId INTEGER NOT NULL,
+      chainId INTEGER NOT NULL,
+      importRevision INTEGER NOT NULL,
+      rowNumber INTEGER NOT NULL,
+      externalProductId TEXT NOT NULL,
+      barcode TEXT NOT NULL,
+      barcodesJson TEXT NOT NULL,
+      itemNameEn TEXT,
+      itemNameAr TEXT,
+      image TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attemptCount INTEGER NOT NULL DEFAULT 0,
+      nextAttemptAt TEXT,
+      lastError TEXT,
+      sku TEXT,
+      price TEXT,
+      chainFlag TEXT,
+      vendorFlag TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (entryId) REFERENCES scano_master_product_enrichment_entries(id) ON DELETE CASCADE,
+      FOREIGN KEY (chainId) REFERENCES scano_master_products(chainId) ON DELETE CASCADE
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_scano_master_product_enrichment_candidate_unique
+      ON scano_master_product_enrichment_candidates(entryId, externalProductId);
+
+    CREATE INDEX IF NOT EXISTS idx_scano_master_product_enrichment_candidate_queue
+      ON scano_master_product_enrichment_candidates(chainId, importRevision, status, nextAttemptAt, rowNumber, id);
 
     CREATE TABLE IF NOT EXISTS scano_master_product_enrichment_barcodes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -59,6 +59,40 @@ export function applyScanoSchemaMigrations(db: Database.Database) {
   }
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS scano_master_product_enrichment_candidates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entryId INTEGER NOT NULL,
+      chainId INTEGER NOT NULL,
+      importRevision INTEGER NOT NULL,
+      rowNumber INTEGER NOT NULL,
+      externalProductId TEXT NOT NULL,
+      barcode TEXT NOT NULL,
+      barcodesJson TEXT NOT NULL,
+      itemNameEn TEXT,
+      itemNameAr TEXT,
+      image TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attemptCount INTEGER NOT NULL DEFAULT 0,
+      nextAttemptAt TEXT,
+      lastError TEXT,
+      sku TEXT,
+      price TEXT,
+      chainFlag TEXT,
+      vendorFlag TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (entryId) REFERENCES scano_master_product_enrichment_entries(id) ON DELETE CASCADE,
+      FOREIGN KEY (chainId) REFERENCES scano_master_products(chainId) ON DELETE CASCADE
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_scano_master_product_enrichment_candidate_unique
+      ON scano_master_product_enrichment_candidates(entryId, externalProductId);
+
+    CREATE INDEX IF NOT EXISTS idx_scano_master_product_enrichment_candidate_queue
+      ON scano_master_product_enrichment_candidates(chainId, importRevision, status, nextAttemptAt, rowNumber, id);
+  `);
+
+  db.exec(`
     UPDATE scano_master_products
     SET
       importRevision = COALESCE(importRevision, 1),
@@ -69,6 +103,16 @@ export function applyScanoSchemaMigrations(db: Database.Database) {
       enrichmentQueuedAt = COALESCE(enrichmentQueuedAt, updatedAt),
       enrichedCount = COALESCE(enrichedCount, 0),
       processedCount = COALESCE(processedCount, 0)
+  `);
+
+  db.exec(`
+    UPDATE scano_master_product_enrichment_entries
+    SET
+      status = CASE
+        WHEN status IN ('pending', 'running') THEN 'pending_search'
+        ELSE status
+      END
+    WHERE status IN ('pending', 'running')
   `);
 
   backfillScanoTaskProductCanonicalRows(db);
