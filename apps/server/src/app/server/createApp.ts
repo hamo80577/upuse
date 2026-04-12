@@ -4,7 +4,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 import { getServerSystems } from "../../core/systems/registry/index.js";
 import type { ServerSystemDependencies } from "../../core/systems/types.js";
-import { createSessionAuthMiddleware } from "../../http/auth.js";
+import { createSessionAuthMiddleware } from "../../shared/http/auth/sessionAuth.js";
 import { registerSharedRoutes } from "../../shared/http/registerSharedRoutes.js";
 import { createApiNoStoreMiddleware } from "../middleware/cacheControl.js";
 import { createCorsOptions } from "../middleware/cors.js";

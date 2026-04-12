@@ -31,69 +31,17 @@ function clampReopenThreshold(closeThreshold: number, reopenThreshold: number | 
   return Math.min(normalizedClose, normalizedReopen);
 }
 
-const SettingsSchema = z.object({
-  ordersToken: z.string(),
-  availabilityToken: z.string(),
-  globalEntityId: GlobalEntityIdSchema,
-  chainNames: z.array(z.string().trim().min(1).max(120)).max(200),
-  chains: z.array(
-    z.object({
-      name: z.string().trim().min(1).max(120),
-      lateThreshold: z.number().int().min(0).max(999),
-      lateReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
-      unassignedThreshold: z.number().int().min(0).max(999),
-      unassignedReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
-      readyThreshold: z.number().int().min(0).max(999).optional().default(0),
-      readyReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
-      capacityRuleEnabled: z.boolean().optional().default(true),
-      capacityPerHourEnabled: z.boolean().optional().default(false),
-      capacityPerHourLimit: z.number().int().min(1).max(999).nullable().optional().default(null),
-    }).superRefine((value, ctx) => {
-      if (!value.capacityPerHourEnabled || typeof value.capacityPerHourLimit === "number") return;
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Capacity / hour limit is required when the hourly rule is enabled.",
-        path: ["capacityPerHourLimit"],
-      });
-      if (value.lateReopenThreshold > value.lateThreshold) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Late reopen threshold cannot be greater than the close threshold.",
-          path: ["lateReopenThreshold"],
-        });
-      }
-      if (value.unassignedReopenThreshold > value.unassignedThreshold) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Unassigned reopen threshold cannot be greater than the close threshold.",
-          path: ["unassignedReopenThreshold"],
-        });
-      }
-      if ((value.readyReopenThreshold ?? 0) > (value.readyThreshold ?? 0)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Ready to pickup reopen threshold cannot be greater than the close threshold.",
-          path: ["readyReopenThreshold"],
-        });
-      }
-    }),
-  ).max(200),
-
-  lateThreshold: z.number().int().min(0).max(999),
-  lateReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
-  unassignedThreshold: z.number().int().min(0).max(999),
-  unassignedReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
-  readyThreshold: z.number().int().min(0).max(999).optional().default(0),
-  readyReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
-
-  tempCloseMinutes: z.number().int().min(1).max(720),
-  graceMinutes: z.number().int().min(0).max(60),
-
-  ordersRefreshSeconds: z.number().int().min(10).max(600),
-  availabilityRefreshSeconds: z.number().int().min(10).max(600),
-
-  maxVendorsPerOrdersRequest: z.number().int().min(1).max(200),
-}).superRefine((value, ctx) => {
+function addReopenThresholdIssues(
+  value: {
+    lateThreshold: number;
+    lateReopenThreshold?: number;
+    unassignedThreshold: number;
+    unassignedReopenThreshold?: number;
+    readyThreshold?: number;
+    readyReopenThreshold?: number;
+  },
+  ctx: z.RefinementCtx,
+) {
   if ((value.lateReopenThreshold ?? 0) > value.lateThreshold) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -115,6 +63,53 @@ const SettingsSchema = z.object({
       path: ["readyReopenThreshold"],
     });
   }
+}
+
+const SettingsSchema = z.object({
+  ordersToken: z.string(),
+  availabilityToken: z.string(),
+  globalEntityId: GlobalEntityIdSchema,
+  chainNames: z.array(z.string().trim().min(1).max(120)).max(200),
+  chains: z.array(
+    z.object({
+      name: z.string().trim().min(1).max(120),
+      lateThreshold: z.number().int().min(0).max(999),
+      lateReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
+      unassignedThreshold: z.number().int().min(0).max(999),
+      unassignedReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
+      readyThreshold: z.number().int().min(0).max(999).optional().default(0),
+      readyReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
+      capacityRuleEnabled: z.boolean().optional().default(true),
+      capacityPerHourEnabled: z.boolean().optional().default(false),
+      capacityPerHourLimit: z.number().int().min(1).max(999).nullable().optional().default(null),
+    }).superRefine((value, ctx) => {
+      if (value.capacityPerHourEnabled && typeof value.capacityPerHourLimit !== "number") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Capacity / hour limit is required when the hourly rule is enabled.",
+          path: ["capacityPerHourLimit"],
+        });
+      }
+      addReopenThresholdIssues(value, ctx);
+    }),
+  ).max(200),
+
+  lateThreshold: z.number().int().min(0).max(999),
+  lateReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
+  unassignedThreshold: z.number().int().min(0).max(999),
+  unassignedReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
+  readyThreshold: z.number().int().min(0).max(999).optional().default(0),
+  readyReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
+
+  tempCloseMinutes: z.number().int().min(1).max(720),
+  graceMinutes: z.number().int().min(0).max(60),
+
+  ordersRefreshSeconds: z.number().int().min(10).max(600),
+  availabilityRefreshSeconds: z.number().int().min(10).max(600),
+
+  maxVendorsPerOrdersRequest: z.number().int().min(1).max(200),
+}).superRefine((value, ctx) => {
+  addReopenThresholdIssues(value, ctx);
 });
 
 function normalizeChainNames(values: string[]) {
@@ -352,26 +347,19 @@ export function getGlobalEntityId() {
 
 export function updateSettings(patch: Partial<Settings>) {
   const current = getSettings();
-  const normalizedChains = normalizeChainThresholds(patch.chains ?? current.chains);
   const merged: Settings = {
     ...current,
     ...patch,
+    chainNames: (patch.chains ?? current.chains).map((item) => item.name),
+    chains: patch.chains ?? current.chains,
+  };
+  const validated = SettingsSchema.parse(merged);
+  const normalizedChains = normalizeChainThresholds(validated.chains);
+  const normalized: Settings = {
+    ...validated,
     chainNames: normalizedChains.map((item) => item.name),
     chains: normalizedChains,
-    lateReopenThreshold: clampReopenThreshold(
-      patch.lateThreshold ?? current.lateThreshold,
-      patch.lateReopenThreshold ?? current.lateReopenThreshold,
-    ),
-    unassignedReopenThreshold: clampReopenThreshold(
-      patch.unassignedThreshold ?? current.unassignedThreshold,
-      patch.unassignedReopenThreshold ?? current.unassignedReopenThreshold,
-    ),
-    readyReopenThreshold: clampReopenThreshold(
-      patch.readyThreshold ?? current.readyThreshold ?? 0,
-      patch.readyReopenThreshold ?? current.readyReopenThreshold,
-    ),
   };
-  SettingsSchema.parse(merged);
 
   db.prepare(`
     UPDATE settings SET
@@ -393,23 +381,23 @@ export function updateSettings(patch: Partial<Settings>) {
       maxVendorsPerOrdersRequest = ?
     WHERE id = 1
   `).run(
-    cryptoBox.encrypt(merged.ordersToken),
-    cryptoBox.encrypt(merged.availabilityToken),
-    merged.globalEntityId,
-    JSON.stringify(merged.chainNames),
-    JSON.stringify(merged.chains),
-    merged.lateThreshold,
-    merged.lateReopenThreshold ?? 0,
-    merged.unassignedThreshold,
-    merged.unassignedReopenThreshold ?? 0,
-    merged.readyThreshold ?? 0,
-    merged.readyReopenThreshold ?? 0,
-    merged.tempCloseMinutes,
-    merged.graceMinutes,
-    merged.ordersRefreshSeconds,
-    merged.availabilityRefreshSeconds,
-    merged.maxVendorsPerOrdersRequest
+    cryptoBox.encrypt(normalized.ordersToken),
+    cryptoBox.encrypt(normalized.availabilityToken),
+    normalized.globalEntityId,
+    JSON.stringify(normalized.chainNames),
+    JSON.stringify(normalized.chains),
+    normalized.lateThreshold,
+    normalized.lateReopenThreshold ?? 0,
+    normalized.unassignedThreshold,
+    normalized.unassignedReopenThreshold ?? 0,
+    normalized.readyThreshold ?? 0,
+    normalized.readyReopenThreshold ?? 0,
+    normalized.tempCloseMinutes,
+    normalized.graceMinutes,
+    normalized.ordersRefreshSeconds,
+    normalized.availabilityRefreshSeconds,
+    normalized.maxVendorsPerOrdersRequest
   );
 
-  return merged;
+  return normalized;
 }

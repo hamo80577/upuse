@@ -40,15 +40,25 @@ export function ensureUserSeed(input: {
   role: AppUserRole;
   password: string;
 }) {
+  return ensureUserSeedAsync(input);
+}
+
+async function ensureUserSeedAsync(input: {
+  email: string;
+  name: string;
+  role: AppUserRole;
+  password: string;
+}) {
   const email = normalizeEmail(input.email);
   const existing = db.prepare<[string], Pick<UserRow, "id">>("SELECT id FROM users WHERE email = ?").get(email);
   if (existing) return existing.id;
 
   const createdAt = nowIso();
+  const passwordHash = await hashPassword(input.password);
   const info = db.prepare(`
     INSERT INTO users (email, name, role, passwordHash, active, createdAt)
     VALUES (?, ?, ?, ?, 1, ?)
-  `).run(email, input.name.trim(), input.role, hashPassword(input.password), createdAt);
+  `).run(email, input.name.trim(), input.role, passwordHash, createdAt);
 
   return Number(info.lastInsertRowid);
 }
@@ -77,16 +87,28 @@ export function createUser(input: {
   scanoAccessRole?: ScanoRole;
   password: string;
 }) {
+  return createUserAsync(input);
+}
+
+async function createUserAsync(input: {
+  email: string;
+  name: string;
+  upuseAccess: boolean;
+  upuseRole?: AppUserRole;
+  scanoAccessRole?: ScanoRole;
+  password: string;
+}) {
   const normalizedEmail = normalizeEmail(input.email);
   const createdAt = nowIso();
   const trimmedName = input.name.trim();
   const nextRole = input.upuseAccess ? (input.upuseRole ?? "user") : "user";
+  const passwordHash = await hashPassword(input.password);
 
   const createdUserId = db.transaction(() => {
     const info = db.prepare(`
       INSERT INTO users (email, name, role, passwordHash, active, createdAt, upuseAccess, isPrimaryAdmin)
       VALUES (?, ?, ?, ?, 1, ?, ?, 0)
-    `).run(normalizedEmail, trimmedName, nextRole, hashPassword(input.password), createdAt, input.upuseAccess ? 1 : 0);
+    `).run(normalizedEmail, trimmedName, nextRole, passwordHash, createdAt, input.upuseAccess ? 1 : 0);
 
     const userId = Number(info.lastInsertRowid);
     syncUserAccess({
@@ -118,6 +140,19 @@ export function updateUser(input: {
   password?: string;
   actorUserId?: number | null;
 }) {
+  return updateUserAsync(input);
+}
+
+async function updateUserAsync(input: {
+  id: number;
+  email: string;
+  name: string;
+  upuseAccess: boolean;
+  upuseRole?: AppUserRole;
+  scanoAccessRole?: ScanoRole;
+  password?: string;
+  actorUserId?: number | null;
+}) {
   const existing = getUserById(input.id);
   if (!existing) {
     throw new AuthStoreError("User not found", 404, "USER_NOT_FOUND");
@@ -133,6 +168,7 @@ export function updateUser(input: {
   const nextRole: AppUserRole = input.upuseAccess
     ? (input.upuseRole ?? existingUser.role)
     : (existing.isPrimaryAdmin ? "admin" : "user");
+  const passwordHash = trimmedPassword ? await hashPassword(trimmedPassword) : null;
 
   if (existing.isPrimaryAdmin && (!input.upuseAccess || nextRole !== "admin")) {
     throw new AuthStoreError("The primary admin must keep UPuse admin access.", 409, "PRIMARY_ADMIN_UPUSE_ACCESS_REQUIRED");
@@ -157,12 +193,12 @@ export function updateUser(input: {
   });
 
   db.transaction(() => {
-    if (trimmedPassword) {
+    if (passwordHash) {
       db.prepare(`
         UPDATE users
         SET email = ?, name = ?, role = ?, upuseAccess = ?, passwordHash = ?
         WHERE id = ?
-      `).run(normalizedEmail, trimmedName, nextRole, input.upuseAccess ? 1 : 0, hashPassword(trimmedPassword), input.id);
+      `).run(normalizedEmail, trimmedName, nextRole, input.upuseAccess ? 1 : 0, passwordHash, input.id);
       deleteAuthSessionsForUser(input.id);
     } else {
       db.prepare(`
@@ -250,8 +286,12 @@ export function deleteUserById(input: { id: number; actorUserId?: number | null 
 }
 
 export function verifyUserCredentials(email: string, password: string) {
+  return verifyUserCredentialsAsync(email, password);
+}
+
+async function verifyUserCredentialsAsync(email: string, password: string) {
   const row = getUserByEmail(email);
   if (!row || !row.active) return null;
-  if (!verifyPassword(password, row.passwordHash)) return null;
+  if (!(await verifyPassword(password, row.passwordHash))) return null;
   return toAppUser(row);
 }

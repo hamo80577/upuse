@@ -26,7 +26,7 @@ export function getCurrentHourPlacedCountByVendor(params: {
   const dayKey = getCairoDayKey(resolvedNow);
   const hourWindow = cairoHourWindowUtc(resolvedNow);
   const placeholders = params.vendorIds.map(() => "?").join(", ");
-  const rows = db.prepare<any[], { vendorId: OrdersVendorId; count: number }>(`
+  const rows = db.prepare<unknown[], { vendorId: OrdersVendorId; count: number }>(`
     SELECT vendorId, COUNT(*) AS count
     FROM orders_mirror
     WHERE dayKey = ?

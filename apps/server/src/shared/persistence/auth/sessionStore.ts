@@ -6,6 +6,8 @@ import { toAppUser } from "./helpers.js";
 import type { SessionRow, UserRow } from "./rows.js";
 
 const SESSION_TTL_HOURS = 12;
+const DEFAULT_SESSION_PRUNE_INTERVAL_MS = 15 * 60 * 1000;
+let sessionPruneTimer: NodeJS.Timeout | null = null;
 
 export function deleteAuthSessionsForUser(userId: number) {
   return db.prepare<[number]>("DELETE FROM sessions WHERE userId = ?").run(userId).changes;
@@ -39,7 +41,6 @@ export function pruneExpiredSessions() {
 }
 
 export function getSessionUserByToken(token: string) {
-  pruneExpiredSessions();
   const persistedToken = hashSessionToken(token);
   const row = db.prepare<[string, string], UserRow & SessionRow & { sessionCreatedAt: string }>(`
     SELECT
@@ -72,4 +73,23 @@ export function getSessionUserByToken(token: string) {
       createdAt: row.sessionCreatedAt,
     } satisfies AuthSession,
   };
+}
+
+export function stopSessionStore() {
+  if (sessionPruneTimer) {
+    clearInterval(sessionPruneTimer);
+    sessionPruneTimer = null;
+  }
+}
+
+export function initializeSessionStore(options?: { pruneIntervalMs?: number }) {
+  const pruneIntervalMs = Math.max(1_000, options?.pruneIntervalMs ?? DEFAULT_SESSION_PRUNE_INTERVAL_MS);
+
+  stopSessionStore();
+  pruneExpiredSessions();
+
+  sessionPruneTimer = setInterval(() => {
+    pruneExpiredSessions();
+  }, pruneIntervalMs);
+  sessionPruneTimer.unref?.();
 }

@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { createConnectionQuota } from "../http/connectionQuota.js";
-import type { MonitorEngine } from "../services/monitorEngine.js";
+import type { MonitorEngine } from "../monitor/engine/MonitorEngine.js";
 
 interface StreamRouteSecurityOptions {
   maxConnectionsPerUser: number;
@@ -73,7 +73,7 @@ export function streamRoute(engine: MonitorEngine, options: StreamRouteSecurityO
     res.setHeader("Connection", "keep-alive");
     res.flushHeaders?.();
 
-    const send = (eventName: "snapshot" | "ping", data: any) => {
+    const send = (eventName: "snapshot" | "ping", data: unknown) => {
       if (res.writableEnded || res.destroyed) return;
       try {
         res.write(`event: ${eventName}\n`);

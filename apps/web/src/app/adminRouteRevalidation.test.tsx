@@ -26,7 +26,7 @@ vi.mock("../api/client", () => ({
   describeApiError: mockDescribeApiError,
 }));
 
-vi.mock("../pages/dashboard/ui/DashboardPage", () => ({
+vi.mock("../systems/upuse/pages/dashboard/ui/DashboardPage", () => ({
   DashboardPage: () => <div>dashboard-route</div>,
 }));
 
@@ -34,19 +34,19 @@ vi.mock("../pages/login/ui/LoginPage", () => ({
   LoginPage: () => <div>login-route</div>,
 }));
 
-vi.mock("../pages/settings/ui/SettingsPage", () => ({
+vi.mock("../systems/upuse/pages/settings/ui/SettingsPage", () => ({
   SettingsPage: () => <div>settings-route</div>,
 }));
 
-vi.mock("../pages/branches/ui/BranchesPage", () => ({
+vi.mock("../systems/upuse/pages/branches/ui/BranchesPage", () => ({
   BranchesPage: () => <div>branches-route</div>,
 }));
 
-vi.mock("../pages/thresholds/ui/ThresholdsPage", () => ({
+vi.mock("../systems/upuse/pages/thresholds/ui/ThresholdsPage", () => ({
   ThresholdsPage: () => <div>thresholds-route</div>,
 }));
 
-vi.mock("../pages/users/ui/UsersPage", () => ({
+vi.mock("../systems/upuse/pages/users/ui/UsersPage", () => ({
   UsersPage: () => {
     useEffect(() => {
       void mockApi.listUsers().catch(() => {});
@@ -64,6 +64,12 @@ function renderAt(path: string) {
       </AuthProvider>
     </MemoryRouter>,
   );
+}
+
+function nextTick() {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
 }
 
 describe("admin route auth revalidation", () => {
@@ -110,6 +116,16 @@ describe("admin route auth revalidation", () => {
     renderAt("/users");
 
     await waitFor(() => {
+      expect(screen.getByText("users-route")).toBeInTheDocument();
+    });
+    await nextTick();
+    window.dispatchEvent(new Event("upuse:auth:forbidden"));
+
+    await waitFor(() => {
+      expect(mockApi.me).toHaveBeenCalledTimes(2);
+    });
+
+    await waitFor(() => {
       expect(screen.getByText("dashboard-route")).toBeInTheDocument();
     });
 
@@ -117,7 +133,7 @@ describe("admin route auth revalidation", () => {
     expect(mockApi.me).toHaveBeenCalledTimes(2);
   });
 
-  it("allows a promoted user onto the users route after revalidation", async () => {
+  it("refreshes auth state for a promoted user without auto-navigating back to users", async () => {
     mockApi.me
       .mockResolvedValueOnce({
         user: {
@@ -147,27 +163,25 @@ describe("admin route auth revalidation", () => {
     renderAt("/users");
 
     await waitFor(() => {
-      expect(screen.getByText("users-route")).toBeInTheDocument();
+      expect(screen.getByText("dashboard-route")).toBeInTheDocument();
+    });
+    await nextTick();
+    window.dispatchEvent(new Event("upuse:auth:forbidden"));
+
+    await waitFor(() => {
+      expect(mockApi.me).toHaveBeenCalledTimes(2);
     });
 
-    expect(screen.queryByText("dashboard-route")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-route")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("users-route")).not.toBeInTheDocument();
     expect(mockApi.me).toHaveBeenCalledTimes(2);
   });
 
   it("refreshes auth state after a forbidden admin-only request", async () => {
     mockApi.me
-      .mockResolvedValueOnce({
-        user: {
-          id: 1,
-          email: "admin@example.com",
-          name: "Admin",
-          role: "admin",
-          active: true,
-          createdAt: "2026-03-14T00:00:00.000Z",
-          upuseAccess: true,
-          isPrimaryAdmin: false,
-        },
-      })
       .mockResolvedValueOnce({
         user: {
           id: 1,
@@ -193,16 +207,26 @@ describe("admin route auth revalidation", () => {
         },
       });
     mockApi.listUsers.mockImplementation(async () => {
-      window.dispatchEvent(new Event("upuse:auth:forbidden"));
+      setTimeout(() => {
+        window.dispatchEvent(new Event("upuse:auth:forbidden"));
+      }, 0);
       throw new Error("Forbidden");
     });
 
     renderAt("/users");
 
     await waitFor(() => {
+      expect(screen.getByText("users-route")).toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(mockApi.me).toHaveBeenCalledTimes(2);
+    });
+
+    await waitFor(() => {
       expect(screen.getByText("dashboard-route")).toBeInTheDocument();
     });
 
-    expect(mockApi.me).toHaveBeenCalledTimes(3);
+    expect(mockApi.me).toHaveBeenCalledTimes(2);
   });
 });

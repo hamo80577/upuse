@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import type { Settings } from "../types/models.js";
 import { getSettings, updateSettings } from "../services/settingsStore.js";
 import { GlobalEntityIdSchema } from "../config/globalEntityId.js";
 import { z } from "zod";
@@ -51,6 +52,8 @@ const SettingsTokenTestPayload = z
     availabilityToken: z.string().trim().optional(),
   })
   .strict();
+
+type SettingsPatchInput = Partial<Settings>;
 
 export function getSettingsRoute(_req: Request, res: Response) {
   const s = getSettings();
@@ -108,7 +111,7 @@ export function putSettingsRoute(req: Request, res: Response) {
     });
   }
 
-  const updated = updateSettings(patch as any);
+  const updated = updateSettings(patch as SettingsPatchInput);
   res.json({ ok: true, settings: { ...updated, ordersToken: mask(updated.ordersToken), availabilityToken: mask(updated.availabilityToken) } });
 }
 

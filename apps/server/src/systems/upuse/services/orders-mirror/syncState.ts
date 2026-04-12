@@ -9,6 +9,14 @@ import type {
 } from "./types.js";
 import { getCairoDayKey, toMillis } from "./timeWindows.js";
 
+function getObjectProperty(value: unknown, key: string) {
+  if (typeof value !== "object" || value === null || !(key in value)) {
+    return undefined;
+  }
+
+  return (value as Record<string, unknown>)[key];
+}
+
 export function resolveFetchedAt(state: OrdersEntitySyncStateRow | null) {
   if (!state) return null;
   const candidates = [
@@ -142,13 +150,19 @@ export function pruneMirrorDays(dayKeysToKeep: string[]) {
   db.prepare(`DELETE FROM orders_entity_sync_state WHERE dayKey NOT IN (${placeholders})`).run(...dayKeysToKeep);
 }
 
-export function summarizeMirrorSyncError(error: any): EntitySyncError {
-  const statusCode = typeof error?.response?.status === "number" ? error.response.status : undefined;
-  const code = typeof error?.code === "string" ? error.code : undefined;
+export function summarizeMirrorSyncError(error: unknown): EntitySyncError {
+  const response = getObjectProperty(error, "response");
+  const responseData = getObjectProperty(response, "data");
+  const statusCode = typeof getObjectProperty(response, "status") === "number"
+    ? getObjectProperty(response, "status") as number
+    : undefined;
+  const code = typeof getObjectProperty(error, "code") === "string"
+    ? getObjectProperty(error, "code") as string
+    : undefined;
   const responseMessage =
-    error?.response?.data?.message ||
-    error?.response?.data?.error ||
-    error?.message ||
+    getObjectProperty(responseData, "message") ||
+    getObjectProperty(responseData, "error") ||
+    getObjectProperty(error, "message") ||
     "Orders API request failed";
 
   return {

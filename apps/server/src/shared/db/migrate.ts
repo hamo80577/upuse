@@ -16,7 +16,7 @@ function dropLegacyBranchCatalogTables() {
   `);
 }
 
-export function migrate() {
+export async function migrate() {
   db.exec(buildSharedSchemaSql());
   for (const system of getServerSystems()) {
     const schemaSql = system.db?.buildSchemaSql?.();
@@ -56,6 +56,6 @@ export function migrate() {
   rotateStoredSettingsSecretsToPrimary();
   backfillLegacyChainThresholds(db);
 
-  maybeSeedBootstrapAdmin(db, process.env);
+  await maybeSeedBootstrapAdmin(db, process.env);
   ensurePrimaryAdminUser(db);
 }

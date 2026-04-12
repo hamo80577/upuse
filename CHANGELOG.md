@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-04-12
+
+- Hardened core backend correctness and cleanup:
+  - fixed `settingsStore` so invalid reopen thresholds are rejected instead of being silently clamped before validation
+  - converted password hashing and verification to real async `scrypt` usage across login, user create/update, bootstrap-admin seeding, migration, and runtime startup
+  - removed expired-session pruning from authenticated request resolution and moved it to startup plus background maintenance
+  - decomposed `MonitorEngine` into dedicated scheduling, runtime-tracking, snapshot-building, and upstream-error modules while preserving behavior
+  - added repo-level ESLint with type-aware promise checks, React hooks enforcement, and strict `no-explicit-any` coverage for monitor/routes/shared auth persistence/system code
+  - deleted dead monitor/web API barrels and legacy compatibility shims after rewriting imports to the authoritative modules
+
 ## 2026-04-11
 
 - Finalized the internal system architecture hardening without changing product behavior:

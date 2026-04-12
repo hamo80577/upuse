@@ -1,19 +1,30 @@
+function getObjectProperty(value: unknown, key: string) {
+  if (typeof value !== "object" || value === null || !(key in value)) {
+    return undefined;
+  }
+
+  return (value as Record<string, unknown>)[key];
+}
+
 export function extractCancellationOwner(payload: unknown) {
-  const owner = (payload as { cancellation?: { owner?: unknown } } | null | undefined)?.cancellation?.owner;
+  const cancellation = getObjectProperty(payload, "cancellation");
+  const owner = getObjectProperty(cancellation, "owner");
   if (typeof owner !== "string") return null;
   const normalized = owner.trim().toUpperCase();
   return normalized.length ? normalized : null;
 }
 
 function extractCancellationText(payload: unknown, key: "reason" | "stage" | "source") {
-  const value = (payload as { cancellation?: Record<string, unknown> } | null | undefined)?.cancellation?.[key];
+  const cancellation = getObjectProperty(payload, "cancellation");
+  const value = getObjectProperty(cancellation, key);
   if (typeof value !== "string") return null;
   const normalized = value.trim();
   return normalized.length ? normalized : null;
 }
 
 function extractCancellationIso(payload: unknown, key: "createdAt" | "updatedAt") {
-  const value = (payload as { cancellation?: Record<string, unknown> } | null | undefined)?.cancellation?.[key];
+  const cancellation = getObjectProperty(payload, "cancellation");
+  const value = getObjectProperty(cancellation, key);
   return typeof value === "string" && value.trim().length ? value.trim() : null;
 }
 
@@ -28,15 +39,21 @@ export function extractCancellationDetail(payload: unknown) {
   };
 }
 
-export function normalizeLookupError(error: any) {
-  const status = typeof error?.response?.status === "number" ? error.response.status : null;
+export function normalizeLookupError(error: unknown) {
+  const response = getObjectProperty(error, "response");
+  const responseData = getObjectProperty(response, "data");
+  const status = typeof getObjectProperty(response, "status") === "number"
+    ? getObjectProperty(response, "status") as number
+    : null;
   const responseMessage =
-    typeof error?.response?.data?.message === "string" && error.response.data.message.trim().length
-      ? error.response.data.message.trim()
+    typeof getObjectProperty(responseData, "message") === "string" && (getObjectProperty(responseData, "message") as string).trim().length
+      ? (getObjectProperty(responseData, "message") as string).trim()
       : null;
   const baseMessage =
     responseMessage ||
-    (typeof error?.message === "string" && error.message.trim().length ? error.message.trim() : "Cancellation lookup failed.");
+    (typeof getObjectProperty(error, "message") === "string" && (getObjectProperty(error, "message") as string).trim().length
+      ? (getObjectProperty(error, "message") as string).trim()
+      : "Cancellation lookup failed.");
 
   return {
     status,

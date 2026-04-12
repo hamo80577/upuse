@@ -2,9 +2,9 @@ import type { IncomingMessage, Server as HttpServer } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 import type { SecurityConfig } from "../config/security.js";
-import type { MonitorEngine } from "../services/monitorEngine.js";
+import type { MonitorEngine } from "../monitor/engine/MonitorEngine.js";
 import type { AppUser, DashboardSnapshot } from "../types/models.js";
-import { authorizeUpuseUpgradeFromCookieHeader } from "./auth.js";
+import { authorizeUpuseUpgradeFromCookieHeader } from "../shared/http/auth/sessionAuth.js";
 import { createConnectionQuota } from "./connectionQuota.js";
 import { isTrustedOrigin, parseCorsOrigins } from "./security.js";
 

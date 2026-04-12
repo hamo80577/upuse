@@ -1,10 +1,9 @@
-import type { Express } from "express";
-import express from "express";
+import type { Express, NextFunction, Request, Response } from "express";
 import multer from "multer";
 import { ZodError } from "zod";
 
 export function registerApiErrorHandler(app: Express) {
-  app.use((error: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  app.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
     if (res.headersSent) {
       next(error);
       return;

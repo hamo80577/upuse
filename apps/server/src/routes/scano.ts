@@ -730,7 +730,7 @@ export function getScanoTaskProductImageRoute(req: Request, res: Response) {
       return;
     }
     res.type(result.mimeType);
-    res.setHeader("Content-Disposition", `inline; filename=\"${result.fileName}\"`);
+    res.setHeader("Content-Disposition", `inline; filename="${result.fileName}"`);
     res.sendFile(result.filePath);
   } catch (error) {
     throw normalizeScanoError(error);

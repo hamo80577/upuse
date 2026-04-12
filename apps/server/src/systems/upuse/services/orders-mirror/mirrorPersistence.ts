@@ -2,7 +2,7 @@ import type { Statement } from "better-sqlite3";
 import { db } from "../../../../config/db.js";
 import type { DroppedActiveOrderCandidate, NormalizedMirrorOrder } from "./types.js";
 
-let upsertMirrorOrderStatement: Statement<any[]> | null = null;
+let upsertMirrorOrderStatement: Statement | null = null;
 
 function getUpsertMirrorOrderStatement() {
   upsertMirrorOrderStatement ??= db.prepare(`
@@ -170,7 +170,7 @@ export function listDroppedActiveOrderCandidates(params: {
   }
 
   const placeholders = params.activeOrderIds.map(() => "?").join(", ");
-  return db.prepare<any[], DroppedActiveOrderCandidate>(`
+  return db.prepare<unknown[], DroppedActiveOrderCandidate>(`
     SELECT
       dayKey,
       globalEntityId,

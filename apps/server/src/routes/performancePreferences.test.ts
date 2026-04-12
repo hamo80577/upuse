@@ -37,7 +37,11 @@ vi.mock("../services/authStore.js", () => ({
   getSessionUserByToken: vi.fn(() => null),
 }));
 
-import { requireAuthenticatedApi } from "../http/auth.js";
+vi.mock("../core/systems/auth/registry/index.js", () => ({
+  canUserAccessSystem: vi.fn(),
+}));
+
+import { requireAuthenticatedApi } from "../shared/http/auth/sessionAuth.js";
 import {
   createPerformanceGroupRoute,
   createPerformanceViewRoute,

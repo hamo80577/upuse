@@ -265,7 +265,7 @@ async function performEntitySync(params: {
       cacheState: entityStatus.cacheState,
       consecutiveFailures: entityStatus.consecutiveFailures,
     } satisfies EntitySyncBaseResult;
-  } catch (error: any) {
+  } catch (error: unknown) {
     const normalized = summarizeMirrorSyncError(error);
     markEntitySyncFailure(dayKey, params.globalEntityId, normalized);
     const entityStatus = buildEntityStatus(dayKey, params.globalEntityId, params.ordersRefreshSeconds);

@@ -3,21 +3,28 @@ import { createApp } from "./app/server/createApp.js";
 import { getEnv } from "./config/env.js";
 import { getServerSystems } from "./core/systems/registry/index.js";
 
-const runtime = initializeRuntime();
-for (const system of getServerSystems()) {
-  system.start?.(runtime);
-}
+async function main() {
+  const runtime = await initializeRuntime();
+  for (const system of getServerSystems()) {
+    system.start?.(runtime);
+  }
 
-const app = createApp(runtime);
-const port = Number(getEnv("PORT", "8080"));
-const server = app.listen(port, () => {
-  console.log(`UPuse server listening on http://localhost:${port}`);
-});
-
-for (const system of getServerSystems()) {
-  system.registerWebSockets?.({
-    ...runtime,
-    app,
-    server,
+  const app = createApp(runtime);
+  const port = Number(getEnv("PORT", "8080"));
+  const server = app.listen(port, () => {
+    console.log(`UPuse server listening on http://localhost:${port}`);
   });
+
+  for (const system of getServerSystems()) {
+    system.registerWebSockets?.({
+      ...runtime,
+      app,
+      server,
+    });
+  }
 }
+
+void main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

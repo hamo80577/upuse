@@ -8,7 +8,7 @@
 | `apps/web/src/app/systemNavigation.ts` | `apps/web/src/core/systems/navigation/index.ts` |
 | `apps/web/src/widgets/top-bar/ui/TopBar.tsx` | `apps/web/src/app/shell/TopBar.tsx` |
 | `apps/web/src/app/providers/MonitorStatusProvider.tsx` | `apps/web/src/systems/upuse/providers/MonitorStatusProvider.tsx` |
-| `apps/web/src/shared/api/endpoints.ts` | shared-only barrel over `shared/api/authClient.ts` and `shared/api/healthClient.ts`; product API composition lives in `apps/web/src/api/client.ts`, while runtime system clients live under `systems/upuse/api` and `systems/scano/api` |
+| `apps/web/src/shared/api/endpoints.ts` | removed redundant barrel; shared HTTP helpers stay under `shared/api/*`, product API composition lives in `apps/web/src/api/client.ts`, and runtime system clients live under `systems/upuse/api` and `systems/scano/api` |
 | `apps/web/src/pages/dashboard/*` | `apps/web/src/systems/upuse/pages/dashboard/*` |
 | `apps/web/src/pages/branches/*` | `apps/web/src/systems/upuse/pages/branches/*` |
 | `apps/web/src/pages/performance/*` | `apps/web/src/systems/upuse/pages/performance/*` |
@@ -24,7 +24,7 @@
 | --- | --- |
 | `apps/server/src/index.ts` | composition root using `app/bootstrap`, `app/server`, shared route registration, and system modules |
 | `apps/server/src/config/db.ts` | thin compatibility barrel over `shared/db/connection.ts`, `shared/db/crypto.ts`, `shared/db/migrate.ts`, and `shared/db/logs.ts` |
-| `apps/server/src/http/auth.ts` | compatibility barrel over `shared/http/auth/sessionAuth.ts`, `systems/upuse/policies/access.ts`, `systems/scano/policies/access.ts` |
+| `apps/server/src/http/auth.ts` | removed compatibility barrel; use `shared/http/auth/sessionAuth.ts`, `systems/upuse/policies/access.ts`, and `systems/scano/policies/access.ts` directly |
 | `apps/server/src/http/security.ts` | compatibility barrel over `app/middleware/*` and `shared/security/origins.ts` |
 | `apps/server/src/services/authStore.ts` | thin shared auth store composed from `shared/persistence/auth/*` plus `systems/scano/services/userAccessSynchronizer.ts` |
 | `apps/server/src/services/ordersMirrorStore.ts` | pure compatibility barrel to `systems/upuse/services/orders-mirror/index.ts`; responsibilities split into `types.ts`, `normalization.ts`, `detailLookup.ts`, `branchDetail.ts`, `statusPublication.ts`, and `runtime.ts` |
@@ -43,7 +43,7 @@ Current shim patterns include:
 
 - old web page/entity/feature paths re-exporting system-owned modules
 - `apps/web/src/app/router.tsx` and `apps/web/src/app/systemNavigation.ts` re-exporting new router/navigation modules
-- `apps/server/src/http/auth.ts` and `apps/server/src/http/security.ts` re-exporting smaller modules
+- `apps/server/src/http/security.ts` re-exporting smaller modules
 
 ## Migration Guidance
 

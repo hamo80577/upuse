@@ -18,146 +18,18 @@ import { markCloseEventReopened, recordMonitorCloseAction } from "../../services
 import {
   getCurrentHourPlacedCountByVendor,
   getMirrorBranchDetail,
-  getOrdersMirrorEntitySyncStatus,
   syncOrdersMirror,
 } from "../../services/ordersMirrorStore.js";
 import { derivePreparingNow } from "../../services/orders/classification.js";
 import { decide } from "../../services/policyEngine.js";
-import { resolveBranchThresholdProfile } from "../../services/thresholds.js";
 import { Mutex } from "../../utils/mutex.js";
 import { nowUtcIso } from "../../utils/time.js";
 import { resolveOrdersStaleMultiplier } from "../../services/orders/shared.js";
-
-type RuntimeRow = ReturnType<typeof getRuntime>;
-type RuntimePatch = Partial<NonNullable<RuntimeRow>>;
-type CycleOptions = {
-  suppressPublish?: boolean;
-  forceOrdersSync?: boolean;
-};
-type ScheduledSource = "orders" | "availability";
-type ScheduledCycleState = {
-  timer: NodeJS.Timeout | null;
-  inFlight: Promise<void> | null;
-  pending: boolean;
-  pendingOptions?: CycleOptions;
-  completedRuns: number;
-  waiters: Array<{ targetRun: number; resolve: () => void }>;
-};
-type OrdersPressureSummary = {
-  preparingNow: number;
-  preparingPickersNow: number;
-  recentActivePickers: number;
-  recentActiveAvailable: boolean;
-};
-
-function normalizeRecentActivePickers(value: number) {
-  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
-}
-
-function capacityLimit(recentActivePickers: number) {
-  return normalizeRecentActivePickers(recentActivePickers) * 3;
-}
-
-function resolveCapacityLoad(metrics: OrdersMetrics) {
-  return derivePreparingNow(metrics);
-}
-
-function mergePendingCycleOptions(
-  current?: CycleOptions,
-  incoming?: CycleOptions,
-): CycleOptions | undefined {
-  if (!current && !incoming) return undefined;
-
-  if (current?.forceOrdersSync || incoming?.forceOrdersSync) {
-    return { forceOrdersSync: true };
-  }
-
-  return undefined;
-}
-
-function closeReasonLogTag(reason: CloseReason, metrics: OrdersMetrics, recentActivePickers: number) {
-  if (reason === "LATE") return `Late=${metrics.lateNow}`;
-  if (reason === "UNASSIGNED") return `Unassigned=${metrics.unassignedNow}`;
-  if (reason === "READY_TO_PICKUP") return `Ready To Pickup=${metrics.readyNow ?? 0}`;
-  if (reason === "CAPACITY_HOUR") {
-    return "Capacity / Hour limit reached";
-  }
-
-  const pickers = normalizeRecentActivePickers(recentActivePickers);
-  return `Capacity inPrep=${resolveCapacityLoad(metrics)} cap=${capacityLimit(pickers)} recentActivePickers=${pickers}`;
-}
-
-function collapseWhitespace(value: string) {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function resolveSnapshotVersion(fetchedAt?: string | null) {
-  return fetchedAt ?? null;
-}
-
-function resolveStaleAgeSeconds(fetchedAt: string | null | undefined, cacheState: "fresh" | "warming" | "stale") {
-  if (!fetchedAt || cacheState !== "stale") return null;
-  const ageMs = Date.now() - new Date(fetchedAt).getTime();
-  if (!Number.isFinite(ageMs) || ageMs < 0) return null;
-  return Math.floor(ageMs / 1000);
-}
-
-function stripHtmlTags(value: string) {
-  return collapseWhitespace(
-    value
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<[^>]+>/g, " "),
-  );
-}
-
-function extractHtmlTitle(value: string) {
-  const match = value.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  return match ? stripHtmlTags(match[1]) : "";
-}
-
-function looksLikeHtmlDocument(value: string) {
-  const sample = value.trim();
-  if (!sample) return false;
-
-  return (
-    sample.startsWith("<!doctype html") ||
-    sample.startsWith("<!DOCTYPE html") ||
-    sample.startsWith("<html") ||
-    /<html[\s>]/i.test(sample) ||
-    /<head[\s>]/i.test(sample) ||
-    /<body[\s>]/i.test(sample)
-  );
-}
-
-function summarizeUpstreamErrorDetail(rawDetail: unknown) {
-  if (typeof rawDetail !== "string") return undefined;
-
-  const detail = rawDetail.trim();
-  if (!detail) return undefined;
-
-  if (looksLikeHtmlDocument(detail)) {
-    const title = extractHtmlTitle(detail);
-    const isCloudflareTunnel =
-      /cloudflare/i.test(detail) ||
-      /cloudflare/i.test(title) ||
-      /tunnel error/i.test(detail) ||
-      /cf-error/i.test(detail);
-
-    if (isCloudflareTunnel) {
-      return "Cloudflare tunnel error";
-    }
-
-    if (title) {
-      return `HTML error page: ${title}`;
-    }
-
-    return "Unexpected HTML error page";
-  }
-
-  const normalized = collapseWhitespace(detail);
-  return normalized.length > 220 ? `${normalized.slice(0, 217)}...` : normalized;
-}
+import { MonitorCycleCoordinator, type CycleOptions, type ScheduledSource } from "./cycleCoordinator.js";
+import { closeReasonLogTag, currentPreparation, type OrdersPressureSummary } from "./monitorState.js";
+import { buildMonitorSnapshot } from "./snapshotBuilder.js";
+import { MonitorRuntimeTracker, type RuntimeRow } from "./runtimeTracking.js";
+import { getMonitorErrorDetail } from "./upstreamErrorSummary.js";
 
 export class MonitorEngine {
   private ordersByVendor = new Map<number, OrdersMetrics>();
@@ -178,31 +50,20 @@ export class MonitorEngine {
   private ordersLastSuccessfulSyncAt: string | undefined;
   private staleOrdersBranchCount = 0;
   private consecutiveOrdersSourceFailures = 0;
-
-  // Each source is single-flight with at most one coalesced rerun request.
-  private cycleStates: Record<ScheduledSource, ScheduledCycleState> = {
-    orders: {
-      timer: null,
-      inFlight: null,
-      pending: false,
-      pendingOptions: undefined,
-      completedRuns: 0,
-      waiters: [],
-    },
-    availability: {
-      timer: null,
-      inFlight: null,
-      pending: false,
-      pendingOptions: undefined,
-      completedRuns: 0,
-      waiters: [],
-    },
-  };
   private lifecycleId = 0;
   private manualOrdersRefreshPromise: Promise<void> | null = null;
 
   private jobMutex = new Mutex();
   private actionMutex = new Mutex();
+  private runtimeTracker = new MonitorRuntimeTracker();
+  private cycleCoordinator = new MonitorCycleCoordinator({
+    isActive: (expectedLifecycleId?: number) => this.isLifecycleActive(expectedLifecycleId),
+    getIntervalMs: (source: ScheduledSource) => this.getCycleIntervalMs(source),
+    runCycle: (source: ScheduledSource, options?: CycleOptions, expectedLifecycleId?: number) =>
+      source === "orders"
+        ? this.runOrdersCycle(options, expectedLifecycleId)
+        : this.runAvailabilityCycle(options, expectedLifecycleId),
+  });
 
   private subscribers = new Set<(snapshot: DashboardSnapshot) => void>();
 
@@ -257,10 +118,6 @@ export class MonitorEngine {
     return this.running && this.isLifecycleCurrent(expectedLifecycleId);
   }
 
-  private getCycleState(source: ScheduledSource) {
-    return this.cycleStates[source];
-  }
-
   private getCycleIntervalMs(source: ScheduledSource) {
     const settings = getSettings();
     return source === "orders"
@@ -277,120 +134,12 @@ export class MonitorEngine {
     return listResolvedBranches({ enabledOnly: true }).map((branch) => branch.availabilityVendorId);
   }
 
-  private clearCycleTimer(source: ScheduledSource) {
-    const state = this.getCycleState(source);
-    if (state.timer) clearTimeout(state.timer);
-    state.timer = null;
-  }
-
-  private resolveCycleWaiters(source: ScheduledSource) {
-    const state = this.getCycleState(source);
-    const remaining: ScheduledCycleState["waiters"] = [];
-
-    for (const waiter of state.waiters) {
-      if (state.completedRuns >= waiter.targetRun || !this.running) {
-        waiter.resolve();
-        continue;
-      }
-      remaining.push(waiter);
-    }
-
-    state.waiters = remaining;
-  }
-
-  private resetCycleState(source: ScheduledSource) {
-    const state = this.getCycleState(source);
-    this.clearCycleTimer(source);
-    state.inFlight = null;
-    state.pending = false;
-    state.pendingOptions = undefined;
-    state.completedRuns = 0;
-    for (const waiter of state.waiters) waiter.resolve();
-    state.waiters = [];
-  }
-
   private clearScheduleHandles() {
-    this.resetCycleState("orders");
-    this.resetCycleState("availability");
-  }
-
-  private armCycleTimer(source: ScheduledSource, delayMs: number, expectedLifecycleId?: number) {
-    if (!this.isLifecycleActive(expectedLifecycleId)) return;
-
-    const state = this.getCycleState(source);
-    this.clearCycleTimer(source);
-    state.timer = setTimeout(() => {
-      state.timer = null;
-      void this.requestScheduledCycle(source, expectedLifecycleId);
-    }, delayMs);
-  }
-
-  private startScheduledCycle(source: ScheduledSource, options?: CycleOptions, expectedLifecycleId?: number) {
-    if (!this.isLifecycleActive(expectedLifecycleId)) return;
-
-    const state = this.getCycleState(source);
-    if (state.inFlight) return;
-
-    this.clearCycleTimer(source);
-
-    const runCycle = source === "orders"
-      ? this.runOrdersCycle.bind(this)
-      : this.runAvailabilityCycle.bind(this);
-
-    const cyclePromise = Promise.resolve()
-      .then(() => runCycle(options, expectedLifecycleId))
-      .catch(() => { })
-      .finally(() => {
-        if (state.inFlight === cyclePromise) {
-          state.inFlight = null;
-        }
-
-        state.completedRuns += 1;
-        this.resolveCycleWaiters(source);
-
-        if (!this.isLifecycleActive(expectedLifecycleId)) {
-          state.pending = false;
-          state.pendingOptions = undefined;
-          return;
-        }
-
-        if (state.pending) {
-          const rerunOptions = state.pendingOptions;
-          state.pending = false;
-          state.pendingOptions = undefined;
-          this.startScheduledCycle(source, rerunOptions, expectedLifecycleId);
-          return;
-        }
-
-        this.armCycleTimer(source, this.getCycleIntervalMs(source), expectedLifecycleId);
-      });
-
-    state.inFlight = cyclePromise;
+    this.cycleCoordinator.clearAll();
   }
 
   private requestScheduledCycle(source: ScheduledSource, expectedLifecycleId?: number, options?: CycleOptions) {
-    if (!this.isLifecycleActive(expectedLifecycleId)) {
-      return Promise.resolve();
-    }
-
-    const state = this.getCycleState(source);
-    const targetRun = state.completedRuns + (state.inFlight ? 2 : 1);
-
-    if (state.inFlight) {
-      state.pending = true;
-      state.pendingOptions = mergePendingCycleOptions(state.pendingOptions, options);
-    } else {
-      this.startScheduledCycle(source, options, expectedLifecycleId);
-    }
-
-    return new Promise<void>((resolve) => {
-      if (state.completedRuns >= targetRun || !this.isLifecycleActive(expectedLifecycleId)) {
-        resolve();
-        return;
-      }
-
-      state.waiters.push({ targetRun, resolve });
-    });
+    return this.cycleCoordinator.request(source, expectedLifecycleId, options);
   }
 
   isRunning() {
@@ -463,26 +212,12 @@ export class MonitorEngine {
     this.syncDegraded();
   }
 
-  private getErrorDetail(e: any) {
-    const statusCode = typeof e?.response?.status === "number" ? e.response.status : undefined;
-    const responseData = e?.response?.data;
-    const candidates = [
-      responseData?.message,
-      responseData?.error,
-      responseData?.details?.message,
-      typeof responseData === "string" ? responseData : undefined,
-      e?.message,
-    ];
-
-    const detail = candidates
-      .map((value) => summarizeUpstreamErrorDetail(value))
-      .find((value) => typeof value === "string" && value.length > 0);
-
-    return { statusCode, detail };
+  private getErrorDetail(error: unknown) {
+    return getMonitorErrorDetail(error);
   }
 
-  private setSourceError(source: MonitorIssueSource, context: string, e: any) {
-    const { statusCode, detail } = this.getErrorDetail(e);
+  private setSourceError(source: MonitorIssueSource, context: string, error: unknown) {
+    const { statusCode, detail } = this.getErrorDetail(error);
     const base = statusCode ? `${context} (HTTP ${statusCode})` : context;
     const message = detail && detail !== base ? `${base}: ${detail}` : base;
 
@@ -496,26 +231,11 @@ export class MonitorEngine {
     log(null, "ERROR", message);
   }
 
-  private currentMetrics(metrics: OrdersMetrics): OrdersMetrics {
-    return metrics;
-  }
-
   private currentPreparation(
     preparation?: Partial<OrdersPressureSummary> & { lastHourPickers?: number },
     recentActiveAvailableFallback = false,
   ): OrdersPressureSummary {
-    return {
-      preparingNow: preparation?.preparingNow ?? 0,
-      preparingPickersNow: preparation?.preparingPickersNow ?? 0,
-      recentActivePickers: normalizeRecentActivePickers(
-        preparation?.recentActivePickers ?? preparation?.lastHourPickers ?? 0,
-      ),
-      recentActiveAvailable:
-        preparation?.recentActiveAvailable ??
-        (preparation?.recentActivePickers != null || preparation?.lastHourPickers != null
-          ? true
-          : recentActiveAvailableFallback),
-    };
+    return currentPreparation(preparation, recentActiveAvailableFallback);
   }
 
   private resolveThresholds(
@@ -534,7 +254,7 @@ export class MonitorEngine {
     >,
     settings: Settings,
   ) {
-    return resolveBranchThresholdProfile(branch, settings);
+    return this.runtimeTracker.resolveThresholds(branch, settings);
   }
 
   private inferMonitorCloseReason(
@@ -545,156 +265,54 @@ export class MonitorEngine {
     recentActivePickers: number,
     recentActiveAvailable: boolean,
   ): CloseReason | undefined {
-    const thresholds = this.resolveThresholds(branch, settings);
-    const readyThreshold =
-      typeof thresholds.readyThreshold === "number"
-        ? thresholds.readyThreshold
-        : 0;
-    const normalizedRecentActivePickers = normalizeRecentActivePickers(recentActivePickers);
-    const capacityRuleCanApply = thresholds.capacityRuleEnabled !== false
-      && recentActiveAvailable
-      && normalizedRecentActivePickers >= 1;
-    const capacityLoad = resolveCapacityLoad(metrics);
-    const exceedLate = metrics.lateNow >= thresholds.lateThreshold && thresholds.lateThreshold > 0;
-    const exceedUnassigned = metrics.unassignedNow >= thresholds.unassignedThreshold && thresholds.unassignedThreshold > 0;
-    const exceedReady = (metrics.readyNow ?? 0) >= readyThreshold && readyThreshold > 0;
-    const exceedCapacity = capacityRuleCanApply
-      && capacityLoad > capacityLimit(normalizedRecentActivePickers);
-    const exceedCapacityPerHour = thresholds.capacityPerHourEnabled === true
-      && typeof thresholds.capacityPerHourLimit === "number"
-      && currentHourPlacedCount >= thresholds.capacityPerHourLimit;
-
-    if (exceedLate) return "LATE";
-    if (exceedUnassigned) return "UNASSIGNED";
-    if (exceedReady) return "READY_TO_PICKUP";
-    if (exceedCapacity) return "CAPACITY";
-    if (exceedCapacityPerHour) return "CAPACITY_HOUR";
-    return undefined;
-  }
-
-  private hasTrustedMonitorRuntime(runtime: RuntimeRow | undefined, settings: Settings) {
-    if (!runtime) return false;
-    if (typeof runtime.lastUpuseCloseEventId === "number" && runtime.lastUpuseCloseEventId > 0) {
-      return true;
-    }
-
-    if (!runtime.lastUpuseCloseAt || !runtime.lastActionAt) {
-      return false;
-    }
-
-    const closeAt = DateTime.fromISO(runtime.lastUpuseCloseAt, { zone: "utc" });
-    const actionAt = DateTime.fromISO(runtime.lastActionAt, { zone: "utc" });
-    if (!closeAt.isValid || !actionAt.isValid) {
-      return false;
-    }
-
-    const toleranceSeconds = Math.max(120, settings.availabilityRefreshSeconds + 30);
-    return Math.abs(actionAt.diff(closeAt).as("seconds")) <= toleranceSeconds;
-  }
-
-  private isTrackedUpuseClosure(runtime: RuntimeRow | undefined, closedUntil?: string) {
-    if (!closedUntil) return false;
-    const lastUntil = runtime?.lastUpuseCloseUntil;
-    if (!lastUntil) return false;
-
-    const dt1 = DateTime.fromISO(lastUntil, { zone: "utc" });
-    const dt2 = DateTime.fromISO(closedUntil, { zone: "utc" });
-    return Math.abs(dt1.diff(dt2).as("seconds")) <= 5;
-  }
-
-  private matchesExpectedMonitorCloseWindow(runtime: RuntimeRow | undefined, closedUntil?: string) {
-    if (!closedUntil || !runtime?.lastUpuseCloseAt) return false;
-
-    const settings = getSettings();
-    const lastCloseAt = DateTime.fromISO(runtime.lastUpuseCloseAt, { zone: "utc" });
-    const actualUntil = DateTime.fromISO(closedUntil, { zone: "utc" });
-    if (!lastCloseAt.isValid || !actualUntil.isValid) return false;
-
-    const expectedUntil = lastCloseAt.plus({ minutes: Math.max(1, settings.tempCloseMinutes) });
-    const toleranceSeconds = Math.max(90, settings.availabilityRefreshSeconds + 30);
-    return Math.abs(actualUntil.diff(expectedUntil).as("seconds")) <= toleranceSeconds;
-  }
-
-  private isObservedClosureMatch(runtime: RuntimeRow | undefined, closedUntil?: string) {
-    if (!closedUntil || !runtime?.closureObservedUntil) return false;
-
-    const observedUntil = DateTime.fromISO(runtime.closureObservedUntil, { zone: "utc" });
-    const actualUntil = DateTime.fromISO(closedUntil, { zone: "utc" });
-    if (!observedUntil.isValid || !actualUntil.isValid) return false;
-
-    return Math.abs(observedUntil.diff(actualUntil).as("seconds")) <= 5;
-  }
-
-  private isMonitorOwnedClosure(runtime: RuntimeRow | undefined, availability?: AvailabilityRecord) {
-    if (!availability || availability.availabilityState !== "CLOSED_UNTIL") return false;
-    const settings = getSettings();
-    if (!this.hasTrustedMonitorRuntime(runtime, settings)) return false;
-    if (runtime?.closureOwner === "EXTERNAL") return false;
-
-    if (runtime?.closureOwner === "UPUSE") {
-      return (
-        this.isObservedClosureMatch(runtime, availability.closedUntil) ||
-        this.isTrackedUpuseClosure(runtime, availability.closedUntil) ||
-        this.matchesExpectedMonitorCloseWindow(runtime, availability.closedUntil)
-      );
-    }
-
-    return (
-      this.isTrackedUpuseClosure(runtime, availability.closedUntil) ||
-      this.matchesExpectedMonitorCloseWindow(runtime, availability.closedUntil)
+    return this.runtimeTracker.inferMonitorCloseReason(
+      branch,
+      metrics,
+      settings,
+      currentHourPlacedCount,
+      recentActivePickers,
+      recentActiveAvailable,
     );
   }
 
+  private hasTrustedMonitorRuntime(runtime: RuntimeRow | undefined, settings: Settings) {
+    return this.runtimeTracker.hasTrustedMonitorRuntime(runtime, settings);
+  }
+
+  private isTrackedUpuseClosure(runtime: RuntimeRow | undefined, closedUntil?: string) {
+    return this.runtimeTracker.isTrackedUpuseClosure(runtime, closedUntil);
+  }
+
+  private matchesExpectedMonitorCloseWindow(runtime: RuntimeRow | undefined, closedUntil?: string) {
+    return this.runtimeTracker.matchesExpectedMonitorCloseWindow(runtime, closedUntil);
+  }
+
+  private isObservedClosureMatch(runtime: RuntimeRow | undefined, closedUntil?: string) {
+    return this.runtimeTracker.isObservedClosureMatch(runtime, closedUntil);
+  }
+
+  private isMonitorOwnedClosure(runtime: RuntimeRow | undefined, availability?: AvailabilityRecord) {
+    return this.runtimeTracker.isMonitorOwnedClosure(runtime, availability);
+  }
+
   private hasActiveTrackedMonitorWindow(runtime: RuntimeRow | undefined, nowIso: string) {
-    const settings = getSettings();
-    if (!this.hasTrustedMonitorRuntime(runtime, settings)) return false;
-    const trackedCloseUntil = runtime?.closureObservedUntil ?? runtime?.lastUpuseCloseUntil;
-    if (!trackedCloseUntil) return false;
-
-    const now = DateTime.fromISO(nowIso, { zone: "utc" });
-    const lastUntil = DateTime.fromISO(trackedCloseUntil, { zone: "utc" });
-    if (!now.isValid || !lastUntil.isValid) return false;
-
-    return now <= lastUntil.plus({ seconds: 120 });
+    return this.runtimeTracker.hasActiveTrackedMonitorWindow(runtime, nowIso);
   }
 
   private inferCloseStartedAt(closedUntil: string | undefined, durationMinutes: number) {
-    if (!closedUntil) return undefined;
-    const end = DateTime.fromISO(closedUntil, { zone: "utc" });
-    if (!end.isValid) return undefined;
-    return end.minus({ minutes: Math.max(1, durationMinutes) }).toISO({ suppressMilliseconds: false }) ?? undefined;
+    return this.runtimeTracker.inferCloseStartedAt(closedUntil, durationMinutes);
   }
 
   private inferObservedExternalCloseStartedAt(runtime: RuntimeRow | undefined, closedUntil: string | undefined) {
-    if (!runtime?.lastExternalCloseAt || !closedUntil) return undefined;
-    if (runtime.lastExternalCloseUntil !== closedUntil) return undefined;
-
-    const startedAt = DateTime.fromISO(runtime.lastExternalCloseAt, { zone: "utc" });
-    return startedAt.isValid
-      ? startedAt.toISO({ suppressMilliseconds: false }) ?? undefined
-      : undefined;
+    return this.runtimeTracker.inferObservedExternalCloseStartedAt(runtime, closedUntil);
   }
 
   private buildClearedMonitorRuntimePatch(runtime: RuntimeRow | undefined) {
-    const patch: RuntimePatch = {};
-
-    if (runtime?.lastUpuseCloseUntil) patch.lastUpuseCloseUntil = null;
-    if (runtime?.lastUpuseCloseReason) patch.lastUpuseCloseReason = null;
-    if (runtime?.lastUpuseCloseAt) patch.lastUpuseCloseAt = null;
-    if (runtime?.lastUpuseCloseEventId) patch.lastUpuseCloseEventId = null;
-    if (runtime?.externalOpenDetectedAt) patch.externalOpenDetectedAt = null;
-
-    return patch;
+    return this.runtimeTracker.buildClearedMonitorRuntimePatch(runtime);
   }
 
   private buildClearedClosureObservationPatch(runtime: RuntimeRow | undefined) {
-    const patch: RuntimePatch = {};
-
-    if (runtime?.closureOwner) patch.closureOwner = null;
-    if (runtime?.closureObservedUntil) patch.closureObservedUntil = null;
-    if (runtime?.closureObservedAt) patch.closureObservedAt = null;
-
-    return patch;
+    return this.runtimeTracker.buildClearedClosureObservationPatch(runtime);
   }
 
   private syncTrackedMonitorRuntime(
@@ -708,69 +326,17 @@ export class MonitorEngine {
     nowIso: string,
     settings: Settings,
   ) {
-    const patch: RuntimePatch = {};
-
-    if (!runtime?.lastUpuseCloseUntil) {
-      patch.lastUpuseCloseUntil = closedUntil;
-    }
-
-    if (runtime?.closureOwner !== "UPUSE") {
-      patch.closureOwner = "UPUSE";
-    }
-
-    if (runtime?.closureObservedUntil !== closedUntil) {
-      patch.closureObservedUntil = closedUntil;
-    }
-
-    const nextObservedAt =
-      runtime?.closureOwner === "UPUSE" &&
-      runtime?.closureObservedUntil === closedUntil &&
-      runtime?.closureObservedAt
-        ? runtime.closureObservedAt
-        : nowIso;
-    if (runtime?.closureObservedAt !== nextObservedAt) {
-      patch.closureObservedAt = nextObservedAt;
-    }
-
-    if (!runtime?.lastUpuseCloseAt) {
-      const inferredCloseAt = this.inferCloseStartedAt(closedUntil, settings.tempCloseMinutes);
-      if (inferredCloseAt) {
-        patch.lastUpuseCloseAt = inferredCloseAt;
-      }
-    }
-
-    if (!runtime?.lastUpuseCloseReason) {
-      const inferredReason = this.inferMonitorCloseReason(
-        branch,
-        metrics,
-        settings,
-        currentHourPlacedCount,
-        recentActivePickers,
-        recentActiveAvailable,
-      );
-      if (inferredReason) {
-        patch.lastUpuseCloseReason = inferredReason;
-      }
-    }
-
-    if (runtime?.externalOpenDetectedAt) {
-      patch.externalOpenDetectedAt = null;
-    }
-
-    if (runtime?.lastExternalCloseUntil) {
-      patch.lastExternalCloseUntil = null;
-    }
-
-    if (runtime?.lastExternalCloseAt) {
-      patch.lastExternalCloseAt = null;
-    }
-
-    if (!Object.keys(patch).length) {
-      return runtime;
-    }
-
-    setRuntime(branch.id, patch);
-    return getRuntime(branch.id) as RuntimeRow | undefined;
+    return this.runtimeTracker.syncTrackedMonitorRuntime(
+      branch,
+      metrics,
+      currentHourPlacedCount,
+      recentActivePickers,
+      recentActiveAvailable,
+      runtime,
+      closedUntil,
+      nowIso,
+      settings,
+    );
   }
 
   private syncExternalTemporaryClosureRuntime(
@@ -780,324 +346,47 @@ export class MonitorEngine {
     nowIso: string,
     clearTrackedMonitorRuntime: boolean,
   ) {
-    const patch: RuntimePatch = {};
-    const observedAt =
-      runtime?.closureOwner === "EXTERNAL" &&
-      runtime?.closureObservedUntil === externalClosedUntil &&
-      runtime?.closureObservedAt
-        ? runtime.closureObservedAt
-        : runtime?.lastExternalCloseUntil === externalClosedUntil && runtime?.lastExternalCloseAt
-          ? runtime.lastExternalCloseAt
-          : nowIso;
-
-    if (runtime?.closureOwner !== "EXTERNAL") {
-      patch.closureOwner = "EXTERNAL";
-    }
-    if (runtime?.closureObservedUntil !== externalClosedUntil) {
-      patch.closureObservedUntil = externalClosedUntil;
-    }
-    if (runtime?.closureObservedAt !== observedAt) {
-      patch.closureObservedAt = observedAt;
-    }
-    if (runtime?.lastExternalCloseUntil !== externalClosedUntil) {
-      patch.lastExternalCloseUntil = externalClosedUntil;
-    }
-    if (runtime?.lastExternalCloseAt !== observedAt) {
-      patch.lastExternalCloseAt = observedAt;
-    }
-    if (runtime?.externalOpenDetectedAt) {
-      patch.externalOpenDetectedAt = null;
-    }
-
-    if (clearTrackedMonitorRuntime) {
-      Object.assign(patch, this.buildClearedMonitorRuntimePatch(runtime));
-    }
-
-    if (!Object.keys(patch).length) {
-      return runtime;
-    }
-
-    return setRuntime(branch.id, patch) as RuntimeRow | undefined;
+    return this.runtimeTracker.syncExternalTemporaryClosureRuntime(
+      branch,
+      runtime,
+      externalClosedUntil,
+      nowIso,
+      clearTrackedMonitorRuntime,
+    );
   }
 
-  private extractClosedUntilCandidate(payload: any): string | undefined {
-    const candidates = [
-      payload?.closedUntil,
-      payload?.closed_until,
-      payload?.availability?.closedUntil,
-      payload?.availability?.closed_until,
-      payload?.data?.closedUntil,
-      payload?.data?.closed_until,
-      payload?.currentSlotEndAt,
-    ];
-
-    const value = candidates.find(
-      (candidate) => typeof candidate === "string" && candidate.trim().length > 0,
-    );
-    if (!value) return undefined;
-
-    const parsed = DateTime.fromISO(value, { zone: "utc" });
-    return parsed.isValid
-      ? parsed.toISO({ suppressMilliseconds: false }) ?? undefined
-      : undefined;
+  private extractClosedUntilCandidate(payload: unknown): string | undefined {
+    return this.runtimeTracker.extractClosedUntilCandidate(payload);
   }
 
   private syncExternalClosureState(nowIso: string) {
-    const settings = getSettings();
-    const branches = listResolvedBranches({ enabledOnly: true });
-
-    for (const branch of branches) {
-      const availability = this.availabilityByVendor.get(branch.availabilityVendorId);
-      let runtime = getRuntime(branch.id) as RuntimeRow | undefined;
-      const metrics = this.ordersByVendor.get(branch.ordersVendorId) ?? {
-        totalToday: 0,
-        cancelledToday: 0,
-        doneToday: 0,
-        activeNow: 0,
-        lateNow: 0,
-        unassignedNow: 0,
-        readyNow: 0,
-      };
-      const currentHourPlacedCount = this.currentHourPlacedByVendor.get(branch.ordersVendorId) ?? 0;
-      const preparation = this.currentPreparation(
-        this.preparationByVendor.get(branch.ordersVendorId),
-        this.ordersDataStateByVendor.get(branch.ordersVendorId) === "fresh",
-      );
-      if (!availability) {
-        continue;
-      }
-
-      const monitorWindowStillActive = this.hasActiveTrackedMonitorWindow(runtime, nowIso);
-      const isMonitorOwnedTempClose = Boolean(
-        availability.availabilityState === "CLOSED_UNTIL" &&
-        availability.closedUntil &&
-        this.isMonitorOwnedClosure(runtime, availability),
-      );
-
-      if (isMonitorOwnedTempClose && availability.closedUntil) {
-        runtime = this.syncTrackedMonitorRuntime(
-          branch,
-          metrics,
-          currentHourPlacedCount,
-          preparation.recentActivePickers,
-          preparation.recentActiveAvailable,
-          runtime,
-          availability.closedUntil,
-          nowIso,
-          settings,
-        );
-        continue;
-      }
-
-      if (availability.availabilityState === "CLOSED_UNTIL" && availability.closedUntil) {
-        const externalClosedUntil = availability.closedUntil;
-        const shouldPersistExternalWindow =
-          runtime?.closureOwner !== "EXTERNAL" ||
-          runtime?.lastExternalCloseUntil !== externalClosedUntil ||
-          runtime?.lastExternalCloseAt == null;
-
-        if (shouldPersistExternalWindow || !monitorWindowStillActive) {
-          runtime = this.syncExternalTemporaryClosureRuntime(
-            branch,
-            runtime,
-            externalClosedUntil,
-            nowIso,
-            !monitorWindowStillActive,
-          );
-          const untilDt = DateTime.fromISO(externalClosedUntil, { zone: "utc" }).setZone("Africa/Cairo");
-          const untilLabel = untilDt.isValid ? untilDt.toFormat("HH:mm") : null;
-          if (shouldPersistExternalWindow) {
-            log(
-              branch.id,
-              "WARN",
-              untilLabel ? `TEMP CLOSE — external source until ${untilLabel}` : "TEMP CLOSE — external source",
-            );
-          }
-        }
-        continue;
-      }
-
-      if (runtime?.lastExternalCloseUntil || runtime?.lastExternalCloseAt || runtime?.closureOwner === "EXTERNAL") {
-        if (availability.availabilityState === "OPEN") {
-          log(branch.id, "INFO", "OPEN — external source reopened");
-        } else if (availability.availabilityState === "CLOSED" || availability.availabilityState === "CLOSED_TODAY") {
-          log(branch.id, "WARN", "CLOSED — external source");
-        }
-
-        setRuntime(branch.id, {
-          ...this.buildClearedClosureObservationPatch(runtime),
-          lastExternalCloseUntil: null,
-          lastExternalCloseAt: null,
-        });
-      }
-    }
+    this.runtimeTracker.syncExternalClosureState({
+      availabilityByVendor: this.availabilityByVendor,
+      ordersByVendor: this.ordersByVendor,
+      preparationByVendor: this.preparationByVendor,
+      currentHourPlacedByVendor: this.currentHourPlacedByVendor,
+      ordersDataStateByVendor: this.ordersDataStateByVendor,
+    }, nowIso);
   }
 
   getSnapshot(): DashboardSnapshot {
-    const settings = getSettings();
-    const branches = listResolvedBranches();
-    const monitoredBranches = branches.filter((branch) => branch.enabled);
-    const ordersSnapshot = getOrdersMirrorEntitySyncStatus({
-      globalEntityId: settings.globalEntityId,
-      ordersRefreshSeconds: settings.ordersRefreshSeconds,
-    });
-    const totals = {
-      branchesMonitored: monitoredBranches.length,
-      open: 0,
-      tempClose: 0,
-      closed: 0,
-      unknown: 0,
-      ordersToday: 0,
-      cancelledToday: 0,
-      doneToday: 0,
-      activeNow: 0,
-      lateNow: 0,
-      unassignedNow: 0,
-    };
-
-    const branchSnapshots = monitoredBranches.map((b) => {
-      const thresholds = this.resolveThresholds(b, settings);
-      const ordersDataState = this.ordersDataStateByVendor.get(b.ordersVendorId) ?? "warming";
-      const rawMetrics = this.ordersByVendor.get(b.ordersVendorId) ?? {
-        totalToday: 0,
-        cancelledToday: 0,
-        doneToday: 0,
-        activeNow: 0,
-        lateNow: 0,
-        unassignedNow: 0,
-        readyNow: 0,
-      };
-      const preparation = this.currentPreparation(
-        this.preparationByVendor.get(b.ordersVendorId) ?? {
-          preparingNow: rawMetrics.preparingNow ?? derivePreparingNow(rawMetrics),
-          preparingPickersNow: 0,
-          recentActivePickers: 0,
-          recentActiveAvailable: ordersDataState === "fresh",
-        },
-        ordersDataState === "fresh",
-      );
-      const ordersLastSyncedAt = this.ordersLastSyncedAtByVendor.get(b.ordersVendorId);
-      const metrics = this.currentMetrics(rawMetrics);
-      const currentHourPlacedCount = this.currentHourPlacedByVendor.get(b.ordersVendorId) ?? 0;
-      totals.ordersToday += metrics.totalToday;
-      totals.cancelledToday += metrics.cancelledToday;
-      totals.doneToday += metrics.doneToday;
-      totals.activeNow += metrics.activeNow;
-      totals.lateNow += metrics.lateNow;
-      totals.unassignedNow += metrics.unassignedNow;
-
-      const av = this.availabilityByVendor.get(b.availabilityVendorId);
-      const runtime = getRuntime(b.id) as RuntimeRow | undefined;
-      let status: "OPEN" | "TEMP_CLOSE" | "CLOSED" | "UNKNOWN" = "UNKNOWN";
-      let statusColor: "green" | "red" | "orange" | "grey" = "grey";
-      let closedUntil: string | undefined;
-      let closeStartedAt: string | undefined;
-      let closedByUpuse = false;
-      let closureSource: "UPUSE" | "EXTERNAL" | undefined;
-      let closeReason: DashboardSnapshot["branches"][number]["closeReason"] = undefined;
-      let sourceClosedReason: string | undefined;
-      let autoReopen = false;
-
-      if (av) {
-        if (av.availabilityState === "OPEN") {
-          status = "OPEN";
-          statusColor = "green";
-          totals.open += 1;
-        } else if (av.availabilityState === "CLOSED_UNTIL") {
-          status = "TEMP_CLOSE";
-          statusColor = "red";
-          closedUntil = av.closedUntil;
-          closedByUpuse = this.isMonitorOwnedClosure(runtime, av);
-          closureSource = closedByUpuse ? "UPUSE" : "EXTERNAL";
-          sourceClosedReason = closedByUpuse ? undefined : av.closedReason;
-          closeStartedAt = closedByUpuse
-            ? this.inferCloseStartedAt(av.closedUntil, settings.tempCloseMinutes)
-            : this.inferObservedExternalCloseStartedAt(runtime, av.closedUntil);
-          autoReopen = closedByUpuse;
-          if (closedByUpuse) {
-            closeReason =
-              (runtime?.lastUpuseCloseReason as DashboardSnapshot["branches"][number]["closeReason"]) ??
-              this.inferMonitorCloseReason(
-                b,
-                rawMetrics,
-                settings,
-                currentHourPlacedCount,
-                preparation.recentActivePickers,
-                preparation.recentActiveAvailable,
-              );
-          } else {
-            closeReason = undefined;
-          }
-          totals.tempClose += 1;
-        } else if (av.availabilityState === "CLOSED" || av.availabilityState === "CLOSED_TODAY") {
-          status = "CLOSED";
-          statusColor = "orange";
-          closureSource = "EXTERNAL";
-          sourceClosedReason = av.closedReason;
-          totals.closed += 1;
-        } else if (av.availabilityState === "UNKNOWN") {
-          totals.unknown += 1;
-        }
-      } else {
-        totals.unknown += 1;
-      }
-
-      return {
-        branchId: b.id,
-        name: b.name,
-        chainName: b.chainName,
-        monitorEnabled: true,
-        ordersVendorId: b.ordersVendorId,
-        availabilityVendorId: b.availabilityVendorId,
-        status,
-        statusColor,
-        closedUntil,
-        closeStartedAt,
-        closedByUpuse,
-        closureSource,
-        closeReason,
-        sourceClosedReason,
-        autoReopen,
-        changeable: av?.changeable,
-        thresholds,
-        metrics,
-        preparingNow: preparation.preparingNow,
-        preparingPickersNow: preparation.preparingPickersNow,
-        ordersDataState,
-        ordersLastSyncedAt,
-        lastUpdatedAt: this.lastHealthyAt,
-      };
-    });
-
-    return {
-      fetchedAt: ordersSnapshot.fetchedAt,
-      cacheState: ordersSnapshot.cacheState,
-      snapshotVersion: resolveSnapshotVersion(ordersSnapshot.lastSuccessfulSyncAt ?? ordersSnapshot.fetchedAt),
-      staleAgeSeconds: resolveStaleAgeSeconds(ordersSnapshot.fetchedAt, ordersSnapshot.cacheState),
-      monitoring: {
-        running: this.running,
-        lastOrdersFetchAt: this.lastOrdersFetchAt,
-        lastAvailabilityFetchAt: this.lastAvailabilityFetchAt,
-        lastHealthyAt: this.lastHealthyAt,
-        degraded: this.degraded,
-        ordersSync: {
-          mode: "mirror",
-          state:
-            !this.lastOrdersFetchAt
-              ? "warming"
-              : this.consecutiveOrdersSourceFailures >= resolveOrdersStaleMultiplier() ||
-                (totals.branchesMonitored > 0 && this.staleOrdersBranchCount / totals.branchesMonitored > 0.25)
-                ? "degraded"
-                : "healthy",
-          lastSuccessfulSyncAt: this.ordersLastSuccessfulSyncAt,
-          staleBranchCount: this.staleOrdersBranchCount,
-          consecutiveSourceFailures: this.consecutiveOrdersSourceFailures,
-        },
-        errors: { ...this.errors },
-      },
-      totals,
-      branches: branchSnapshots,
-    };
+    return buildMonitorSnapshot({
+      running: this.running,
+      degraded: this.degraded,
+      errors: this.errors,
+      lastOrdersFetchAt: this.lastOrdersFetchAt,
+      lastAvailabilityFetchAt: this.lastAvailabilityFetchAt,
+      lastHealthyAt: this.lastHealthyAt,
+      ordersLastSuccessfulSyncAt: this.ordersLastSuccessfulSyncAt,
+      staleOrdersBranchCount: this.staleOrdersBranchCount,
+      consecutiveOrdersSourceFailures: this.consecutiveOrdersSourceFailures,
+      ordersByVendor: this.ordersByVendor,
+      availabilityByVendor: this.availabilityByVendor,
+      preparationByVendor: this.preparationByVendor,
+      currentHourPlacedByVendor: this.currentHourPlacedByVendor,
+      ordersDataStateByVendor: this.ordersDataStateByVendor,
+      ordersLastSyncedAtByVendor: this.ordersLastSyncedAtByVendor,
+    }, this.runtimeTracker);
   }
 
   async start() {
@@ -1138,8 +427,8 @@ export class MonitorEngine {
 
   private schedule(runImmediately = true, lifecycleId?: number) {
     this.clearScheduleHandles();
-    this.armCycleTimer("orders", runImmediately ? 0 : this.getCycleIntervalMs("orders"), lifecycleId);
-    this.armCycleTimer(
+    this.cycleCoordinator.arm("orders", runImmediately ? 0 : this.getCycleIntervalMs("orders"), lifecycleId);
+    this.cycleCoordinator.arm(
       "availability",
       runImmediately ? this.getAvailabilityOffsetMs() : this.getAvailabilityOffsetMs() + this.getCycleIntervalMs("availability"),
       lifecycleId,
@@ -1259,11 +548,11 @@ export class MonitorEngine {
 
         this.markHealthy();
         await this.reconcile("orders", expectedLifecycleId);
-      } catch (e: any) {
+      } catch (error: unknown) {
         if (!this.isLifecycleCurrent(expectedLifecycleId)) return;
         this.ordersFresh = false;
         this.consecutiveOrdersSourceFailures += 1;
-        this.setSourceError("orders", "Orders API request failed", e);
+        this.setSourceError("orders", "Orders API request failed", error);
       } finally {
         if (!options?.suppressPublish && this.isLifecycleCurrent(expectedLifecycleId)) {
           this.publish();
@@ -1289,9 +578,9 @@ export class MonitorEngine {
         this.lastAvailabilityFetchAt = nowUtcIso();
         this.markHealthy();
         await this.reconcile("availability", expectedLifecycleId);
-      } catch (e: any) {
+      } catch (error: unknown) {
         if (!this.isLifecycleCurrent(expectedLifecycleId)) return;
-        this.setSourceError("availability", "Availability API request failed", e);
+        this.setSourceError("availability", "Availability API request failed", error);
       } finally {
         if (!options?.suppressPublish && this.isLifecycleCurrent(expectedLifecycleId)) {
           this.publish();
@@ -1339,7 +628,7 @@ export class MonitorEngine {
       const preparation = this.currentPreparation(this.preparationByVendor.get(branch.ordersVendorId), true);
 
       const avCached = this.availabilityByVendor.get(branch.availabilityVendorId);
-      let runtime = getRuntime(branch.id) as RuntimeRow | undefined;
+      let runtime = getRuntime(branch.id) ?? undefined;
 
       if (
         avCached?.availabilityState === "CLOSED_UNTIL" &&
@@ -1394,7 +683,7 @@ export class MonitorEngine {
             lastExternalCloseAt: null,
             externalOpenDetectedAt: null,
           });
-          runtime = getRuntime(branch.id) as RuntimeRow | undefined;
+          runtime = getRuntime(branch.id) ?? undefined;
         }
       }
 
@@ -1405,7 +694,7 @@ export class MonitorEngine {
         recentActivePickers: preparation.recentActivePickers,
         recentActiveAvailable: preparation.recentActiveAvailable,
         availability: avCached,
-        runtime: runtime as any,
+        runtime: runtime ?? undefined,
         nowUtcIso: nowIso,
         settings,
       });
@@ -1458,7 +747,7 @@ export class MonitorEngine {
           if (current.availabilityState !== "OPEN") return;
 
           if (!this.isLifecycleActive(expectedLifecycleId)) return;
-          const actionRuntime = getRuntime(branch.id) as RuntimeRow | undefined;
+          const actionRuntime = getRuntime(branch.id) ?? undefined;
           const isReappliedAfterExternalOpen = Boolean(actionRuntime?.externalOpenDetectedAt);
 
           if (!this.isLifecycleActive(expectedLifecycleId)) return;
@@ -1542,7 +831,7 @@ export class MonitorEngine {
           if (current.availabilityState !== "CLOSED_UNTIL") return;
 
           if (!this.isLifecycleActive(expectedLifecycleId)) return;
-          let rt = getRuntime(branch.id) as any;
+          let rt = getRuntime(branch.id) ?? undefined;
           const ownsClosure = this.isMonitorOwnedClosure(rt, current);
           if (!ownsClosure) return;
 
@@ -1557,7 +846,7 @@ export class MonitorEngine {
               current.closedUntil,
               nowIso,
               settings,
-            ) as any;
+            );
           }
 
           if (!this.isLifecycleActive(expectedLifecycleId)) return;
@@ -1608,8 +897,8 @@ export class MonitorEngine {
 
     try {
       await this.fetchAvailabilityFresh(expectedLifecycleId);
-    } catch (error: any) {
-      const detail = this.getErrorDetail(error).detail ?? error?.message ?? "Unknown error";
+    } catch (error: unknown) {
+      const detail = this.getErrorDetail(error).detail ?? "Unknown error";
       log(null, "WARN", `Availability confirmation refresh failed: ${detail}`);
     }
   }

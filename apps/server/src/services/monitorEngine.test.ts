@@ -62,11 +62,6 @@ vi.mock("./actionReportStore.js", () => ({
   recordMonitorCloseAction: mockRecordMonitorCloseAction,
 }));
 
-vi.mock("./monitorOrdersPolling.js", () => ({
-  createOrdersPollingPlan: vi.fn(),
-  createOrdersPollingRequests: vi.fn(),
-}));
-
 vi.mock("./ordersMirrorStore.js", () => ({
   getMirrorBranchDetail: mockGetMirrorBranchDetail,
   getCurrentHourPlacedCountByVendor: mockGetCurrentHourPlacedCountByVendor,
@@ -90,7 +85,7 @@ vi.mock("../utils/time.js", () => ({
   nowUtcIso: vi.fn(() => "2026-03-04T12:45:30.000Z"),
 }));
 
-import { MonitorEngine } from "./monitorEngine.js";
+import { MonitorEngine } from "../monitor/engine/MonitorEngine.js";
 
 describe("monitorEngine.getErrorDetail", () => {
   it("summarizes cloudflare html pages instead of returning raw markup", () => {

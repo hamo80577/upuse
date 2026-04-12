@@ -41,6 +41,7 @@ type LegacyBranchCatalogItem = LocalVendorCatalogItem & {
 };
 
 type StaticVendorCatalogItem = Pick<LocalVendorCatalogItem, "availabilityVendorId" | "ordersVendorId" | "name">;
+type SettingsUpdatePayload = Partial<SettingsMasked>;
 
 function isEndpointMissing(error: unknown) {
   const message = describeApiError(error, "").trim().toLowerCase();
@@ -266,7 +267,7 @@ export const upuseApi = {
   monitorStart: () => requestJson<{ ok: boolean; running: boolean; snapshot?: DashboardSnapshot }>("/api/monitor/start", { method: "POST" }, { timeoutMs: 70_000 }),
   monitorStop: () => requestJson<{ ok: boolean; running: boolean; snapshot?: DashboardSnapshot }>("/api/monitor/stop", { method: "POST" }, { timeoutMs: 20_000 }),
   getSettings: () => requestJson<SettingsMasked>("/api/settings"),
-  putSettings: (payload: any) =>
+  putSettings: (payload: SettingsUpdatePayload) =>
     requestJson<{ ok: boolean }>("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },

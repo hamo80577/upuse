@@ -5,9 +5,17 @@ import { WebSocket } from "ws";
 const { mockGetSessionUserByToken } = vi.hoisted(() => ({
   mockGetSessionUserByToken: vi.fn(),
 }));
+const { mockCanUserAccessSystem } = vi.hoisted(() => ({
+  mockCanUserAccessSystem: vi.fn((systemId: string, user: { upuseAccess?: boolean } | null | undefined) =>
+    systemId === "upuse" && user?.upuseAccess === true),
+}));
 
 vi.mock("../services/authStore.js", () => ({
   getSessionUserByToken: mockGetSessionUserByToken,
+}));
+
+vi.mock("../core/systems/auth/registry/index.js", () => ({
+  canUserAccessSystem: mockCanUserAccessSystem,
 }));
 
 import { AUTH_SESSION_COOKIE_NAME } from "./sessionCookie.js";
@@ -141,6 +149,7 @@ describe("dashboard websocket", () => {
 
   beforeEach(async () => {
     mockGetSessionUserByToken.mockReset();
+    mockCanUserAccessSystem.mockClear();
     mockGetSessionUserByToken.mockImplementation((token: string) => {
       if (token === "user-1") {
         return { user: authenticatedUser(1) };

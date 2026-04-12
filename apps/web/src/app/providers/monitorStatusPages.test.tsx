@@ -9,7 +9,7 @@ const mockApi = vi.hoisted(() => ({
   monitorStop: vi.fn(),
 }));
 
-vi.mock("../../api/client", () => ({
+vi.mock("../../systems/upuse/api/client", () => ({
   api: mockApi,
 }));
 

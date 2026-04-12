@@ -88,7 +88,7 @@ describe("auth.logoutRoute", () => {
     authTestDb.close();
   });
 
-  it("sets the auth cookie and returns the authenticated user without exposing the session token", () => {
+  it("sets the auth cookie and returns the authenticated user without exposing the session token", async () => {
     const user = {
       id: 1,
       email: "admin@example.com",
@@ -114,7 +114,7 @@ describe("auth.logoutRoute", () => {
     };
     const res = createMockResponse();
 
-    loginRoute(req as any, res as any);
+    await loginRoute(req as any, res as any);
 
     expect(res.cookie).toHaveBeenCalledWith(
       AUTH_SESSION_COOKIE_NAME,
@@ -131,7 +131,7 @@ describe("auth.logoutRoute", () => {
     });
   });
 
-  it("rate-limits repeated failed sign-in attempts for the same ip/email pair", () => {
+  it("rate-limits repeated failed sign-in attempts for the same ip/email pair", async () => {
     mockVerifyUserCredentials.mockReturnValue(null);
 
     const req = {
@@ -144,25 +144,25 @@ describe("auth.logoutRoute", () => {
 
     for (let attempt = 1; attempt <= 4; attempt += 1) {
       const res = createMockResponse();
-      loginRoute(req as any, res as any);
+      await loginRoute(req as any, res as any);
       expect(res.statusCode).toBe(401);
     }
 
     const fifthAttempt = createMockResponse();
-    loginRoute(req as any, fifthAttempt as any);
+    await loginRoute(req as any, fifthAttempt as any);
     expect(fifthAttempt.statusCode).toBe(429);
 
     const blockedAttempt = createMockResponse();
-    loginRoute(req as any, blockedAttempt as any);
+    await loginRoute(req as any, blockedAttempt as any);
     expect(blockedAttempt.statusCode).toBe(429);
     expect(mockVerifyUserCredentials).toHaveBeenCalledTimes(5);
   });
 
-  it("persists throttle rows in sqlite and clears only the account-specific key after a successful login", () => {
+  it("persists throttle rows in sqlite and clears only the account-specific key after a successful login", async () => {
     mockVerifyUserCredentials.mockReturnValue(null);
 
     const failedAttemptResponse = createMockResponse();
-    loginRoute({
+    await loginRoute({
       ip: "127.0.0.1",
       body: {
         email: "admin@example.com",
@@ -196,7 +196,7 @@ describe("auth.logoutRoute", () => {
     });
 
     const successResponse = createMockResponse();
-    loginRoute({
+    await loginRoute({
       ip: "127.0.0.1",
       body: {
         email: "admin@example.com",
@@ -209,12 +209,12 @@ describe("auth.logoutRoute", () => {
     expect(keys).toEqual(["ip:127.0.0.1"]);
   });
 
-  it("keeps the login throttle active across later requests for the same normalized ip/email key", () => {
+  it("keeps the login throttle active across later requests for the same normalized ip/email key", async () => {
     mockVerifyUserCredentials.mockReturnValue(null);
 
     for (let attempt = 1; attempt <= 5; attempt += 1) {
       const res = createMockResponse();
-      loginRoute({
+      await loginRoute({
         ip: "127.0.0.1",
         body: {
           email: "admin@example.com",
@@ -233,7 +233,7 @@ describe("auth.logoutRoute", () => {
     });
 
     const blockedRes = createMockResponse();
-    loginRoute({
+    await loginRoute({
       ip: "127.0.0.1",
       body: {
         email: "ADMIN@example.com",
@@ -250,12 +250,12 @@ describe("auth.logoutRoute", () => {
     expect(mockCreateAuthSession).not.toHaveBeenCalled();
   });
 
-  it("rate-limits password spraying across many accounts from the same ip", () => {
+  it("rate-limits password spraying across many accounts from the same ip", async () => {
     mockVerifyUserCredentials.mockReturnValue(null);
 
     for (let attempt = 1; attempt <= 19; attempt += 1) {
       const res = createMockResponse();
-      loginRoute({
+      await loginRoute({
         ip: "127.0.0.1",
         body: {
           email: `user${attempt}@example.com`,
@@ -266,7 +266,7 @@ describe("auth.logoutRoute", () => {
     }
 
     const throttledAttempt = createMockResponse();
-    loginRoute({
+    await loginRoute({
       ip: "127.0.0.1",
       body: {
         email: "user20@example.com",
@@ -284,7 +284,7 @@ describe("auth.logoutRoute", () => {
       createdAt: "2026-03-07T10:00:00.000Z",
     });
     const blockedSuccessAttempt = createMockResponse();
-    loginRoute({
+    await loginRoute({
       ip: "127.0.0.1",
       body: {
         email: "admin@example.com",
@@ -301,17 +301,17 @@ describe("auth.logoutRoute", () => {
     expect(authTestDb.prepare("SELECT count FROM login_attempts WHERE key = ?").get("ip:127.0.0.1")).toEqual({ count: 20 });
   });
 
-  it("clears only the account throttle on successful login and preserves ip-wide spray state", () => {
+  it("clears only the account throttle on successful login and preserves ip-wide spray state", async () => {
     mockVerifyUserCredentials.mockReturnValue(null);
 
-    loginRoute({
+    await loginRoute({
       ip: "127.0.0.1",
       body: {
         email: "first@example.com",
         password: "wrong-password",
       },
     } as any, createMockResponse() as any);
-    loginRoute({
+    await loginRoute({
       ip: "127.0.0.1",
       body: {
         email: "second@example.com",
@@ -335,7 +335,7 @@ describe("auth.logoutRoute", () => {
     });
 
     const successResponse = createMockResponse();
-    loginRoute({
+    await loginRoute({
       ip: "127.0.0.1",
       body: {
         email: "first@example.com",
@@ -401,7 +401,7 @@ describe("auth.logoutRoute", () => {
     });
   });
 
-  it("accepts the renamed user role when creating users", () => {
+  it("accepts the renamed user role when creating users", async () => {
     const createdUser = {
       id: 2,
       email: "user@example.com",
@@ -426,7 +426,7 @@ describe("auth.logoutRoute", () => {
     };
     const res = createMockResponse();
 
-    createUserRoute(req as any, res as any);
+    await createUserRoute(req as any, res as any);
 
     expect(mockCreateUser).toHaveBeenCalledWith(req.body);
     expect(res.statusCode).toBe(201);
@@ -436,7 +436,7 @@ describe("auth.logoutRoute", () => {
     });
   });
 
-  it("rejects create-user passwords shorter than 12 characters", () => {
+  it("rejects create-user passwords shorter than 12 characters", async () => {
     const req = {
       body: {
         email: "user@example.com",
@@ -449,11 +449,11 @@ describe("auth.logoutRoute", () => {
     };
     const res = createMockResponse();
 
-    expect(() => createUserRoute(req as any, res as any)).toThrow(ZodError);
+    await expect(createUserRoute(req as any, res as any)).rejects.toThrow(ZodError);
     expect(mockCreateUser).not.toHaveBeenCalled();
   });
 
-  it("updates an existing user and forwards the acting admin id", () => {
+  it("updates an existing user and forwards the acting admin id", async () => {
     const updatedUser = {
       id: 2,
       email: "user@example.com",
@@ -480,7 +480,7 @@ describe("auth.logoutRoute", () => {
     };
     const res = createMockResponse();
 
-    updateUserRoute(req as any, res as any);
+    await updateUserRoute(req as any, res as any);
 
     expect(mockUpdateUser).toHaveBeenCalledWith({
       id: 2,
@@ -499,7 +499,7 @@ describe("auth.logoutRoute", () => {
     });
   });
 
-  it("rejects update-user passwords shorter than 12 characters", () => {
+  it("rejects update-user passwords shorter than 12 characters", async () => {
     const req = {
       params: { id: "2" },
       authUser: { id: 1 },
@@ -514,11 +514,11 @@ describe("auth.logoutRoute", () => {
     };
     const res = createMockResponse();
 
-    expect(() => updateUserRoute(req as any, res as any)).toThrow(ZodError);
+    await expect(updateUserRoute(req as any, res as any)).rejects.toThrow(ZodError);
     expect(mockUpdateUser).not.toHaveBeenCalled();
   });
 
-  it("accepts update-user passwords with 12 or more characters", () => {
+  it("accepts update-user passwords with 12 or more characters", async () => {
     const updatedUser = {
       id: 2,
       email: "user@example.com",
@@ -545,7 +545,7 @@ describe("auth.logoutRoute", () => {
     };
     const res = createMockResponse();
 
-    updateUserRoute(req as any, res as any);
+    await updateUserRoute(req as any, res as any);
 
     expect(mockUpdateUser).toHaveBeenCalledWith({
       id: 2,

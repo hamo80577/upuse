@@ -19,8 +19,8 @@ describe("web system architecture boundaries", () => {
     expect(authProviderSource).toContain("createSystemAccessHelpers");
   });
 
-  it("keeps shared endpoint composition free of system-owned API imports", () => {
-    const source = readSource("shared/api/endpoints.ts");
+  it("keeps shared HTTP helpers free of system-owned API imports", () => {
+    const source = readSource("shared/api/httpClient.ts");
 
     expect(source).not.toContain("systems/upuse");
     expect(source).not.toContain("systems/scano");

@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
-import type { MonitorEngine } from "../services/monitorEngine.js";
+import type { MonitorEngine } from "../monitor/engine/MonitorEngine.js";
 import {
   addBranch,
   deleteBranch,
@@ -72,12 +72,16 @@ const BranchThresholdOverrideBody = z.object({
 });
 
 function parseBranchUniqueField(error: unknown) {
-  const code = (error as any)?.code;
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? (error as { code?: unknown }).code
+    : undefined;
   if (typeof code === "string" && code !== "SQLITE_CONSTRAINT_UNIQUE") {
     return null;
   }
 
-  const message = typeof (error as any)?.message === "string" ? (error as any).message : "";
+  const message = typeof error === "object" && error !== null && "message" in error && typeof (error as { message?: unknown }).message === "string"
+    ? (error as { message: string }).message
+    : "";
   if (!message || !/unique constraint failed/i.test(message)) return null;
 
   return message.includes("branches.availabilityVendorId") ? "availabilityVendorId" : null;
@@ -356,7 +360,9 @@ export function updateBranchThresholdOverridesRoute(req: Request, res: Response)
     }
     res.json({ ok: true, item: updated });
   } catch (error: unknown) {
-    const errorMessage = (error as any)?.message;
+    const errorMessage = typeof error === "object" && error !== null && "message" in error
+      ? (error as { message?: unknown }).message
+      : undefined;
     if (errorMessage === "Branch not found") {
       return res.status(404).json({ ok: false, message: "Branch not found" });
     }

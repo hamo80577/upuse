@@ -9,8 +9,9 @@ import {
   updateUserRoute,
 } from "../../routes/auth.js";
 import { health, readiness } from "../../routes/health.js";
-import { requireAdminRole, requireAuthenticatedApi } from "../../http/auth.js";
-import type { MonitorEngine } from "../../services/monitorEngine.js";
+import { requireAuthenticatedApi } from "./auth/sessionAuth.js";
+import { requireAdminRole } from "../../systems/upuse/policies/access.js";
+import type { MonitorEngine } from "../../monitor/engine/MonitorEngine.js";
 
 export function registerSharedRoutes(app: Express, engine: MonitorEngine) {
   app.get("/api/health", health(engine));

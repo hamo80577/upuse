@@ -111,7 +111,7 @@ export function resetLoginRateLimitStateForTests() {
   loginIpThrottleStore.resetLoginRateLimitStateForTests();
 }
 
-export function loginRoute(req: Request, res: Response) {
+export async function loginRoute(req: Request, res: Response) {
   const input = LoginBody.parse(req.body);
   const attemptKey = getLoginAttemptKey(req, input.email);
   const ipAttemptKey = getLoginIpAttemptKey(req);
@@ -127,7 +127,7 @@ export function loginRoute(req: Request, res: Response) {
     });
   }
 
-  const user = verifyUserCredentials(input.email, input.password);
+  const user = await verifyUserCredentials(input.email, input.password);
   if (!user) {
     const nextAttemptState = loginThrottleStore.registerFailedLoginAttempt(attemptKey);
     const nextIpAttemptState = loginIpThrottleStore.registerFailedLoginAttempt(ipAttemptKey);
@@ -192,11 +192,11 @@ export function listUsersRoute(_req: Request, res: Response) {
   res.json(body);
 }
 
-export function createUserRoute(req: Request, res: Response) {
+export async function createUserRoute(req: Request, res: Response) {
   const input = CreateUserBody.parse(req.body);
 
   try {
-    const user = createUser(input);
+    const user = await createUser(input);
     res.status(201).json({
       ok: true,
       user,
@@ -213,12 +213,12 @@ export function createUserRoute(req: Request, res: Response) {
   }
 }
 
-export function updateUserRoute(req: Request, res: Response) {
+export async function updateUserRoute(req: Request, res: Response) {
   const { id } = UserIdParam.parse(req.params);
   const input = UpdateUserBody.parse(req.body);
 
   try {
-    const user = updateUser({
+    const user = await updateUser({
       id,
       email: input.email,
       name: input.name,

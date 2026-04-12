@@ -1,6 +1,6 @@
-import type { MirrorOrderFallbacks, NormalizedMirrorOrder } from "./types.js";
+import type { MirrorOrderFallbacks, NormalizedMirrorOrder, OrdersApiOrder } from "./types.js";
 
-export function stableOrderKey(order: any) {
+export function stableOrderKey(order: OrdersApiOrder) {
   if (order?.id != null) return String(order.id);
   if (order?.externalId != null) return String(order.externalId);
   if (order?.shortCode != null) return String(order.shortCode);
@@ -11,7 +11,7 @@ function toIsoOrNull(value: unknown) {
   return typeof value === "string" && value.trim().length ? value : null;
 }
 
-function resolveShopperId(order: any) {
+function resolveShopperId(order: OrdersApiOrder) {
   const raw = order?.shopper?.id;
   return typeof raw === "number" && Number.isFinite(raw)
     ? raw
@@ -20,13 +20,13 @@ function resolveShopperId(order: any) {
       : null;
 }
 
-function resolveShopperFirstName(order: any) {
+function resolveShopperFirstName(order: OrdersApiOrder) {
   return typeof order?.shopper?.firstName === "string" && order.shopper.firstName.trim().length
     ? order.shopper.firstName.trim()
     : null;
 }
 
-function resolveVendorId(order: any) {
+function resolveVendorId(order: OrdersApiOrder) {
   const raw =
     typeof order?.vendor?.id !== "undefined"
       ? order.vendor.id
@@ -41,7 +41,7 @@ function resolveVendorId(order: any) {
   return 0;
 }
 
-function resolveVendorName(order: any) {
+function resolveVendorName(order: OrdersApiOrder) {
   if (typeof order?.vendor?.name === "string" && order.vendor.name.trim().length) {
     return order.vendor.name.trim();
   }
@@ -59,7 +59,7 @@ export function extractTransportType(payload: unknown) {
 }
 
 export function normalizeMirrorOrder(
-  order: any,
+  order: OrdersApiOrder,
   dayKey: string,
   globalEntityId: string,
   nowIso: string,

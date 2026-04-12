@@ -85,7 +85,8 @@ vi.mock("../services/scanoCatalogClient.js", () => ({
 }));
 
 import multer from "multer";
-import { requireAuthenticatedApi, requireScanoAccess, requireScanoAdmin, requireScanoLeadAccess, requireScanoTaskManager } from "../http/auth.js";
+import { requireAuthenticatedApi } from "../shared/http/auth/sessionAuth.js";
+import { requireScanoAccess, requireScanoAdmin, requireScanoLeadAccess, requireScanoTaskManager } from "../systems/scano/policies/access.js";
 import { db as testDb } from "../config/db.js";
 import {
   confirmScanoTaskExportDownloadRoute,

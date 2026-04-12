@@ -2,7 +2,7 @@ import { z } from "zod";
 import { db } from "../config/db.js";
 import { getGlobalEntityId } from "./settingsStore.js";
 import { getVendorCatalogItem } from "./vendorCatalogStore.js";
-import type { BranchMapping, ResolvedBranchMapping } from "../types/models.js";
+import type { BranchMapping, CloseReason, ResolvedBranchMapping } from "../types/models.js";
 
 interface BranchRow {
   id: number;
@@ -28,7 +28,7 @@ interface JoinedBranchRow extends BranchRow {
 interface BranchRuntimeRow {
   branchId: number;
   lastUpuseCloseUntil?: string | null;
-  lastUpuseCloseReason?: string | null;
+  lastUpuseCloseReason?: CloseReason | null;
   lastUpuseCloseAt?: string | null;
   lastUpuseCloseEventId?: number | null;
   lastExternalCloseUntil?: string | null;

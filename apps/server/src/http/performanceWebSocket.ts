@@ -2,12 +2,12 @@ import type { IncomingMessage, Server as HttpServer } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 import type { SecurityConfig } from "../config/security.js";
-import type { MonitorEngine } from "../services/monitorEngine.js";
+import type { MonitorEngine } from "../monitor/engine/MonitorEngine.js";
 import { getCurrentCairoDayKey, getPerformanceSummary } from "../services/performanceStore.js";
 import { buildPerformanceStatusColorMap } from "../services/performanceStatusColors.js";
 import { subscribeOrdersMirrorEntitySync, type OrdersMirrorEntitySyncStatus } from "../services/ordersMirrorStore.js";
 import type { AppUser, PerformanceSummaryResponse } from "../types/models.js";
-import { authorizeUpuseUpgradeFromCookieHeader } from "./auth.js";
+import { authorizeUpuseUpgradeFromCookieHeader } from "../shared/http/auth/sessionAuth.js";
 import { createConnectionQuota } from "./connectionQuota.js";
 import { isTrustedOrigin, parseCorsOrigins } from "./security.js";
 

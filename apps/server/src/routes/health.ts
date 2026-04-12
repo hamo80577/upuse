@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import type { DashboardSnapshot } from "../types/models.js";
-import type { MonitorEngine } from "../services/monitorEngine.js";
+import type { MonitorEngine } from "../monitor/engine/MonitorEngine.js";
 
 type MonitoringStatus = DashboardSnapshot["monitoring"];
 type ReadinessState = "ready" | "idle" | "warming" | "degraded";

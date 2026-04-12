@@ -18,8 +18,8 @@ import type {
   TransportTypeLookupCandidate,
 } from "./types.js";
 
-let updateCancellationLookupStatement: Statement<any[]> | null = null;
-let updateTransportTypeLookupStatement: Statement<any[]> | null = null;
+let updateCancellationLookupStatement: Statement | null = null;
+let updateTransportTypeLookupStatement: Statement | null = null;
 
 const ownerLookupMutex = new Mutex();
 const transportTypeLookupMutex = new Mutex();
@@ -260,7 +260,7 @@ export async function reconcileDroppedActiveOrders(params: {
               : "Cancellation detail was missing from the detail response.",
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       const normalizedError = normalizeLookupError(error);
       if (normalizedError.status === 401 || normalizedError.status === 403) {
         fatalAuthError = normalizedError.message;
@@ -304,7 +304,7 @@ export async function enrichTransportTypes(dayKey: string, globalEntityId: strin
           lookedUpAt,
           error: detail.transportType ? null : "Transport type was missing from the detail response.",
         });
-      } catch (error: any) {
+      } catch (error: unknown) {
         const normalized = normalizeLookupError(error);
         if (normalized.status === 401 || normalized.status === 403) {
           fatalAuthError = normalized.message;
@@ -365,7 +365,7 @@ export async function enrichCancellationOwners(dayKey: string, globalEntityId: s
               ? null
               : "Cancellation detail was missing from the detail response.",
         });
-      } catch (error: any) {
+      } catch (error: unknown) {
         const normalized = normalizeLookupError(error);
         if (normalized.status === 401 || normalized.status === 403) {
           fatalAuthError = normalized.message;

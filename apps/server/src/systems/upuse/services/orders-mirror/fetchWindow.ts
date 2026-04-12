@@ -9,7 +9,7 @@ import {
   type UtcWindow,
 } from "../../../../services/orders/shared.js";
 import { BASE } from "../../../../services/orders/types.js";
-import type { OrdersEntitySyncStateRow, OrdersFetchResult } from "./types.js";
+import type { OrdersApiOrder, OrdersEntitySyncStateRow, OrdersFetchResult } from "./types.js";
 import { HISTORY_OVERLAP_MS } from "./types.js";
 import { getDayWindow, toMillis } from "./timeWindows.js";
 import { resolveCacheState, resolveFetchedAt } from "./syncState.js";
@@ -38,7 +38,7 @@ export async function fetchOrdersWindow(params: {
   const minSplitSpanMs = resolveOrdersWindowSplitMinSpanMs();
   const maxPages = resolveOrdersEntitySyncMaxPages();
   const seenOrderIds = new Set<string>();
-  const items: any[] = [];
+  const items: OrdersApiOrder[] = [];
 
   const collectWindow = async (window: UtcWindow, depth: number): Promise<void> => {
     let page = 0;
@@ -56,7 +56,12 @@ export async function fetchOrdersWindow(params: {
       }
 
       const res = await getWithRetry(`${BASE}/orders?${qs.toString()}`, headers, 2);
-      const pageItems = Array.isArray(res.data?.items) ? res.data.items : [];
+      const responseData = typeof res.data === "object" && res.data !== null
+        ? res.data as { items?: unknown }
+        : undefined;
+      const pageItems = Array.isArray(responseData?.items)
+        ? responseData.items.filter((item): item is OrdersApiOrder => typeof item === "object" && item !== null)
+        : [];
 
       for (const order of pageItems) {
         const orderKey = stableOrderKey(order);

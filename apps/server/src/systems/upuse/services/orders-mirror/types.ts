@@ -97,8 +97,30 @@ export interface MirrorOrderFallbacks {
   externalId?: string | null;
 }
 
+export type OrdersApiOrder = {
+  id?: unknown;
+  externalId?: unknown;
+  shortCode?: unknown;
+  shopper?: {
+    id?: unknown;
+    firstName?: unknown;
+  } | null;
+  vendor?: {
+    id?: unknown;
+    name?: unknown;
+  } | null;
+  vendorId?: unknown;
+  vendorName?: unknown;
+  transportType?: unknown;
+  isCompleted?: unknown;
+  status?: unknown;
+  placedAt?: unknown;
+  pickupAt?: unknown;
+  customerFirstName?: unknown;
+} & Record<string, unknown>;
+
 export interface OrdersFetchResult {
-  items: any[];
+  items: OrdersApiOrder[];
   fetchedAt: string;
 }
 

@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import type { MonitorEngine } from "../services/monitorEngine.js";
+import type { MonitorEngine } from "../monitor/engine/MonitorEngine.js";
 import { buildPerformanceStatusColorMap } from "../services/performanceStatusColors.js";
 import type {
   PerformanceBranchFilter,

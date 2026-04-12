@@ -29,7 +29,7 @@ function resolveBootstrapAdmin(env: NodeJS.ProcessEnv) {
   };
 }
 
-export function maybeSeedBootstrapAdmin(db: Database.Database, env: NodeJS.ProcessEnv) {
+export async function maybeSeedBootstrapAdmin(db: Database.Database, env: NodeJS.ProcessEnv) {
   const usersCountRow = db.prepare("SELECT COUNT(*) AS count FROM users").get() as { count: number };
   const bootstrapAdmin = resolveBootstrapAdmin(env);
 
@@ -50,6 +50,7 @@ export function maybeSeedBootstrapAdmin(db: Database.Database, env: NodeJS.Proce
     .get(bootstrapAdmin.email);
   if (existingUser) return;
 
+  const passwordHash = await hashPassword(bootstrapAdmin.password);
   db.prepare(`
     INSERT INTO users (email, name, role, passwordHash, active, createdAt, upuseAccess, isPrimaryAdmin)
     VALUES (?, ?, ?, ?, 1, ?, 1, ?)
@@ -57,7 +58,7 @@ export function maybeSeedBootstrapAdmin(db: Database.Database, env: NodeJS.Proce
     bootstrapAdmin.email,
     bootstrapAdmin.name,
     bootstrapAdmin.role,
-    hashPassword(bootstrapAdmin.password),
+    passwordHash,
     new Date().toISOString(),
     usersCountRow.count === 0 ? 1 : 0,
   );

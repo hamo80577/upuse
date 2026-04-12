@@ -49,8 +49,9 @@ export function ReportDownloadDialog(props: {
       anchor.remove();
       URL.revokeObjectURL(url);
       props.onClose();
-    } catch (e: any) {
-      setError(e?.message || "Failed to download report");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to download report";
+      setError(message);
     } finally {
       setDownloading(false);
     }

@@ -11,9 +11,17 @@ const {
   mockGetPerformanceSummary: vi.fn(),
   syncSubscribers: new Set<(status: unknown) => void>(),
 }));
+const { mockCanUserAccessSystem } = vi.hoisted(() => ({
+  mockCanUserAccessSystem: vi.fn((systemId: string, user: { upuseAccess?: boolean } | null | undefined) =>
+    systemId === "upuse" && user?.upuseAccess === true),
+}));
 
 vi.mock("../services/authStore.js", () => ({
   getSessionUserByToken: mockGetSessionUserByToken,
+}));
+
+vi.mock("../core/systems/auth/registry/index.js", () => ({
+  canUserAccessSystem: mockCanUserAccessSystem,
 }));
 
 vi.mock("../services/ordersMirrorStore.js", () => ({
@@ -252,6 +260,7 @@ describe("performance websocket", () => {
     mockGetSessionUserByToken.mockReset();
     mockGetPerformanceSummary.mockReset();
     syncSubscribers.clear();
+    mockCanUserAccessSystem.mockClear();
     mockGetSessionUserByToken.mockImplementation((token: string) => {
       if (token === "user-1") {
         return { user: authenticatedUser(1) };

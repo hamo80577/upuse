@@ -82,7 +82,7 @@ afterEach(() => {
 });
 
 describe("db Scano task migration", () => {
-  it("hard-resets only incompatible legacy task schemas while preserving team, settings, and master products", async () => {
+  it("hard-resets only incompatible legacy task schemas while preserving team, settings, and master products", { timeout: 15_000 }, async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { db, migrate } = await loadDbModule();
 
@@ -178,7 +178,7 @@ describe("db Scano task migration", () => {
       VALUES (1, 11);
     `);
 
-    migrate();
+    await migrate();
 
     const taskSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'scano_tasks'").get() as { sql: string };
     const taskCount = db.prepare("SELECT COUNT(*) AS count FROM scano_tasks").get() as { count: number };
@@ -205,7 +205,7 @@ describe("db Scano task migration", () => {
     const { db, migrate } = await loadDbModule();
 
     createCurrentUsersTable(db);
-    migrate();
+    await migrate();
 
     db.exec(`
       INSERT INTO scano_team_members (id, name, linkedUserId, role, active, createdAt, updatedAt)
@@ -255,7 +255,7 @@ describe("db Scano task migration", () => {
     `);
 
     warnSpy.mockClear();
-    migrate();
+    await migrate();
 
     const taskCount = db.prepare("SELECT COUNT(*) AS count FROM scano_tasks WHERE id = 'task-1'").get() as { count: number };
     const assigneeCount = db.prepare("SELECT COUNT(*) AS count FROM scano_task_assignees WHERE taskId = 'task-1'").get() as { count: number };

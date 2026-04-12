@@ -1,22 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AUTH_SESSION_COOKIE_NAME } from "./sessionCookie.js";
-import { getAppPermissions } from "../../../web/src/app/permissions.ts";
+import { getAppPermissions } from "../../../web/src/core/systems/permissions/upusePermissions.ts";
 import { hasCapability } from "./authorization.js";
 
 const { mockGetSessionUserByToken } = vi.hoisted(() => ({
   mockGetSessionUserByToken: vi.fn(),
+}));
+const { mockCanUserAccessSystem } = vi.hoisted(() => ({
+  mockCanUserAccessSystem: vi.fn((systemId: string, user: { upuseAccess?: boolean } | null | undefined) =>
+    systemId === "upuse" && user?.upuseAccess === true),
 }));
 
 vi.mock("../services/authStore.js", () => ({
   getSessionUserByToken: mockGetSessionUserByToken,
 }));
 
-import { createSessionAuthMiddleware, requireAuthenticatedApi, requireCapability } from "./auth.js";
-import { authorizeUpuseUpgradeFromCookieHeader } from "./auth.js";
+vi.mock("../core/systems/auth/registry/index.js", () => ({
+  canUserAccessSystem: mockCanUserAccessSystem,
+}));
+
+import { createSessionAuthMiddleware, requireAuthenticatedApi, authorizeUpuseUpgradeFromCookieHeader } from "../shared/http/auth/sessionAuth.js";
+import { requireCapability } from "../systems/upuse/policies/access.js";
 
 describe("createSessionAuthMiddleware", () => {
   beforeEach(() => {
     mockGetSessionUserByToken.mockReset();
+    mockCanUserAccessSystem.mockClear();
   });
 
   it("hydrates the authenticated user from the httpOnly session cookie", () => {

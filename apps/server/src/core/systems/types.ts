@@ -2,7 +2,7 @@ import type { Express } from "express";
 import type { Server as HttpServer } from "node:http";
 import type { Database } from "better-sqlite3";
 import type { SecurityConfig } from "../../config/security.js";
-import type { MonitorEngine } from "../../services/monitorEngine.js";
+import type { MonitorEngine } from "../../monitor/engine/MonitorEngine.js";
 import type { AppUser } from "../../types/models.js";
 import type {
   SystemUserAccessAssignmentResolver,
