@@ -18,9 +18,7 @@ export function statusMeta(branch: BranchSnapshot) {
       chipSx: { bgcolor: "#fff1f2", color: "#be123c", borderColor: "rgba(190, 24, 93, 0.14)" },
       titleColor: "#b45309",
       note: isExternalManualSourceClose(branch)
-        ? sourceReason
-          ? `Closed from source with ${sourceReason} selected. No reopen timer; manual reopen required.`
-          : "Closed from source with no reopen timer; manual reopen required."
+        ? "Colse To The End of slot"
         : "Temporary closure is active until the timer ends or the trigger returns to zero.",
     };
   }

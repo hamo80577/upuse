@@ -738,11 +738,6 @@ export class MonitorEngine {
           return;
         }
 
-        if (!current.changeable) {
-          log(branch.id, "WARN", "Skip action — not changeable");
-          return;
-        }
-
         if (decision.type === "CLOSE") {
           if (current.availabilityState !== "OPEN") return;
 

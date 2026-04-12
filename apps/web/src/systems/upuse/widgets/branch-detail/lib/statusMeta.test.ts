@@ -34,8 +34,7 @@ describe("statusPanelMeta", () => {
     const meta = statusPanelMeta(createBranch({ sourceClosedReason: "TECHNICAL_PROBLEM" }));
 
     expect(meta.title).toBe("Source Temporary Close");
-    expect(meta.caption).toContain("Issues");
-    expect(meta.caption).toContain("no reopen time");
+    expect(meta.caption).toBe("Colse To The End of slot");
     expect(meta.showTimer).toBe(false);
     expect(meta.footerCaption).toContain("manually");
   });

@@ -49,8 +49,8 @@ export function statusPanelMeta(branch: BranchSnapshot) {
       return {
         title: "Source Temporary Close",
         caption: sourceReason
-          ? `${sourceReason} is selected in source with no reopen time. The monitor will not reopen it automatically.`
-          : "Observed from source with no reopen time. The monitor will not reopen it automatically.",
+          ? "Colse To The End of slot"
+          : "Colse To The End of slot",
         tone: "#92400e",
         sourceLabel: "External Source",
         showTimer: false,

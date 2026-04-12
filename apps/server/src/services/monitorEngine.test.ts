@@ -1473,6 +1473,87 @@ describe("monitorEngine.reconcile", () => {
     expect(mockFetchAvailabilities).toHaveBeenCalledTimes(2);
   });
 
+  it("still mutates availability when the upstream snapshot is open but not changeable", async () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 20,
+      availabilityRefreshSeconds: 11,
+      maxVendorsPerOrdersRequest: 50,
+    });
+    mockListBranches.mockReturnValue([
+      {
+        id: 8,
+        name: "Branch 8",
+        chainName: "",
+        ordersVendorId: 808,
+        availabilityVendorId: "av-8",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
+        enabled: true,
+      },
+    ]);
+
+    mockGetRuntime.mockReturnValue({
+      lastUpuseCloseUntil: null,
+      lastUpuseCloseReason: null,
+      lastUpuseCloseAt: null,
+      lastUpuseCloseEventId: null,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      externalOpenDetectedAt: null,
+      lastActionAt: null,
+    });
+    mockDecide.mockReturnValue({ type: "CLOSE", reason: "UNASSIGNED" });
+    mockSetAvailability.mockResolvedValue({});
+    mockFetchAvailabilities
+      .mockResolvedValueOnce([
+        {
+          platformKey: "test",
+          changeable: false,
+          availabilityState: "OPEN",
+          platformRestaurantId: "av-8",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          platformKey: "test",
+          changeable: false,
+          availabilityState: "CLOSED_UNTIL",
+          platformRestaurantId: "av-8",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
+          closedUntil: "2026-03-08T14:49:00.000Z",
+        },
+      ]);
+    mockRecordMonitorCloseAction.mockReturnValue(81);
+
+    const engine = new MonitorEngine() as any;
+    engine.running = true;
+    engine.ordersFresh = true;
+    engine.ordersDataStateByVendor = new Map([[808, "fresh"]]);
+    engine.ordersByVendor = new Map([
+      [808, { totalToday: 20, cancelledToday: 1, doneToday: 11, activeNow: 8, lateNow: 0, unassignedNow: 7 }],
+    ]);
+    engine.availabilityByVendor = new Map([
+      ["av-8", { platformKey: "test", changeable: false, availabilityState: "OPEN", platformRestaurantId: "av-8", globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT }],
+    ]);
+
+    await engine.reconcile("orders");
+
+    expect(mockSetAvailability).toHaveBeenCalledWith(expect.objectContaining({
+      globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
+      availabilityVendorId: "av-8",
+      state: "TEMPORARY_CLOSURE",
+    }));
+  });
+
   it("passes enabled branch availability ids when fetching the live availability snapshot", async () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",

@@ -112,7 +112,6 @@ export function decide(input: PolicyInput): PolicyDecision {
   } = input;
   if (!branch.enabled) return { type: "NOOP" };
   if (!availability) return { type: "NOOP", note: "Availability not found" };
-  if (!availability.changeable) return { type: "NOOP" };
 
   const now = DateTime.fromISO(nowUtcIso, { zone: "utc" });
   const thresholds = resolveBranchThresholdProfile(branch, settings);

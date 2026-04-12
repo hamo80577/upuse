@@ -122,6 +122,26 @@ describe("policyEngine.decide", () => {
     expect(decision).toEqual({ type: "CLOSE", reason: "UNASSIGNED" });
   });
 
+  it("still closes on threshold while branch is open even when upstream marks it not changeable", () => {
+    const decision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        unassignedNow: 5,
+      },
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
+      availability: {
+        ...openAvailability(),
+        changeable: false,
+      },
+      nowUtcIso: "2026-03-03T10:00:00.000Z",
+      settings: baseSettings(),
+    });
+
+    expect(decision).toEqual({ type: "CLOSE", reason: "UNASSIGNED" });
+  });
+
   it("closes on ready to pickup threshold while branch is open", () => {
     const decision = decide({
       branch: baseBranch(),
