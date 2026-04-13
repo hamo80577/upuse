@@ -1501,6 +1501,7 @@ describe("scano routes", () => {
       enrichmentStatus: "queued",
       enrichedCount: 1,
       processedCount: 1,
+      remainingEnrichmentCount: 2,
       canResumeEnrichment: true,
       warningCode: null,
       warningMessage: null,

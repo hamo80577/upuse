@@ -629,11 +629,12 @@ export class MonitorEngine {
 
       const avCached = this.availabilityByVendor.get(branch.availabilityVendorId);
       let runtime = getRuntime(branch.id) ?? undefined;
+      const trackedMonitorClosedUntil = runtime?.closureObservedUntil ?? runtime?.lastUpuseCloseUntil ?? undefined;
 
       if (
         avCached?.availabilityState === "CLOSED_UNTIL" &&
         this.isMonitorOwnedClosure(runtime, avCached) &&
-        avCached.closedUntil
+        (avCached.closedUntil ?? trackedMonitorClosedUntil)
       ) {
         runtime = this.syncTrackedMonitorRuntime(
           branch,
@@ -642,7 +643,7 @@ export class MonitorEngine {
           preparation.recentActivePickers,
           preparation.recentActiveAvailable,
           runtime,
-          avCached.closedUntil,
+          avCached.closedUntil ?? trackedMonitorClosedUntil ?? "",
           nowIso,
           settings,
         );

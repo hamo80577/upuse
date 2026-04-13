@@ -411,6 +411,35 @@ describe("policyEngine.decide", () => {
     expect(decision).toEqual({ type: "EARLY_OPEN", reason: "LATE" });
   });
 
+  it("reopens a tracked UPuse close when the source omits closedUntil but the trigger has recovered", () => {
+    const decision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        unassignedNow: 0,
+      },
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
+      availability: tempCloseAvailability({
+        closedUntil: undefined,
+      }),
+      runtime: {
+        closureOwner: "UPUSE",
+        closureObservedUntil: "2026-03-03T10:30:00.000Z",
+        closureObservedAt: "2026-03-03T10:00:00.000Z",
+        lastUpuseCloseReason: "UNASSIGNED",
+        lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
+        lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
+        lastUpuseCloseEventId: 94,
+        lastActionAt: "2026-03-03T10:00:00.000Z",
+      },
+      nowUtcIso: "2026-03-03T10:05:00.000Z",
+      settings: baseSettings(),
+    });
+
+    expect(decision).toEqual({ type: "EARLY_OPEN", reason: "UNASSIGNED" });
+  });
+
   it("ignores source propagation noise immediately after a monitor close", () => {
     const decision = decide({
       branch: baseBranch(),

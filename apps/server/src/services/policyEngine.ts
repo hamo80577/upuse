@@ -84,8 +84,12 @@ function isMonitorOwnedClosure(
   lastCloseUntil: DateTime | null,
   lastCloseAt: DateTime | null,
   settings: Settings,
+  trackedClosureOwner: "UPUSE" | "EXTERNAL" | null | undefined,
 ) {
   if (availability.availabilityState !== "CLOSED_UNTIL") return false;
+  if (!availability.closedUntil) {
+    return trackedClosureOwner === "UPUSE" && Boolean(lastCloseUntil && lastCloseAt);
+  }
   if (isSameTrackedClosure(lastCloseUntil, availability.closedUntil)) return true;
 
   if (!lastCloseAt || !availability.closedUntil) return false;
@@ -197,7 +201,7 @@ export function decide(input: PolicyInput): PolicyDecision {
   // If currently temporary closed, optionally early re-open when UPuse owns this closure.
   if (availability.availabilityState === "CLOSED_UNTIL") {
     if (trackedClosureOwner === "EXTERNAL") return { type: "NOOP" };
-    if (!isMonitorOwnedClosure(availability, lastCloseUntil, lastCloseAt, settings)) return { type: "NOOP" };
+    if (!isMonitorOwnedClosure(availability, lastCloseUntil, lastCloseAt, settings, trackedClosureOwner)) return { type: "NOOP" };
 
     if (lastCloseReason === "LATE" && (thresholds.lateThreshold <= 0 || metrics.lateNow <= lateReopenThreshold)) {
       return { type: "EARLY_OPEN", reason: "LATE" };

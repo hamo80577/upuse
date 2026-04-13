@@ -57,6 +57,7 @@ function createListItem(overrides?: Partial<ScanoMasterProductListItem>): ScanoM
     enrichmentStatus: "completed",
     enrichedCount: 2,
     processedCount: 2,
+    remainingEnrichmentCount: 0,
     canResumeEnrichment: false,
     warningCode: null,
     warningMessage: null,
@@ -102,6 +103,7 @@ function createDetail(overrides?: Partial<ScanoMasterProductDetail>): ScanoMaste
     enrichmentStatus: "completed",
     enrichedCount: 2,
     processedCount: 2,
+    remainingEnrichmentCount: 0,
     canResumeEnrichment: false,
     warningCode: null,
     warningMessage: null,
@@ -169,6 +171,7 @@ describe("ScanoMasterProductPage", () => {
         enrichmentStatus: "queued",
         enrichedCount: 1,
         processedCount: 1,
+        remainingEnrichmentCount: 1,
         canResumeEnrichment: true,
         warningCode: null,
         warningMessage: null,
@@ -277,6 +280,7 @@ describe("ScanoMasterProductPage", () => {
     expect(within(dialog).getByText("Milk")).toBeInTheDocument();
     expect(within(dialog).getByText("2/2")).toBeInTheDocument();
     expect(within(dialog).getByText("Completed")).toBeInTheDocument();
+    expect(within(dialog).getByText("2 of 2 products enriched successfully. Processed 2.")).toBeInTheDocument();
   });
 
   it("deletes a saved chain import after confirmation", async () => {
@@ -304,6 +308,7 @@ describe("ScanoMasterProductPage", () => {
           enrichmentStatus: "paused_auth",
           enrichedCount: 1,
           processedCount: 2,
+          remainingEnrichmentCount: 1,
           canResumeEnrichment: true,
           warningCode: "SCANO_MASTER_ENRICHMENT_AUTH_PAUSED",
           warningMessage: "Scano catalog token is invalid.",
@@ -316,6 +321,7 @@ describe("ScanoMasterProductPage", () => {
           enrichmentStatus: "paused_auth",
           enrichedCount: 1,
           processedCount: 2,
+          remainingEnrichmentCount: 1,
           canResumeEnrichment: true,
           warningCode: "SCANO_MASTER_ENRICHMENT_AUTH_PAUSED",
           warningMessage: "Scano catalog token is invalid.",
@@ -328,6 +334,7 @@ describe("ScanoMasterProductPage", () => {
           enrichmentStatus: "queued",
           enrichedCount: 1,
           processedCount: 1,
+          remainingEnrichmentCount: 1,
           canResumeEnrichment: true,
           warningCode: null,
           warningMessage: null,
@@ -359,6 +366,57 @@ describe("ScanoMasterProductPage", () => {
     expect(await within(dialog).findByText("Queued")).toBeInTheDocument();
   });
 
+  it("labels completed partial imports as retry-missing and keeps existing enriched products", async () => {
+    mockListScanoMasterProducts.mockResolvedValue({
+      items: [
+        createListItem({
+          productCount: 1000,
+          enrichedCount: 900,
+          processedCount: 1000,
+          remainingEnrichmentCount: 100,
+          enrichmentStatus: "completed",
+          canResumeEnrichment: true,
+        }),
+      ],
+    });
+    mockGetScanoMasterProduct.mockResolvedValue({
+      item: createDetail({
+        productCount: 1000,
+        enrichedCount: 900,
+        processedCount: 1000,
+        remainingEnrichmentCount: 100,
+        enrichmentStatus: "completed",
+        canResumeEnrichment: true,
+      }),
+    });
+    mockResumeScanoMasterProductEnrichment.mockResolvedValue({
+      ok: true,
+      item: createListItem({
+        productCount: 1000,
+        enrichedCount: 900,
+        processedCount: 900,
+        remainingEnrichmentCount: 100,
+        enrichmentStatus: "queued",
+        canResumeEnrichment: true,
+      }),
+    });
+
+    render(<ScanoMasterProductPage />);
+
+    expect(await screen.findByText("Carrefour")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry Missing (100)" }));
+
+    await waitFor(() => {
+      expect(mockResumeScanoMasterProductEnrichment).toHaveBeenCalledWith(1037);
+    });
+    expect(await screen.findByText("Missing products were queued for another enrichment pass.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    const dialog = await screen.findByRole("dialog", { name: "Chain Import Details" });
+    expect(await within(dialog).findByText("Retry Missing (100)")).toBeInTheDocument();
+    expect(within(dialog).getByText("900 of 1000 products enriched successfully. Processed 1000. 100 missing products can be retried.")).toBeInTheDocument();
+  });
+
   it("shows enrichment ratio, paused warning, and polls while the queue is active", async () => {
     let pollCallback: (() => void) | null = null;
     const setIntervalSpy = vi.spyOn(window, "setInterval").mockImplementation(((handler: TimerHandler) => {
@@ -375,6 +433,7 @@ describe("ScanoMasterProductPage", () => {
             productCount: 15000,
             enrichedCount: 3000,
             processedCount: 4200,
+            remainingEnrichmentCount: 12000,
             enrichmentStatus: "paused_auth",
             canResumeEnrichment: true,
             warningCode: "SCANO_MASTER_ENRICHMENT_AUTH_PAUSED",
@@ -388,6 +447,7 @@ describe("ScanoMasterProductPage", () => {
             productCount: 15000,
             enrichedCount: 3001,
             processedCount: 4201,
+            remainingEnrichmentCount: 11999,
             enrichmentStatus: "running",
             canResumeEnrichment: false,
           }),

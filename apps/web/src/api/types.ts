@@ -1088,6 +1088,7 @@ export interface ScanoMasterProductListItem {
   enrichmentStatus: ScanoMasterProductEnrichmentStatus;
   enrichedCount: number;
   processedCount: number;
+  remainingEnrichmentCount: number;
   canResumeEnrichment: boolean;
   warningCode: string | null;
   warningMessage: string | null;

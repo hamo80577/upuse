@@ -101,6 +101,7 @@ export function buildMonitorSnapshot(input: MonitorSnapshotInput, tracker: Pick<
     totals.unassignedNow += rawMetrics.unassignedNow;
 
     const runtime = getRuntime(branch.id) ?? undefined;
+    const trackedMonitorClosedUntil = runtime?.closureObservedUntil ?? runtime?.lastUpuseCloseUntil ?? undefined;
     let status: "OPEN" | "TEMP_CLOSE" | "CLOSED" | "UNKNOWN" = "UNKNOWN";
     let statusColor: "green" | "red" | "orange" | "grey" = "grey";
     let closedUntil: string | undefined;
@@ -121,12 +122,12 @@ export function buildMonitorSnapshot(input: MonitorSnapshotInput, tracker: Pick<
       } else if (availabilityState.availabilityState === "CLOSED_UNTIL") {
         status = "TEMP_CLOSE";
         statusColor = "red";
-        closedUntil = availabilityState.closedUntil;
         closedByUpuse = tracker.isMonitorOwnedClosure(runtime, availabilityState);
+        closedUntil = availabilityState.closedUntil ?? (closedByUpuse ? trackedMonitorClosedUntil : undefined);
         closureSource = closedByUpuse ? "UPUSE" : "EXTERNAL";
         sourceClosedReason = closedByUpuse ? undefined : availabilityState.closedReason;
         closeStartedAt = closedByUpuse
-          ? tracker.inferCloseStartedAt(availabilityState.closedUntil, settings.tempCloseMinutes)
+          ? tracker.inferCloseStartedAt(closedUntil, settings.tempCloseMinutes)
           : tracker.inferObservedExternalCloseStartedAt(runtime, availabilityState.closedUntil);
         autoReopen = closedByUpuse;
         if (closedByUpuse) {

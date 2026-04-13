@@ -156,6 +156,9 @@ export class MonitorRuntimeTracker {
     const settings = getSettings();
     if (!this.hasTrustedMonitorRuntime(runtime, settings)) return false;
     if (runtime?.closureOwner === "EXTERNAL") return false;
+    if (!availability.closedUntil) {
+      return runtime?.closureOwner === "UPUSE" && Boolean(runtime.closureObservedUntil ?? runtime.lastUpuseCloseUntil);
+    }
 
     if (runtime?.closureOwner === "UPUSE") {
       return (
@@ -356,7 +359,6 @@ export class MonitorRuntimeTracker {
       getObjectProperty(availability, "closed_until"),
       getObjectProperty(data, "closedUntil"),
       getObjectProperty(data, "closed_until"),
-      getObjectProperty(payload, "currentSlotEndAt"),
     ];
 
     const value = candidates.find(
@@ -396,13 +398,14 @@ export class MonitorRuntimeTracker {
       }
 
       const monitorWindowStillActive = this.hasActiveTrackedMonitorWindow(runtime, nowIso);
+      const trackedMonitorClosedUntil = runtime?.closureObservedUntil ?? runtime?.lastUpuseCloseUntil ?? undefined;
       const isMonitorOwnedTempClose = Boolean(
         availability.availabilityState === "CLOSED_UNTIL" &&
-        availability.closedUntil &&
-        this.isMonitorOwnedClosure(runtime, availability),
+        this.isMonitorOwnedClosure(runtime, availability) &&
+        (availability.closedUntil ?? trackedMonitorClosedUntil),
       );
 
-      if (isMonitorOwnedTempClose && availability.closedUntil) {
+      if (isMonitorOwnedTempClose) {
         runtime = this.syncTrackedMonitorRuntime(
           branch,
           metrics,
@@ -410,7 +413,7 @@ export class MonitorRuntimeTracker {
           preparation.recentActivePickers,
           preparation.recentActiveAvailable,
           runtime,
-          availability.closedUntil,
+          availability.closedUntil ?? trackedMonitorClosedUntil ?? "",
           nowIso,
           settings,
         );

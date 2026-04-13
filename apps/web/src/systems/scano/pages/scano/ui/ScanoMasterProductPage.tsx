@@ -149,6 +149,31 @@ function canShowResumeAction(item: Pick<ScanoMasterProductListItem, "canResumeEn
   return item.canResumeEnrichment && item.enrichmentStatus !== "running";
 }
 
+function getResumeActionLabel(
+  item: Pick<ScanoMasterProductListItem, "enrichmentStatus" | "remainingEnrichmentCount">,
+  variant: "compact" | "detailed" = "compact",
+) {
+  if (item.enrichmentStatus === "completed") {
+    return item.remainingEnrichmentCount > 0
+      ? `Retry Missing (${item.remainingEnrichmentCount})`
+      : "Retry Missing";
+  }
+
+  return variant === "detailed" ? "Resume Enrichment" : "Resume";
+}
+
+function getResumeActionLoadingLabel(item: Pick<ScanoMasterProductListItem, "enrichmentStatus">) {
+  return item.enrichmentStatus === "completed" ? "Retrying..." : "Resuming...";
+}
+
+function buildEnrichmentSummary(item: Pick<ScanoMasterProductListItem, "productCount" | "enrichedCount" | "processedCount" | "remainingEnrichmentCount" | "enrichmentStatus">) {
+  const summary = `${item.enrichedCount} of ${item.productCount} products enriched successfully. Processed ${item.processedCount}.`;
+  if (item.enrichmentStatus === "completed" && item.remainingEnrichmentCount > 0) {
+    return `${summary} ${item.remainingEnrichmentCount} missing products can be retried.`;
+  }
+  return summary;
+}
+
 export function ScanoMasterProductPage() {
   const [items, setItems] = useState<ScanoMasterProductListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -429,6 +454,10 @@ export function ScanoMasterProductPage() {
   }
 
   async function handleResumeEnrichment(chainId: number) {
+    const currentItem = viewChainId === chainId && viewDetail
+      ? viewDetail
+      : items.find((item) => item.chainId === chainId) ?? null;
+
     try {
       setResumeChainId(chainId);
       const response = await api.resumeScanoMasterProductEnrichment(chainId);
@@ -436,7 +465,12 @@ export function ScanoMasterProductPage() {
       if (viewChainId === chainId) {
         await loadViewDetail(chainId, { silent: true });
       }
-      setToast({ type: "success", msg: "Enrichment resumed from the current saved progress." });
+      setToast({
+        type: "success",
+        msg: currentItem?.enrichmentStatus === "completed"
+          ? "Missing products were queued for another enrichment pass."
+          : "Enrichment resumed from the current saved progress.",
+      });
     } catch (error) {
       setToast({ type: "error", msg: describeApiError(error, "Failed to resume enrichment") });
     } finally {
@@ -625,7 +659,7 @@ export function ScanoMasterProductPage() {
                                   onClick={() => void handleResumeEnrichment(item.chainId)}
                                   disabled={resumeChainId === item.chainId}
                                 >
-                                  {resumeChainId === item.chainId ? "Resuming..." : "Resume"}
+                                  {resumeChainId === item.chainId ? getResumeActionLoadingLabel(item) : getResumeActionLabel(item, "compact")}
                                 </Button>
                               ) : null}
                               <Button size="small" startIcon={<VisibilityOutlinedIcon />} onClick={() => {
@@ -986,12 +1020,12 @@ export function ScanoMasterProductPage() {
                           onClick={() => void handleResumeEnrichment(viewDetail.chainId)}
                           disabled={resumeChainId === viewDetail.chainId}
                         >
-                          {resumeChainId === viewDetail.chainId ? "Resuming..." : "Resume Enrichment"}
+                          {resumeChainId === viewDetail.chainId ? getResumeActionLoadingLabel(viewDetail) : getResumeActionLabel(viewDetail, "detailed")}
                         </Button>
                       ) : null}
                     </Stack>
                     <Typography variant="body2" sx={{ color: "text.secondary" }}>
-                      {viewDetail.productCount}/{viewDetail.enrichedCount} enriched successfully. Processed {viewDetail.processedCount}.
+                      {buildEnrichmentSummary(viewDetail)}
                     </Typography>
                     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                       {viewDetail.enrichmentQueuedAt ? (

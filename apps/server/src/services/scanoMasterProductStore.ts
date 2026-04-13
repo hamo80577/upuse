@@ -39,6 +39,7 @@ interface MasterProductListRow {
   enrichmentStatus: ScanoMasterProductEnrichmentStatus;
   enrichedCount: number;
   processedCount: number;
+  remainingEnrichmentCount: number;
   canResumeEnrichment: number;
   warningCode: string | null;
   warningMessage: string | null;
@@ -394,6 +395,7 @@ function mapListRow(row: MasterProductListRow): ScanoMasterProductListItem {
     enrichmentStatus: row.enrichmentStatus,
     enrichedCount: row.enrichedCount,
     processedCount: row.processedCount,
+    remainingEnrichmentCount: row.remainingEnrichmentCount,
     canResumeEnrichment: row.canResumeEnrichment === 1,
     warningCode: row.warningCode,
     warningMessage: row.warningMessage,
@@ -432,15 +434,22 @@ export function listScanoMasterProducts(): ScanoMasterProductListItem[] {
       enrichmentStatus,
       enrichedCount,
       processedCount,
+      (
+        SELECT COUNT(*)
+        FROM scano_master_product_enrichment_entries entry
+        WHERE entry.chainId = scano_master_products.chainId
+          AND entry.importRevision = scano_master_products.importRevision
+          AND entry.status <> 'enriched'
+      ) AS remainingEnrichmentCount,
       CASE
         WHEN enrichmentStatus = 'running' THEN 0
-        WHEN EXISTS (
-          SELECT 1
+        WHEN (
+          SELECT COUNT(*)
           FROM scano_master_product_enrichment_entries entry
           WHERE entry.chainId = scano_master_products.chainId
             AND entry.importRevision = scano_master_products.importRevision
             AND entry.status <> 'enriched'
-        ) THEN 1
+        ) > 0 THEN 1
         ELSE 0
       END AS canResumeEnrichment,
       warningCode,
@@ -465,15 +474,22 @@ export function getScanoMasterProduct(chainId: number): ScanoMasterProductDetail
       enrichmentCompletedAt,
       enrichedCount,
       processedCount,
+      (
+        SELECT COUNT(*)
+        FROM scano_master_product_enrichment_entries entry
+        WHERE entry.chainId = scano_master_products.chainId
+          AND entry.importRevision = scano_master_products.importRevision
+          AND entry.status <> 'enriched'
+      ) AS remainingEnrichmentCount,
       CASE
         WHEN enrichmentStatus = 'running' THEN 0
-        WHEN EXISTS (
-          SELECT 1
+        WHEN (
+          SELECT COUNT(*)
           FROM scano_master_product_enrichment_entries entry
           WHERE entry.chainId = scano_master_products.chainId
             AND entry.importRevision = scano_master_products.importRevision
             AND entry.status <> 'enriched'
-        ) THEN 1
+        ) > 0 THEN 1
         ELSE 0
       END AS canResumeEnrichment,
       warningCode,
@@ -686,6 +702,7 @@ export function upsertScanoMasterProduct(input: UpsertScanoMasterProductInput): 
     enrichmentStatus,
     enrichedCount: 0,
     processedCount: 0,
+    remainingEnrichmentCount: enrichmentSeedRows.length,
     canResumeEnrichment: enrichmentSeedRows.length > 0,
     warningCode: null,
     warningMessage: null,

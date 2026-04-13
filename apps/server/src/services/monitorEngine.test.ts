@@ -281,6 +281,98 @@ describe("monitorEngine.getSnapshot", () => {
     });
   });
 
+  it("keeps a UPuse-owned timer in the snapshot when the source omits closedUntil", () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 30,
+      availabilityRefreshSeconds: 30,
+      maxVendorsPerOrdersRequest: 50,
+    });
+
+    mockListBranches.mockReturnValue([
+      {
+        id: 11,
+        name: "Branch 11",
+        chainName: "",
+        ordersVendorId: 1111,
+        availabilityVendorId: "av-11",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        enabled: true,
+      },
+    ]);
+
+    mockGetRuntime.mockReturnValue({
+      branchId: 11,
+      lastUpuseCloseUntil: "2026-03-04T13:16:59.000Z",
+      lastUpuseCloseReason: "UNASSIGNED",
+      lastUpuseCloseAt: "2026-03-04T12:46:59.000Z",
+      lastUpuseCloseEventId: 111,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      closureOwner: "UPUSE",
+      closureObservedUntil: "2026-03-04T13:16:59.000Z",
+      closureObservedAt: "2026-03-04T12:46:59.000Z",
+      externalOpenDetectedAt: null,
+      lastActionAt: "2026-03-04T12:46:59.000Z",
+    });
+
+    const engine = new MonitorEngine() as any;
+    engine.ordersFresh = true;
+    engine.ordersByVendor = new Map([
+      [
+        1111,
+        {
+          totalToday: 12,
+          cancelledToday: 1,
+          doneToday: 3,
+          activeNow: 8,
+          lateNow: 0,
+          unassignedNow: 7,
+        },
+      ],
+    ]);
+    engine.preparationByVendor = new Map([
+      [
+        1111,
+        {
+          preparingNow: 8,
+          preparingPickersNow: 3,
+          recentActivePickers: 3,
+        },
+      ],
+    ]);
+    engine.availabilityByVendor = new Map([
+      [
+        "av-11",
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "CLOSED_UNTIL",
+          platformRestaurantId: "av-11",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID,
+          modifiedBy: "log_vendor_monitor",
+        },
+      ],
+    ]);
+
+    const branch = engine.getSnapshot().branches[0];
+
+    expect(branch.status).toBe("TEMP_CLOSE");
+    expect(branch.closureSource).toBe("UPUSE");
+    expect(branch.closedByUpuse).toBe(true);
+    expect(branch.closedUntil).toBe("2026-03-04T13:16:59.000Z");
+    expect(branch.closeStartedAt).toBe("2026-03-04T12:46:59.000Z");
+    expect(branch.autoReopen).toBe(true);
+  });
+
   it("infers capacity as the monitor close reason from the tracked window when runtime reason is missing", () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",
@@ -1984,6 +2076,201 @@ describe("monitorEngine.reconcile", () => {
       closedUntil: "2026-03-04T13:15:30.000Z",
     }));
     expect(mockLog).toHaveBeenCalledWith(8, "INFO", "TEMP CLOSE — Unassigned=7");
+  });
+
+  it("ignores mutation currentSlotEndAt when tracking a new UPuse temporary close", async () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 20,
+      availabilityRefreshSeconds: 11,
+      maxVendorsPerOrdersRequest: 50,
+    });
+    mockListBranches.mockReturnValue([
+      {
+        id: 12,
+        name: "Branch 12",
+        chainName: "",
+        ordersVendorId: 1212,
+        availabilityVendorId: "av-12",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        enabled: true,
+      },
+    ]);
+
+    let runtime: any = {
+      branchId: 12,
+      lastUpuseCloseUntil: null,
+      lastUpuseCloseReason: null,
+      lastUpuseCloseAt: null,
+      lastUpuseCloseEventId: null,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      externalOpenDetectedAt: null,
+      lastActionAt: null,
+    };
+    mockGetRuntime.mockImplementation(() => runtime);
+    mockSetRuntime.mockImplementation((_branchId: number, patch: Record<string, unknown>) => {
+      runtime = { ...runtime, ...patch };
+      return runtime;
+    });
+    mockDecide.mockReturnValue({ type: "CLOSE", reason: "UNASSIGNED" });
+    mockSetAvailability.mockResolvedValue({
+      currentSlotEndAt: "2026-03-04T14:00:00.000Z",
+    });
+    mockFetchAvailabilities.mockResolvedValue([
+      {
+        platformKey: "test",
+        changeable: true,
+        availabilityState: "OPEN",
+        platformRestaurantId: "av-12",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      },
+    ]);
+    mockRecordMonitorCloseAction.mockReturnValue(121);
+
+    const engine = new MonitorEngine() as any;
+    engine.running = true;
+    engine.ordersFresh = true;
+    engine.ordersDataStateByVendor = new Map([[1212, "fresh"]]);
+    engine.ordersByVendor = new Map([
+      [
+        1212,
+        {
+          totalToday: 20,
+          cancelledToday: 1,
+          doneToday: 11,
+          activeNow: 8,
+          lateNow: 0,
+          unassignedNow: 7,
+        },
+      ],
+    ]);
+    engine.availabilityByVendor = new Map([
+      [
+        "av-12",
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "OPEN",
+          platformRestaurantId: "av-12",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        },
+      ],
+    ]);
+
+    await engine.reconcile("orders");
+
+    expect(mockRecordMonitorCloseAction).toHaveBeenCalledWith(expect.objectContaining({
+      closedUntil: "2026-03-04T13:15:30.000Z",
+    }));
+    expect(runtime.lastUpuseCloseUntil).toBe("2026-03-04T13:15:30.000Z");
+  });
+
+  it("reopens a tracked UPuse close even when the source omits closedUntil", async () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 20,
+      availabilityRefreshSeconds: 11,
+      maxVendorsPerOrdersRequest: 50,
+    });
+    mockListBranches.mockReturnValue([
+      {
+        id: 13,
+        name: "Branch 13",
+        chainName: "",
+        ordersVendorId: 1313,
+        availabilityVendorId: "av-13",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        enabled: true,
+      },
+    ]);
+
+    let runtime: any = {
+      branchId: 13,
+      lastUpuseCloseUntil: "2026-03-04T13:15:30.000Z",
+      lastUpuseCloseReason: "UNASSIGNED",
+      lastUpuseCloseAt: "2026-03-04T12:45:30.000Z",
+      lastUpuseCloseEventId: 131,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      closureOwner: "UPUSE",
+      closureObservedUntil: "2026-03-04T13:15:30.000Z",
+      closureObservedAt: "2026-03-04T12:45:30.000Z",
+      externalOpenDetectedAt: null,
+      lastActionAt: "2026-03-04T12:45:00.000Z",
+    };
+    mockGetRuntime.mockImplementation(() => runtime);
+    mockSetRuntime.mockImplementation((_branchId: number, patch: Record<string, unknown>) => {
+      runtime = { ...runtime, ...patch };
+      return runtime;
+    });
+    mockDecide.mockReturnValue({ type: "EARLY_OPEN", reason: "UNASSIGNED" });
+    mockSetAvailability.mockResolvedValue({});
+    mockFetchAvailabilities.mockResolvedValueOnce([
+      {
+        platformKey: "test",
+        changeable: true,
+        availabilityState: "OPEN",
+        platformRestaurantId: "av-13",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      },
+    ]);
+
+    const engine = new MonitorEngine() as any;
+    engine.running = true;
+    engine.ordersFresh = true;
+    engine.ordersDataStateByVendor = new Map([[1313, "fresh"]]);
+    engine.ordersByVendor = new Map([
+      [
+        1313,
+        {
+          totalToday: 20,
+          cancelledToday: 1,
+          doneToday: 11,
+          activeNow: 8,
+          lateNow: 0,
+          unassignedNow: 0,
+        },
+      ],
+    ]);
+    engine.availabilityByVendor = new Map([
+      [
+        "av-13",
+        {
+          platformKey: "test",
+          changeable: true,
+          availabilityState: "CLOSED_UNTIL",
+          platformRestaurantId: "av-13",
+          globalEntityId: TEST_GLOBAL_ENTITY_ID,
+          modifiedBy: "log_vendor_monitor",
+        },
+      ],
+    ]);
+
+    await engine.reconcile("availability");
+
+    expect(mockSetAvailability).toHaveBeenCalledWith(expect.objectContaining({
+      availabilityVendorId: "av-13",
+      state: "OPEN",
+    }));
+    expect(runtime.lastUpuseCloseUntil).toBeNull();
+    expect(runtime.closureOwner).toBeNull();
   });
 
   it("logs capacity closures with in-prep orders, cap, and picker counts", async () => {
