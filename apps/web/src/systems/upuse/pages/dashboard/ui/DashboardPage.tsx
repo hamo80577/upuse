@@ -9,6 +9,7 @@ import { ChainGroupsSection } from "../../../features/dashboard/ChainGroupsSecti
 import { DashboardToolbarControls } from "../../../features/dashboard/DashboardToolbarControls";
 import { OperationsSummaryCard } from "../../../widgets/operations-summary/ui/OperationsSummaryCard";
 import { TopBar } from "../../../widgets/top-bar/ui/TopBar";
+import { opsTelemetry } from "../../../../ops/telemetry/opsTelemetryClient";
 import { buildGroupedBranches, compareBranches, matchesSearchQuery, matchesStatusFilter, type GroupMode, type SortMode, type StatusFilter } from "../lib/dashboardGrouping";
 import { DashboardIssueBanner } from "./DashboardIssueBanner";
 import { useDashboardPageState } from "../lib/useDashboardPageState";
@@ -133,6 +134,10 @@ export function DashboardPage() {
   const [groupBy, setGroupBy] = useState<GroupMode>("chain");
   const [searchQuery, setSearchQuery] = useState("");
   const deferredSearchQuery = useDeferredValue(searchQuery);
+
+  useEffect(() => {
+    opsTelemetry.track("dashboard_opened");
+  }, []);
 
   const visibleBranchPool = useMemo(
     () =>

@@ -14,6 +14,15 @@ function createForbiddenResponse() {
   };
 }
 
+function createUnauthorizedResponse() {
+  return {
+    ok: false,
+    message: "Unauthorized",
+    code: "SESSION_UNAUTHORIZED",
+    errorOrigin: "session" as const,
+  };
+}
+
 export function requireOpsAccess(): RequestHandler {
   return (req, res, next) => {
     if (hasOpsAccess(req.authUser)) {
@@ -22,5 +31,16 @@ export function requireOpsAccess(): RequestHandler {
     }
 
     res.status(403).json(createForbiddenResponse());
+  };
+}
+
+export function requireOpsTelemetryWriteAccess(): RequestHandler {
+  return (req, res, next) => {
+    if (req.authUser) {
+      next();
+      return;
+    }
+
+    res.status(401).json(createUnauthorizedResponse());
   };
 }

@@ -16,6 +16,7 @@ const {
   mockUpdatePerformanceView,
   mockDeletePerformanceView,
   mockStreamPerformance,
+  mockOpsTrack,
 } = vi.hoisted(() => ({
   mockPerformanceSummary: vi.fn(),
   mockPerformanceTrend: vi.fn(),
@@ -30,6 +31,7 @@ const {
   mockUpdatePerformanceView: vi.fn(),
   mockDeletePerformanceView: vi.fn(),
   mockStreamPerformance: vi.fn(),
+  mockOpsTrack: vi.fn(),
 }));
 
 vi.mock("../../../api/client", () => ({
@@ -67,6 +69,12 @@ vi.mock("../../../app/providers/MonitorStatusProvider", () => ({
     startMonitoring: vi.fn(),
     stopMonitoring: vi.fn(),
   }),
+}));
+
+vi.mock("../../../../ops/telemetry/opsTelemetryClient", () => ({
+  opsTelemetry: {
+    track: mockOpsTrack,
+  },
 }));
 
 vi.mock("../../../widgets/top-bar/ui/TopBar", () => ({
@@ -689,6 +697,7 @@ describe("PerformancePage", () => {
     mockUpdatePerformanceView.mockReset();
     mockDeletePerformanceView.mockReset();
     mockStreamPerformance.mockReset();
+    mockOpsTrack.mockReset();
     mockStreamPerformance.mockImplementation(() => new Promise<void>(() => {}));
     mockPerformanceTrend.mockResolvedValue(baseTrend);
     mockPerformanceVendorDetail.mockResolvedValue(baseVendorDetail);
@@ -753,6 +762,16 @@ describe("PerformancePage", () => {
       expect(tile).toHaveTextContent(expectedValue);
     }
   }
+
+  it("emits the performance opened telemetry event on mount", async () => {
+    mockPerformanceSummary.mockResolvedValue(baseSummary);
+
+    render(<PerformancePage />);
+
+    await waitFor(() => {
+      expect(mockOpsTrack).toHaveBeenCalledWith("performance_opened");
+    });
+  });
 
   it("renders simple branch cards with Active, In Prep, and TMP", async () => {
     mockPerformanceSummary.mockResolvedValue(baseSummary);

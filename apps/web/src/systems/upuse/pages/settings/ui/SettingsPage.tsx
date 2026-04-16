@@ -7,6 +7,7 @@ import { api, describeApiError } from "../../../api/client";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useMonitorStatus } from "../../../app/providers/MonitorStatusProvider";
 import type { SettingsMasked, SettingsTokenTestSnapshot } from "../../../api/types";
+import { opsTelemetry } from "../../../../ops/telemetry/opsTelemetryClient";
 import { TopBar } from "../../../widgets/top-bar/ui/TopBar";
 import {
   UPUSE_MONITOR_MANAGE_CAPABILITY,
@@ -80,6 +81,7 @@ export function SettingsPage() {
   };
 
   useEffect(() => {
+    opsTelemetry.track("settings_opened");
     void loadProtectedData();
   }, []);
 
@@ -155,6 +157,17 @@ export function SettingsPage() {
     }
   };
 
+  const reportTokenTestFinished = (jobId: string | null, status: SettingsTokenTestSnapshot["status"] | "failed") => {
+    opsTelemetry.track("token_test_finished", {
+      metadata: {
+        jobId: jobId ?? null,
+        status,
+      },
+    });
+  };
+
+  const isTerminalTokenTest = (status: SettingsTokenTestSnapshot["status"]) => status === "completed" || status === "failed";
+
   const runTest = async () => {
     if (!canTestTokens) {
       setToast({ type: "info", msg: "No access" });
@@ -164,13 +177,23 @@ export function SettingsPage() {
       clearTestPollTimer();
       const ordersToken = String(form.ordersToken ?? "").trim();
       const availabilityToken = String(form.availabilityToken ?? "").trim();
+      opsTelemetry.track("token_test_started", {
+        metadata: {
+          hasOrdersToken: Boolean(ordersToken),
+          hasAvailabilityToken: Boolean(availabilityToken),
+        },
+      });
       const started = await api.startTokenTest({
         ...(ordersToken ? { ordersToken } : {}),
         ...(availabilityToken ? { availabilityToken } : {}),
       });
       setTestJobId(started.jobId);
       setTest(started.snapshot);
+      if (isTerminalTokenTest(started.snapshot.status)) {
+        reportTokenTestFinished(started.jobId, started.snapshot.status);
+      }
     } catch (error) {
+      reportTokenTestFinished(null, "failed");
       setToast({ type: "error", msg: describeApiError(error, "Test failed") });
     }
   };
@@ -185,12 +208,14 @@ export function SettingsPage() {
         .then((snapshot) => {
           setTest(snapshot);
           if (snapshot.status === "completed" || snapshot.status === "failed") {
+            reportTokenTestFinished(testJobId, snapshot.status);
             setTestJobId(null);
           }
         })
         .catch((error) => {
           clearTestPollTimer();
           setTestJobId(null);
+          reportTokenTestFinished(testJobId, "failed");
           setToast({ type: "error", msg: describeApiError(error, "Test failed") });
         });
     }, 1200);

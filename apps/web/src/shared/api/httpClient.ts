@@ -3,6 +3,29 @@ const TIMEOUT_MESSAGE = "Request timed out. Please try again.";
 export const AUTH_UNAUTHORIZED_EVENT = "upuse:auth:unauthorized";
 export const AUTH_FORBIDDEN_EVENT = "upuse:auth:forbidden";
 
+export interface ApiFailureTelemetry {
+  endpoint: string;
+  method: string;
+  statusCode?: number;
+  durationMs: number;
+  message: string;
+  source?: "frontend" | "websocket";
+  occurredAt: string;
+}
+
+export type ApiFailureReporter = (failure: ApiFailureTelemetry) => void;
+
+let apiFailureReporter: ApiFailureReporter | null = null;
+
+export function setApiFailureReporter(reporter: ApiFailureReporter | null) {
+  apiFailureReporter = reporter;
+  return () => {
+    if (apiFailureReporter === reporter) {
+      apiFailureReporter = null;
+    }
+  };
+}
+
 function collapseWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -63,6 +86,7 @@ function normalizeApiErrorMessage(rawMessage: string, fallback = "Request failed
 
 export interface HttpRequestOptions {
   timeoutMs?: number;
+  skipTelemetry?: boolean;
 }
 
 export interface JsonEventStreamOptions {
@@ -70,12 +94,14 @@ export interface JsonEventStreamOptions {
   init?: RequestInit;
   onOpen?: () => void;
   onMessage: (eventName: string, data: unknown) => void;
+  skipTelemetry?: boolean;
 }
 
 export interface JsonWebSocketOptions {
   signal?: AbortSignal;
   onOpen?: () => void;
   onMessage: (eventName: string, data: unknown) => void;
+  skipTelemetry?: boolean;
 }
 
 export function describeApiError(error: unknown, fallback = "Request failed") {
@@ -97,6 +123,70 @@ function withApiInit(init?: RequestInit): RequestInit | undefined {
     credentials: init?.credentials ?? "same-origin",
     headers,
   };
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function elapsedMs(startedAt: number) {
+  return Math.max(0, Math.round(Date.now() - startedAt));
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function resolveRequestMethod(init?: RequestInit) {
+  return String(init?.method ?? "GET").trim().toUpperCase() || "GET";
+}
+
+function resolveTelemetryEndpoint(url: string) {
+  const rawUrl = String(url);
+  try {
+    const baseUrl = typeof window === "undefined" ? "http://localhost" : window.location.origin;
+    const resolved = new URL(rawUrl, baseUrl);
+    return resolved.pathname || "/";
+  } catch {
+    const stripped = rawUrl.split(/[?#]/, 1)[0]?.trim();
+    return stripped || "unknown";
+  }
+}
+
+function shouldSkipFailureTelemetry(url: string, options: HttpRequestOptions | undefined, error?: unknown) {
+  if (options?.skipTelemetry || isAbortError(error)) {
+    return true;
+  }
+
+  const endpoint = resolveTelemetryEndpoint(url);
+  return endpoint.startsWith("/api/auth/") || endpoint.startsWith("/api/ops/");
+}
+
+function reportApiFailure(params: {
+  url: string;
+  init?: RequestInit;
+  options?: HttpRequestOptions;
+  response?: Response;
+  error: unknown;
+  startedAt: number;
+  source?: "frontend" | "websocket";
+}) {
+  if (!apiFailureReporter || shouldSkipFailureTelemetry(params.url, params.options, params.error)) {
+    return;
+  }
+
+  const message = describeApiError(params.error, "Request failed");
+  try {
+    apiFailureReporter({
+      endpoint: resolveTelemetryEndpoint(params.url),
+      method: resolveRequestMethod(params.init),
+      ...(params.response ? { statusCode: params.response.status } : {}),
+      durationMs: elapsedMs(params.startedAt),
+      message,
+      source: params.source ?? "frontend",
+      occurredAt: nowIso(),
+    });
+  } catch {}
 }
 
 function notifyUnauthorized() {
@@ -247,9 +337,19 @@ function resolveWebSocketUrl(url: string) {
 }
 
 export async function requestJson<T>(url: string, init?: RequestInit, options?: HttpRequestOptions): Promise<T> {
-  const response = await fetchWithTimeout(url, withApiInit(init), options?.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const startedAt = Date.now();
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(url, withApiInit(init), options?.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  } catch (error) {
+    reportApiFailure({ url, init, options, error, startedAt });
+    throw error;
+  }
+
   if (!response.ok) {
-    throw await createResponseError(response, url);
+    const error = await createResponseError(response, url);
+    reportApiFailure({ url, init, options, response, error, startedAt });
+    throw error;
   }
 
   const responseClone = response.clone();
@@ -257,7 +357,9 @@ export async function requestJson<T>(url: string, init?: RequestInit, options?: 
     return await response.json() as T;
   } catch {
     const text = await responseClone.text().catch(() => "");
-    throw new Error(normalizeApiErrorMessage(text, "The server returned invalid API data. Please try again."));
+    const error = new Error(normalizeApiErrorMessage(text, "The server returned invalid API data. Please try again."));
+    reportApiFailure({ url, init, options, response, error, startedAt });
+    throw error;
   }
 }
 
@@ -309,13 +411,25 @@ export async function requestJsonEventStream(url: string, options: JsonEventStre
         signal: options.signal,
       }
     : options.init;
-  const response = await fetch(url, withApiInit(streamInit));
+  const startedAt = Date.now();
+  let response: Response;
+  const telemetryOptions: HttpRequestOptions = { skipTelemetry: options.skipTelemetry };
+  try {
+    response = await fetch(url, withApiInit(streamInit));
+  } catch (error) {
+    reportApiFailure({ url, init: streamInit, options: telemetryOptions, error, startedAt });
+    throw error;
+  }
   if (!response.ok) {
-    throw await createResponseError(response, url);
+    const error = await createResponseError(response, url);
+    reportApiFailure({ url, init: streamInit, options: telemetryOptions, response, error, startedAt });
+    throw error;
   }
 
   if (!response.body || typeof response.body.getReader !== "function") {
-    throw new Error("Streaming is not supported in this browser.");
+    const error = new Error("Streaming is not supported in this browser.");
+    reportApiFailure({ url, init: streamInit, options: telemetryOptions, response, error, startedAt });
+    throw error;
   }
 
   const reader = response.body.getReader();
@@ -347,8 +461,23 @@ export async function requestJsonEventStream(url: string, options: JsonEventStre
 
 export async function requestJsonWebSocket(url: string, options: JsonWebSocketOptions) {
   return new Promise<void>((resolve, reject) => {
+    const startedAt = Date.now();
+    const telemetryOptions: HttpRequestOptions = { skipTelemetry: options.skipTelemetry };
+    const reportWebSocketFailure = (error: Error) => {
+      reportApiFailure({
+        url,
+        init: { method: "GET" },
+        options: telemetryOptions,
+        error,
+        startedAt,
+        source: "websocket",
+      });
+    };
+
     if (typeof WebSocket === "undefined") {
-      reject(new Error("Streaming is not supported in this browser."));
+      const error = new Error("Streaming is not supported in this browser.");
+      reportWebSocketFailure(error);
+      reject(error);
       return;
     }
 
@@ -378,6 +507,7 @@ export async function requestJsonWebSocket(url: string, options: JsonWebSocketOp
     const finishReject = (error: Error) => {
       if (settled) return;
       settled = true;
+      reportWebSocketFailure(error);
       cleanup();
       reject(error);
     };
@@ -458,10 +588,20 @@ export async function requestJsonWebSocket(url: string, options: JsonWebSocketOp
 }
 
 export async function requestCsvDownload(url: string, options?: HttpRequestOptions) {
-  const response = await fetchWithTimeout(url, withApiInit(), options?.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const startedAt = Date.now();
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(url, withApiInit(), options?.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  } catch (error) {
+    reportApiFailure({ url, options, error, startedAt });
+    throw error;
+  }
+
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(normalizeApiErrorMessage(text, `HTTP ${response.status}`));
+    const error = new Error(normalizeApiErrorMessage(text, `HTTP ${response.status}`));
+    reportApiFailure({ url, options, response, error, startedAt });
+    throw error;
   }
 
   const blob = await response.blob();

@@ -7,6 +7,11 @@
   - added the protected `GET /api/ops/health` endpoint
   - added the `/ops` overview route and initial admin command-center shell
   - hard-coded Ops access to the primary admin identity without adding User Management permissions, roles, or schema changes
+- Added the Ops telemetry foundation and frontend instrumentation:
+  - added authenticated write-side telemetry endpoints for ingest, heartbeat, and presence end
+  - kept Ops health, summary, sessions, events, and errors read/admin APIs primary-admin-only
+  - instrumented frontend presence, route changes, API failures, runtime errors, and high-value dashboard, performance, settings, and token-test events
+  - added client-side sanitization so query values, tokens, passwords, cookies, and nested metadata are not sent
 
 ## 2026-04-12
 

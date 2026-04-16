@@ -57,6 +57,8 @@ If you want one Windows command that loads `.env`, builds, and starts production
 - Mutating API routes enforce trusted request origins. Browser writes should come from the same site or from origins explicitly listed in `UPUSE_CORS_ORIGINS`, and unsafe requests that omit `Origin`, `Referer`, and `Sec-Fetch-Site` are rejected.
 - Browser logout now depends only on the UPuse session itself. A failing business API or external integration token no longer signs the user out on its own.
 - Non-session upstream auth failures are normalized into integration errors so the UI can show a toast/error without collapsing the current workspace session.
+- Ops telemetry writes (`/api/ops/ingest`, `/api/ops/presence/heartbeat`, `/api/ops/presence/end`) accept any authenticated user session so the product can record frontend presence, route, API failure, and runtime-error telemetry.
+- Ops Center read/admin APIs and the `/ops` workspace remain primary-admin-only and are not configurable from User Management.
 
 ## Workspaces and access model
 - The product now has three workspaces:
@@ -264,6 +266,7 @@ If you want one Windows command that loads `.env`, builds, and starts production
 - Web system ownership:
   - `apps/web/src/systems/upuse/*`
   - `apps/web/src/systems/scano/*`
+  - `apps/web/src/systems/ops/*`
 - Server platform/shared layers:
   - `apps/server/src/app`: bootstrap, middleware, error handling, server composition
   - `apps/server/src/core/systems`: system contracts and cross-system registries
@@ -271,6 +274,7 @@ If you want one Windows command that loads `.env`, builds, and starts production
 - Server system ownership:
   - `apps/server/src/systems/upuse/*`
   - `apps/server/src/systems/scano/*`
+  - `apps/server/src/systems/ops/*`
 
 Key points:
 - Shared shell/router/bootstrap code stays outside systems.

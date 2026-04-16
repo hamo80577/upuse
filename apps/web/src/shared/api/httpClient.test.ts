@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AUTH_FORBIDDEN_EVENT, AUTH_UNAUTHORIZED_EVENT, requestJson } from "./httpClient";
+import { AUTH_FORBIDDEN_EVENT, AUTH_UNAUTHORIZED_EVENT, requestJson, setApiFailureReporter } from "./httpClient";
 
 describe("httpClient", () => {
   const fetchMock = vi.fn<typeof fetch>();
@@ -10,6 +10,7 @@ describe("httpClient", () => {
   });
 
   afterEach(() => {
+    setApiFailureReporter(null);
     vi.unstubAllGlobals();
   });
 
@@ -214,5 +215,63 @@ describe("httpClient", () => {
     await expect(requestJson<{ ok: boolean }>("/api/dashboard")).rejects.toThrow(
       "Cloudflare tunnel is temporarily unavailable. Please try again in a moment.",
     );
+  });
+
+  it("reports non-auth api failures through the telemetry bridge", async () => {
+    const reporter = vi.fn();
+    setApiFailureReporter(reporter);
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ message: "Dashboard failed" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await expect(requestJson<{ ok: boolean }>("/api/dashboard?token=secret")).rejects.toThrow("Dashboard failed");
+
+    expect(reporter).toHaveBeenCalledTimes(1);
+    expect(reporter).toHaveBeenCalledWith(expect.objectContaining({
+      endpoint: "/api/dashboard",
+      method: "GET",
+      statusCode: 500,
+      message: "Dashboard failed",
+      source: "frontend",
+    }));
+  });
+
+  it("skips telemetry for auth routes, ops routes, explicit skips, and aborts", async () => {
+    const reporter = vi.fn();
+    setApiFailureReporter(reporter);
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await expect(requestJson<{ ok: boolean }>("/api/auth/me")).rejects.toThrow("Unauthorized");
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: "Ops failed" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await expect(requestJson<{ ok: boolean }>("/api/ops/ingest")).rejects.toThrow("Ops failed");
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: "Skipped" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await expect(requestJson<{ ok: boolean }>("/api/dashboard", undefined, { skipTelemetry: true })).rejects.toThrow("Skipped");
+
+    const abortError = new Error("Aborted");
+    abortError.name = "AbortError";
+    fetchMock.mockRejectedValueOnce(abortError);
+    await expect(requestJson<{ ok: boolean }>("/api/dashboard")).rejects.toThrow("Aborted");
+
+    expect(reporter).not.toHaveBeenCalled();
   });
 });

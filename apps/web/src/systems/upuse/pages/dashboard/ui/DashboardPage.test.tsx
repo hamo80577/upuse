@@ -8,6 +8,7 @@ import {
 
 const mockBranchDetail = vi.hoisted(() => vi.fn());
 const mockUseDashboardPageState = vi.hoisted(() => vi.fn());
+const mockOpsTrack = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../api/client", () => ({
   api: {
@@ -26,6 +27,12 @@ vi.mock("../../../app/providers/AuthProvider", () => ({
 
 vi.mock("../lib/useDashboardPageState", () => ({
   useDashboardPageState: mockUseDashboardPageState,
+}));
+
+vi.mock("../../../../ops/telemetry/opsTelemetryClient", () => ({
+  opsTelemetry: {
+    track: mockOpsTrack,
+  },
 }));
 
 vi.mock("../../../widgets/top-bar/ui/TopBar", () => ({
@@ -113,6 +120,7 @@ describe("DashboardPage", () => {
   beforeEach(() => {
     mockBranchDetail.mockReset();
     mockUseDashboardPageState.mockReset();
+    mockOpsTrack.mockReset();
     mockUseDashboardPageState.mockReturnValue({
       snap: baseSnapshot,
       connectionState: "live",
@@ -146,6 +154,12 @@ describe("DashboardPage", () => {
     });
 
     expect(mockBranchDetail).not.toHaveBeenCalled();
+  });
+
+  it("emits the dashboard opened telemetry event on mount", () => {
+    render(<DashboardPage />);
+
+    expect(mockOpsTrack).toHaveBeenCalledWith("dashboard_opened");
   });
 
   it("renders a polished sync issue banner for tunnel failures", () => {

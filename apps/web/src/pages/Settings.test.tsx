@@ -17,6 +17,7 @@ const mockApi = vi.hoisted(() => ({
   startTokenTest: vi.fn(),
   getTokenTest: vi.fn(),
 }));
+const mockOpsTrack = vi.hoisted(() => vi.fn());
 
 const mockAuthState = vi.hoisted(() => ({
   value: null as any,
@@ -38,6 +39,12 @@ vi.mock("../app/providers/MonitorStatusProvider", () => ({
     startMonitoring: vi.fn(),
     stopMonitoring: vi.fn(),
   }),
+}));
+
+vi.mock("../systems/ops/telemetry/opsTelemetryClient", () => ({
+  opsTelemetry: {
+    track: mockOpsTrack,
+  },
 }));
 
 vi.mock("../systems/upuse/widgets/top-bar/ui/TopBar", () => ({
@@ -107,6 +114,7 @@ describe("SettingsPage", () => {
     mockApi.listBranches.mockReset();
     mockApi.startTokenTest.mockReset();
     mockApi.getTokenTest.mockReset();
+    mockOpsTrack.mockReset();
     mockApi.getSettings.mockResolvedValue({
       globalEntityId: TEST_GLOBAL_ENTITY_ID,
       ordersToken: "",
@@ -163,6 +171,7 @@ describe("SettingsPage", () => {
 
     expect(mockApi.dashboard).not.toHaveBeenCalled();
     expect(mockApi.listBranches).not.toHaveBeenCalled();
+    expect(mockOpsTrack).toHaveBeenCalledWith("settings_opened");
   });
 
   it("exposes token actions to non-admin roles that have token capabilities", async () => {
@@ -255,5 +264,65 @@ describe("SettingsPage", () => {
         availabilityToken: "live-availability-token",
       });
     });
+    expect(mockOpsTrack).toHaveBeenCalledWith("token_test_started", {
+      metadata: {
+        hasOrdersToken: false,
+        hasAvailabilityToken: true,
+      },
+    });
+  });
+
+  it("emits token test completion telemetry without raw token values", async () => {
+    mockApi.startTokenTest.mockResolvedValueOnce({
+      ok: true,
+      jobId: "job-done",
+      snapshot: {
+        jobId: "job-done",
+        status: "completed",
+        createdAt: "2026-03-13T00:00:00.000Z",
+        progress: {
+          totalBranches: 0,
+          processedBranches: 0,
+          passedBranches: 0,
+          failedBranches: 0,
+          percent: 100,
+        },
+        availability: { configured: true, ok: true, status: 200 },
+        orders: {
+          configValid: true,
+          ok: true,
+          probe: { configured: true, ok: true, status: 200 },
+          enabledBranchCount: 0,
+          passedBranchCount: 0,
+          failedBranchCount: 0,
+          branches: [],
+        },
+      },
+    });
+
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(mockApi.getSettings).toHaveBeenCalled();
+    });
+
+    fireEvent.change(screen.getByLabelText("Orders API Token"), {
+      target: { value: "  live-orders-token  " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Test Tokens" }));
+
+    await waitFor(() => {
+      expect(mockOpsTrack).toHaveBeenCalledWith("token_test_finished", {
+        metadata: {
+          jobId: "job-done",
+          status: "completed",
+        },
+      });
+    });
+    expect(JSON.stringify(mockOpsTrack.mock.calls)).not.toContain("live-orders-token");
   });
 });

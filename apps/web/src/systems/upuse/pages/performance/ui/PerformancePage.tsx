@@ -37,6 +37,7 @@ import {
 } from "@mui/material";
 import { type MouseEventHandler, type ReactNode, Suspense, lazy, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { api, describeApiError } from "../../../api/client";
+import { opsTelemetry } from "../../../../ops/telemetry/opsTelemetryClient";
 import type {
   LocalVendorCatalogItem,
   PerformanceBranchFilter,
@@ -1208,6 +1209,10 @@ export function PerformancePage() {
   const sourceLoadPromiseRef = useRef<Promise<LocalVendorCatalogItem[]> | null>(null);
   const [trendFreshKey, setTrendFreshKey] = useState<string | null>(null);
   const controlsDisabled = (loading && !summary) || !preferencesLoaded;
+
+  useEffect(() => {
+    opsTelemetry.track("performance_opened");
+  }, []);
   const trendPanelOpen = heroPanel === "trend";
   const activeGroup = useMemo(
     () => savedGroups.find((group) => group.id === currentState.activeGroupId) ?? null,

@@ -1,6 +1,7 @@
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import type { PropsWithChildren } from "react";
 import { BrowserRouter } from "react-router-dom";
+import { OpsTelemetryProvider } from "../../systems/ops/providers/OpsTelemetryProvider";
 import { theme } from "../../theme";
 import { AuthProvider } from "./AuthProvider";
 
@@ -10,7 +11,9 @@ export function AppProviders(props: PropsWithChildren) {
       <CssBaseline />
       <BrowserRouter>
         <AuthProvider>
-          {props.children}
+          <OpsTelemetryProvider>
+            {props.children}
+          </OpsTelemetryProvider>
         </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>
