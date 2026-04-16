@@ -61,6 +61,7 @@ If you want one Windows command that loads `.env`, builds, and starts production
 - Ops Center read/admin APIs and the `/ops` workspace remain primary-admin-only and are not configurable from User Management.
 - The `/ops` workspace renders a primary-admin dashboard from live Ops summary, session, event, and error read APIs, with filters, auto-refresh, charts, and drill-down tables.
 - The Ops summary includes a 100-point quality score, active admin alerts, and subsystem health for UPuse Dashboard, UPuse Performance, and Ops telemetry freshness.
+- Ops Center also includes primary-admin-only token management for the existing UPuse Orders, UPuse Availability, and Scano Catalog token stores. Saved tokens are shown only as masks, replacements reuse the existing encrypted storage, and test telemetry records only status/boolean metadata.
 - Ops telemetry sessions are ownership-bound to the authenticated user. Reusing another user's telemetry `sessionId` cannot rewrite or end that session; the server rotates writes to a fresh owned session id, and the browser adopts the returned replacement id.
 
 ## Workspaces and access model
@@ -230,6 +231,7 @@ If you want one Windows command that loads `.env`, builds, and starts production
 ## Token testing
 - `POST /api/settings/test` now starts an async token validation job and returns `202 Accepted` with a `jobId`.
 - `GET /api/settings/test/:jobId` returns the progressive snapshot for that job.
+- Primary admins can also use `/ops` to review masked token state, save replacement tokens, and run the existing token tests through primary-admin-only `/api/ops/tokens*` APIs.
 - Orders token validation now treats `HTTP 200` with an empty orders list as a valid probe result. Recent order presence is no longer required for a branch to pass.
 
 ## Auth bootstrap

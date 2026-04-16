@@ -7,6 +7,11 @@ import type {
   OpsSessionItem,
   OpsSummaryQuery,
   OpsSummaryResponse,
+  OpsTokenTestPayload,
+  OpsTokenTestResponse,
+  OpsTokenTestSnapshotResponse,
+  OpsTokensResponse,
+  OpsTokenUpdatePayload,
   OpsTelemetryEndResponse,
   OpsTelemetryHeartbeatResponse,
   OpsTelemetryIngestPayload,
@@ -16,6 +21,7 @@ import type {
 
 const TELEMETRY_TIMEOUT_MS = 10_000;
 const OPS_READ_TIMEOUT_MS = 20_000;
+const OPS_TOKEN_TIMEOUT_MS = 30_000;
 
 type QueryParams = Record<string, string | number | boolean | null | undefined>;
 
@@ -61,6 +67,34 @@ export function opsErrors(params: OpsListQuery = {}) {
   );
 }
 
+export function opsTokens() {
+  return requestJson<OpsTokensResponse>("/api/ops/tokens", undefined, { timeoutMs: OPS_READ_TIMEOUT_MS });
+}
+
+export function opsUpdateTokens(payload: OpsTokenUpdatePayload) {
+  return requestJson<OpsTokensResponse>("/api/ops/tokens", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }, { timeoutMs: OPS_TOKEN_TIMEOUT_MS, skipTelemetry: true });
+}
+
+export function opsTestTokens(payload: OpsTokenTestPayload = {}) {
+  return requestJson<OpsTokenTestResponse>("/api/ops/tokens/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }, { timeoutMs: OPS_TOKEN_TIMEOUT_MS, skipTelemetry: true });
+}
+
+export function opsTokenTestSnapshot(jobId: string) {
+  return requestJson<OpsTokenTestSnapshotResponse>(
+    `/api/ops/tokens/test/upuse/${encodeURIComponent(jobId)}`,
+    undefined,
+    { timeoutMs: OPS_READ_TIMEOUT_MS, skipTelemetry: true },
+  );
+}
+
 export function opsTelemetryHeartbeat(payload: OpsTelemetrySessionPayload) {
   return requestJson<OpsTelemetryHeartbeatResponse>("/api/ops/presence/heartbeat", {
     method: "POST",
@@ -93,6 +127,10 @@ export const opsApi = {
   opsSessions,
   opsEvents,
   opsErrors,
+  opsTokens,
+  opsUpdateTokens,
+  opsTestTokens,
+  opsTokenTestSnapshot,
   opsTelemetryHeartbeat,
   opsTelemetryEnd,
   opsTelemetryIngest,

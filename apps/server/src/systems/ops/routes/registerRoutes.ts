@@ -9,6 +9,12 @@ import {
   createOpsSessionsRoute,
   createOpsSummaryRoute,
 } from "./telemetryRoutes.js";
+import {
+  createOpsTokenTestRoute,
+  createOpsTokenTestSnapshotRoute,
+  createOpsTokensRoute,
+  createOpsUpdateTokensRoute,
+} from "./tokenRoutes.js";
 
 export function registerOpsRoutes({ app, engine }: ServerSystemDependencies) {
   app.get("/api/ops/health", requireOpsAccess(), (_req, res) => {
@@ -25,4 +31,8 @@ export function registerOpsRoutes({ app, engine }: ServerSystemDependencies) {
   app.get("/api/ops/sessions", requireOpsAccess(), createOpsSessionsRoute());
   app.get("/api/ops/events", requireOpsAccess(), createOpsEventsRoute());
   app.get("/api/ops/errors", requireOpsAccess(), createOpsErrorsRoute());
+  app.get("/api/ops/tokens", requireOpsAccess(), createOpsTokensRoute());
+  app.patch("/api/ops/tokens", requireOpsAccess(), createOpsUpdateTokensRoute());
+  app.post("/api/ops/tokens/test", requireOpsAccess(), createOpsTokenTestRoute());
+  app.get("/api/ops/tokens/test/upuse/:jobId", requireOpsAccess(), createOpsTokenTestSnapshotRoute());
 }

@@ -15,11 +15,15 @@
   - closed the telemetry ownership boundary so foreign session ids rotate to fresh owned sessions, foreign end requests are safe no-ops, logout clears the tab telemetry id, and identity changes in the same tab start a clean session
 - Built the live Ops Center dashboard UI on the existing primary-admin-only read APIs:
   - added KPI cards, traffic and error charts, live session tables, event and error intelligence sections, filters, time-range controls, auto-refresh, and health/freshness blocks
-  - kept the page read-only and did not add token-management, alerting, or quality-control Phase 5/6 surfaces
+  - kept the initial dashboard data-driven and avoided placeholder observability data
 - Added Ops quality scoring and admin alerts:
   - extended the primary-admin Ops summary with a 100-point quality score, explainable penalties, active alerts, and dashboard/performance/telemetry subsystem health
   - scored real signals from API failure rate, runtime errors, p95 API latency, WebSocket failures, telemetry freshness, monitor health, dashboard/performance scoped failures, and token test failures
   - surfaced the score, factor breakdown, alert list, and subsystem trust cards in `/ops`
+- Added primary-admin Ops token management:
+  - added masked inventory, replacement saves, and token-test controls for the existing UPuse Orders, UPuse Availability, and Scano Catalog token stores
+  - reused the existing encrypted token storage and existing UPuse/Scano token test services without adding a new secret store
+  - kept raw saved tokens out of Ops responses and telemetry metadata while allowing typed draft values only in protected save/test requests
 
 ## 2026-04-12
 

@@ -7,12 +7,15 @@ const {
   mockOpsSessions,
   mockOpsEvents,
   mockOpsErrors,
+  mockOpsTokens,
 } = vi.hoisted(() => ({
   mockOpsSummary: vi.fn(),
   mockOpsSessions: vi.fn(),
   mockOpsEvents: vi.fn(),
   mockOpsErrors: vi.fn(),
+  mockOpsTokens: vi.fn(),
 }));
+const mockOpsTrack = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../../../api/client", () => ({
   api: {
@@ -20,6 +23,7 @@ vi.mock("../../../../../api/client", () => ({
     opsSessions: mockOpsSessions,
     opsEvents: mockOpsEvents,
     opsErrors: mockOpsErrors,
+    opsTokens: mockOpsTokens,
   },
   describeApiError: (error: unknown, fallback = "Request failed") =>
     error instanceof Error ? error.message : fallback,
@@ -33,6 +37,12 @@ vi.mock("echarts-for-react/lib/core", () => ({
   default: (props: { "data-testid"?: string }) => (
     <div data-testid={props["data-testid"] ?? "ops-chart"}>chart</div>
   ),
+}));
+
+vi.mock("../../../telemetry/opsTelemetryClient", () => ({
+  opsTelemetry: {
+    track: mockOpsTrack,
+  },
 }));
 
 import { OpsOverviewPage } from "./OpsOverviewPage";
@@ -360,6 +370,38 @@ function mockDashboardData(params: {
   mockOpsSessions.mockResolvedValue(pageResponse(params.sessions ?? baseSessions));
   mockOpsEvents.mockResolvedValue(pageResponse(params.events ?? baseEvents));
   mockOpsErrors.mockResolvedValue(pageResponse(params.errors ?? baseErrors));
+  mockOpsTokens.mockResolvedValue({
+    ok: true,
+    tokens: [
+      {
+        id: "upuse_orders",
+        label: "UPuse Orders API",
+        system: "upuse",
+        description: "Order lookup, branch metrics, and cancellation-owner probes.",
+        configured: true,
+        mask: "orde…1234",
+        updatedAt: null,
+      },
+      {
+        id: "upuse_availability",
+        label: "UPuse Availability API",
+        system: "upuse",
+        description: "Branch availability checks and monitor-controlled closure state.",
+        configured: true,
+        mask: "avai…5678",
+        updatedAt: null,
+      },
+      {
+        id: "scano_catalog",
+        label: "Scano Catalog API",
+        system: "scano",
+        description: "Chain, branch, external product, and enrichment catalog access.",
+        configured: true,
+        mask: "scan…9999",
+        updatedAt: "2026-04-16T09:00:00.000Z",
+      },
+    ],
+  });
 }
 
 describe("OpsOverviewPage", () => {
@@ -388,6 +430,7 @@ describe("OpsOverviewPage", () => {
     expect(screen.getByText("13% failure rate in this window")).toBeInTheDocument();
     expect(screen.getByText("Quality And Alerts")).toBeInTheDocument();
     expect(screen.getByText("Quality Score")).toBeInTheDocument();
+    expect(await screen.findByText("Token Management")).toBeInTheDocument();
     expect(screen.getByText("API failure rate is elevated")).toBeInTheDocument();
     expect(screen.getByText("UPuse Dashboard")).toBeInTheDocument();
     expect(screen.getByText("UPuse Performance")).toBeInTheDocument();

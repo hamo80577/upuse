@@ -1,3 +1,5 @@
+import type { SettingsTokenTestSnapshot, SettingsTokenTestStartResponse } from "../../../api/types";
+
 export type OpsSystemId = "upuse" | "scano" | "ops" | "unknown";
 export type OpsSessionState = "active" | "idle" | "offline";
 export type OpsTelemetryWriteSessionState = Exclude<OpsSessionState, "offline">;
@@ -377,4 +379,49 @@ export interface OpsListQuery {
   from?: string;
   to?: string;
   query?: string;
+}
+
+export type OpsManagedTokenId = "upuse_orders" | "upuse_availability" | "scano_catalog";
+
+export interface OpsManagedToken {
+  id: OpsManagedTokenId;
+  label: string;
+  system: Extract<OpsSystemId, "upuse" | "scano">;
+  description: string;
+  configured: boolean;
+  mask: string;
+  updatedAt: string | null;
+}
+
+export interface OpsTokensResponse {
+  ok: true;
+  tokens: OpsManagedToken[];
+}
+
+export interface OpsTokenUpdatePayload {
+  upuseOrdersToken?: string;
+  upuseAvailabilityToken?: string;
+  scanoCatalogToken?: string;
+}
+
+export interface OpsTokenTestPayload extends OpsTokenUpdatePayload {
+  targets?: Array<"upuse" | "scano">;
+}
+
+export interface OpsScanoTokenTestResult {
+  ok: boolean;
+  status?: number | null;
+  message: string;
+  baseUrl?: string | null;
+}
+
+export interface OpsTokenTestResponse {
+  ok: true;
+  upuse?: SettingsTokenTestStartResponse;
+  scano?: OpsScanoTokenTestResult;
+}
+
+export interface OpsTokenTestSnapshotResponse {
+  ok: true;
+  snapshot: SettingsTokenTestSnapshot;
 }

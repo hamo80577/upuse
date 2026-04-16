@@ -53,6 +53,7 @@ import { formatOpsDateTime, formatOpsNumber, formatOpsRate, formatOpsRelativeTim
 import { OpsErrorCharts, OpsTrafficCharts } from "./OpsDashboardCharts";
 import { OpsErrorIntelligence, OpsLiveSessionsTable, OpsRecentEventsTable, OpsSearchControl } from "./OpsDashboardTables";
 import { OpsQualityPanel } from "./OpsQualityPanel";
+import { OpsTokenManagementPanel } from "./OpsTokenManagementPanel";
 
 const AUTO_REFRESH_MS = 30_000;
 const DATA_PAGE_SIZE = 100;
@@ -688,6 +689,8 @@ export function OpsOverviewPage() {
                 )}
               />
               <OpsQualityPanel summary={summary} />
+
+              <OpsTokenManagementPanel />
 
               <Box
                 sx={{
