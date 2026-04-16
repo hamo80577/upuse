@@ -109,3 +109,181 @@ export interface OpsTelemetryIngestResponse {
     errors: number;
   };
 }
+
+export interface OpsPaginationMeta {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface OpsKpi {
+  key: string;
+  label: string;
+  value: number;
+  previousValue: number;
+  delta: number;
+  direction: "up" | "down" | "flat";
+  status: "good" | "warning" | "neutral";
+}
+
+export interface OpsBucket {
+  key: string;
+  count: number;
+}
+
+export interface OpsTopPage {
+  path: string;
+  views: number;
+  uniqueSessions: number;
+}
+
+export interface OpsTopEventType {
+  type: OpsTelemetryEventType;
+  count: number;
+}
+
+export interface OpsSummaryTopError {
+  signature: string;
+  message: string;
+  severity: OpsEventSeverity;
+  count: number;
+  lastSeenAt: string;
+}
+
+export interface OpsSummaryResponse {
+  ok: true;
+  generatedAt: string;
+  freshness: {
+    sessionsLastSeenAt: string | null;
+    eventsLastSeenAt: string | null;
+    errorsLastSeenAt: string | null;
+  };
+  windows: {
+    current: {
+      startUtcIso: string;
+      endUtcIso: string;
+    };
+    previous: {
+      startUtcIso: string;
+      endUtcIso: string;
+    };
+    today: {
+      startUtcIso: string;
+      endUtcIso: string;
+    };
+    timezone: string;
+  };
+  counts: {
+    onlineUsers: number;
+    activeUsers: number;
+    idleUsers: number;
+    sessionsToday: number;
+    pageViewsToday: number;
+    errorCountToday: number;
+    apiRequestCount: number;
+    apiFailureCount: number;
+  };
+  kpis: OpsKpi[];
+  statusBuckets: {
+    sessionsByState: OpsBucket[];
+    sessionsBySystem: OpsBucket[];
+    apiStatus: OpsBucket[];
+  };
+  errorBuckets: {
+    bySeverity: OpsBucket[];
+    bySource: OpsBucket[];
+    top: OpsSummaryTopError[];
+  };
+  topPages: OpsTopPage[];
+  topEventTypes: OpsTopEventType[];
+  health: {
+    dashboard: {
+      name?: string;
+      live?: boolean;
+      ready?: boolean;
+      readiness?: {
+        state?: string;
+        message?: string;
+      };
+      monitorRunning?: boolean;
+      monitorDegraded?: boolean;
+      lastSnapshotAt?: string | null;
+      lastErrorAt?: string | null;
+    };
+    performance: {
+      status: "good" | "warning";
+      lastOpenedAt: string | null;
+      errorCount: number;
+      apiFailureCount: number;
+    };
+  };
+}
+
+export interface OpsEventItem {
+  id: number;
+  sessionId: string | null;
+  userId: number | null;
+  eventType: OpsTelemetryEventType;
+  category: string;
+  system: OpsSystemId;
+  path: string | null;
+  routePattern: string | null;
+  pageTitle: string | null;
+  endpoint: string | null;
+  method: string | null;
+  statusCode: number | null;
+  durationMs: number | null;
+  success: boolean | null;
+  source: OpsEventSource;
+  severity: OpsEventSeverity;
+  occurredAt: string;
+  createdAt: string;
+  metadata: OpsTelemetryMetadata;
+}
+
+export interface OpsErrorItem {
+  id: number;
+  signature: string;
+  source: OpsEventSource;
+  severity: OpsEventSeverity;
+  system: OpsSystemId;
+  path: string | null;
+  routePattern: string | null;
+  message: string;
+  code: string | null;
+  statusCode: number | null;
+  stackFingerprint: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  count: number;
+  lastEventId: number | null;
+  lastSessionId: string | null;
+  lastUserId: number | null;
+  sampleMetadata: OpsTelemetryMetadata;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OpsPageResponse<TItem> {
+  items: TItem[];
+  meta: OpsPaginationMeta;
+}
+
+export interface OpsSummaryQuery {
+  windowMinutes?: number;
+}
+
+export interface OpsListQuery {
+  page?: number;
+  pageSize?: number;
+  system?: OpsSystemId;
+  state?: OpsSessionState;
+  type?: OpsTelemetryEventType;
+  source?: OpsEventSource;
+  severity?: OpsEventSeverity;
+  sessionId?: string;
+  from?: string;
+  to?: string;
+  query?: string;
+}

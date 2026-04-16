@@ -13,6 +13,9 @@
   - instrumented frontend presence, route changes, API failures, runtime errors, and high-value dashboard, performance, settings, and token-test events
   - added client-side sanitization so query values, tokens, passwords, cookies, and nested metadata are not sent
   - closed the telemetry ownership boundary so foreign session ids rotate to fresh owned sessions, foreign end requests are safe no-ops, logout clears the tab telemetry id, and identity changes in the same tab start a clean session
+- Built the live Ops Center dashboard UI on the existing primary-admin-only read APIs:
+  - added KPI cards, traffic and error charts, live session tables, event and error intelligence sections, filters, time-range controls, auto-refresh, and health/freshness blocks
+  - kept the page read-only and did not add token-management, alerting, or quality-control Phase 5/6 surfaces
 
 ## 2026-04-12
 
