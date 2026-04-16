@@ -19,6 +19,12 @@ describe("web system architecture boundaries", () => {
     expect(authProviderSource).toContain("createSystemAccessHelpers");
   });
 
+  it("registers Ops as a first-class web system", () => {
+    const source = readSource("core/systems/registry/index.ts");
+
+    expect(source).toContain("opsSystemModule");
+  });
+
   it("keeps shared HTTP helpers free of system-owned API imports", () => {
     const source = readSource("shared/api/httpClient.ts");
 

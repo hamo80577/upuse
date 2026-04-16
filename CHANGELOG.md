@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-04-16
+
+- Added the standalone `Ops Center` workspace foundation:
+  - registered `ops` as a backend and frontend system module
+  - added the protected `GET /api/ops/health` endpoint
+  - added the `/ops` overview route and initial admin command-center shell
+  - hard-coded Ops access to the primary admin identity without adding User Management permissions, roles, or schema changes
+
 ## 2026-04-12
 
 - Hardened core backend correctness and cleanup:

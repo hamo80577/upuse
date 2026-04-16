@@ -11,6 +11,7 @@ vi.setConfig({ testTimeout: 15_000 });
 type RouterAuthMock = {
   status: "loading" | "authenticated" | "unauthenticated";
   isAdmin: boolean;
+  isPrimaryAdmin: boolean;
   systems?: Record<string, { enabled: boolean; role?: string | null; roleLabel?: string | null; capabilities: string[] }>;
   hasSystemAccess?: (systemId: string) => boolean;
   hasSystemCapability?: (systemId: string, capability: string) => boolean;
@@ -18,6 +19,7 @@ type RouterAuthMock = {
   scanoRole?: "team_lead" | "scanner" | null;
   canAccessUpuse: boolean;
   canAccessScano: boolean;
+  canAccessOps: boolean;
   canManageScanoTasks: boolean;
   canManageScanoSettings: boolean;
   canSwitchSystems: boolean;
@@ -31,9 +33,11 @@ function createAuthState(overrides: Partial<RouterAuthMock> = {}): RouterAuthMoc
   const state: RouterAuthMock = {
     status: "authenticated",
     isAdmin: false,
+    isPrimaryAdmin: false,
     scanoRole: null,
     canAccessUpuse: true,
     canAccessScano: false,
+    canAccessOps: false,
     canManageScanoTasks: false,
     canManageScanoSettings: false,
     canSwitchSystems: false,
@@ -67,6 +71,12 @@ function createAuthState(overrides: Partial<RouterAuthMock> = {}): RouterAuthMoc
         ...(state.scanoRole === "scanner" ? ["tasks.run_assigned"] : []),
         ...(state.canManageScanoSettings ? ["settings.manage"] : []),
       ],
+    },
+    ops: {
+      enabled: state.canAccessOps,
+      role: state.canAccessOps ? "primary_admin" : null,
+      roleLabel: state.canAccessOps ? "Primary Admin" : null,
+      capabilities: [],
     },
   };
 
@@ -121,6 +131,10 @@ vi.mock("../systems/scano/pages/scano/ui/ScanoSettingsPage", () => ({
 
 vi.mock("../systems/scano/pages/scano/ui/ScanoMasterProductPage", () => ({
   ScanoMasterProductPage: () => <div>scano-master-product-route</div>,
+}));
+
+vi.mock("../systems/ops/pages/overview/ui/OpsOverviewPage", () => ({
+  OpsOverviewPage: () => <div>ops-overview-route</div>,
 }));
 
 vi.mock("../systems/upuse/pages/branches/ui/BranchesPage", () => ({
@@ -223,6 +237,82 @@ describe("AppRouter", () => {
     await waitFor(() => {
       expect(screen.getByText("thresholds-route")).toBeInTheDocument();
     });
+  });
+
+  it("renders Ops only for the primary admin", async () => {
+    mockUseAuth.mockReturnValue(createAuthState({
+      isAdmin: true,
+      isPrimaryAdmin: true,
+      canAccessUpuse: true,
+      canAccessOps: true,
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/ops"]}>
+        <AppRouter />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("ops-overview-route")).toBeInTheDocument();
+    });
+    expect(window.sessionStorage.getItem("upuse.active-system")).toBe("ops");
+  });
+
+  it("redirects non-primary authenticated users away from Ops", async () => {
+    mockUseAuth.mockReturnValue(createAuthState({
+      isAdmin: true,
+      isPrimaryAdmin: false,
+      canAccessUpuse: true,
+      canAccessOps: false,
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/ops"]}>
+        <AppRouter />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-route")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("ops-overview-route")).not.toBeInTheDocument();
+  });
+
+  it("only allows primary admins to open the Ops system switch route", async () => {
+    mockUseAuth.mockReturnValue(createAuthState({
+      isAdmin: true,
+      isPrimaryAdmin: true,
+      canAccessUpuse: true,
+      canAccessOps: true,
+    }));
+
+    const primaryView = render(
+      <MemoryRouter initialEntries={["/system-switch/ops"]}>
+        <AppRouter />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Switching to Ops Center")).toBeInTheDocument();
+    primaryView.unmount();
+
+    mockUseAuth.mockReturnValue(createAuthState({
+      isAdmin: true,
+      isPrimaryAdmin: false,
+      canAccessUpuse: true,
+      canAccessOps: false,
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/system-switch/ops"]}>
+        <AppRouter />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-route")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Switching to Ops Center")).not.toBeInTheDocument();
   });
 
   it("redirects the legacy mapping route to branches", async () => {

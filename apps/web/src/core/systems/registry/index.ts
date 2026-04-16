@@ -1,8 +1,9 @@
 import type { WebSystemModule } from "../types";
+import { opsSystemModule } from "../../../systems/ops/routes/systemModule";
 import { scanoSystemModule } from "../../../systems/scano/routes/systemModule";
 import { upuseSystemModule } from "../../../systems/upuse/routes/systemModule";
 
-const webSystems = [upuseSystemModule, scanoSystemModule] satisfies WebSystemModule[];
+const webSystems = [upuseSystemModule, scanoSystemModule, opsSystemModule] satisfies WebSystemModule[];
 
 export function getWebSystems() {
   return webSystems;

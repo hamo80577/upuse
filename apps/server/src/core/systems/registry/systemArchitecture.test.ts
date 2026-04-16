@@ -17,6 +17,12 @@ describe("server system architecture boundaries", () => {
     expect(source).toContain("authorizeSystemUpgradeFromCookieHeader");
   });
 
+  it("registers Ops as a first-class server system", () => {
+    const source = readSource("core/systems/registry/index.ts");
+
+    expect(source).toContain("opsSystemModule");
+  });
+
   it("composes DB migration through registered system DB modules", () => {
     const source = readSource("shared/db/migrate.ts");
 

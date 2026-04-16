@@ -59,29 +59,35 @@ If you want one Windows command that loads `.env`, builds, and starts production
 - Non-session upstream auth failures are normalized into integration errors so the UI can show a toast/error without collapsing the current workspace session.
 
 ## Workspaces and access model
-- The product now has two workspaces:
+- The product now has three workspaces:
   - `UPuse`
   - `Scano`
+  - `Ops Center`
 - Access is controlled independently:
   - `upuseAccess` controls whether the user can open UPuse routes
   - `scanoRole` controls whether the user can open Scano (`team_lead` or `scanner`)
+  - `Ops Center` access is implicit from `isPrimaryAdmin` only
 - `role` remains the UPuse role only: `admin` or `user`
 - One `primary admin` is maintained in the database. That user always keeps:
   - `UPuse admin`
   - implicit `Scano admin` capabilities
+  - implicit `Ops Center` access
 - Non-primary users gain Scano through a linked Scano team membership, not by their UPuse role
+- Non-primary users cannot be granted Ops Center access from User Management
 - Internally, server-side workspace authorization now resolves through the registered system auth registry, and the shared web auth layer exposes generic `hasSystemAccess(systemId)`, `hasSystemCapability(systemId, capability)`, and `getSystemAccess(systemId)` helpers instead of workspace-specific shared flags.
 
 ## Workspace switching and redirects
-- The system switcher appears only for users who can access both workspaces
+- The system switcher appears only for users who can access more than one workspace
 - UPuse-only users do not see Scano navigation or the switcher
 - Scano-only users do not see UPuse navigation or the switcher
+- Ops Center appears in the system switcher only for the primary admin
 - Authorized direct `/scano/*` links win over a stale remembered `UPuse` system, so bookmarks and login returns stay in Scano
 - If a user opens a route from a workspace they do not have access to:
   - `Scano-only team_lead` users are redirected to `/scano/assign-task`
   - `Scano-only scanner` users are redirected to `/scano/my-tasks`
   - `UPuse-only` users are redirected to `/`
-- The last active system is remembered only for users who can access both workspaces
+  - non-primary users opening `/ops` are redirected to their first accessible workspace
+- The last active system is remembered only for users who can access multiple workspaces
 
 ## User management wizard
 - `User Management` now creates and edits users through a 2-step wizard:
@@ -93,7 +99,8 @@ If you want one Windows command that loads `.env`, builds, and starts production
   - `Both`
 - `UPuse access` reveals the UPuse role selector: `admin` / `user`
 - `Scano access` reveals the Scano role selector: `team_lead` / `scanner`
-- Saving a user without access to either workspace is blocked
+- `Ops Center` is not editable in User Management and is available only to the primary admin
+- Saving a user without UPuse or Scano access is blocked because Ops is not assignable from this wizard
 - Deleting a user from the UI now archives them instead of hard-deleting their row:
   - `users.active` is set to `0`
   - `upuseAccess` is cleared

@@ -37,6 +37,8 @@ function Probe() {
     <>
       <div data-testid="status">{status}</div>
       <div data-testid="upuse-role">{String(getSystemAccess("upuse").role ?? "")}</div>
+      <div data-testid="ops-enabled">{String(getSystemAccess("ops").enabled)}</div>
+      <div data-testid="ops-role-label">{String(getSystemAccess("ops").roleLabel ?? "")}</div>
       <div data-testid="bootstrap-error">{bootstrapError ?? ""}</div>
       <div data-testid="can-manage-scano-tasks">{String(hasSystemCapability("scano", SCANO_TASKS_MANAGE_CAPABILITY))}</div>
       <div data-testid="can-manage-scano-settings">{String(hasSystemCapability("scano", SCANO_SETTINGS_MANAGE_CAPABILITY))}</div>
@@ -182,6 +184,61 @@ describe("AuthProvider", () => {
     expect(screen.getByTestId("can-manage-scano-tasks")).toHaveTextContent("true");
     expect(screen.getByTestId("can-manage-scano-settings")).toHaveTextContent("false");
     expect(screen.getByTestId("upuse-role")).toHaveTextContent("user");
+  });
+
+  it("enables Ops only for the primary admin", async () => {
+    mockApi.me.mockResolvedValueOnce({
+      user: {
+        id: 1,
+        email: "primary@example.com",
+        name: "Primary",
+        role: "admin",
+        active: true,
+        createdAt: "2026-04-16T00:00:00.000Z",
+        upuseAccess: true,
+        isPrimaryAdmin: true,
+      },
+    });
+
+    const primaryView = render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("status")).toHaveTextContent("authenticated");
+    });
+
+    expect(screen.getByTestId("ops-enabled")).toHaveTextContent("true");
+    expect(screen.getByTestId("ops-role-label")).toHaveTextContent("Primary Admin");
+
+    primaryView.unmount();
+    mockApi.me.mockResolvedValueOnce({
+      user: {
+        id: 2,
+        email: "admin@example.com",
+        name: "Admin",
+        role: "admin",
+        active: true,
+        createdAt: "2026-04-16T00:00:00.000Z",
+        upuseAccess: true,
+        isPrimaryAdmin: false,
+      },
+    });
+
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("status")).toHaveTextContent("authenticated");
+    });
+
+    expect(screen.getByTestId("ops-enabled")).toHaveTextContent("false");
+    expect(screen.getByTestId("ops-role-label")).toHaveTextContent("");
   });
 
   it("keeps the newest refreshAuth result when concurrent requests resolve out of order", async () => {

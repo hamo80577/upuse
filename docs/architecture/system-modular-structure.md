@@ -2,9 +2,9 @@
 
 ## Goal
 
-The repo is now organized around registered product systems instead of a flat mix of `UPuse` and `Scano` code. Shared platform code stays outside systems, and each system owns its own routes, pages, features, widgets, API adapters, and server orchestration.
+The repo is now organized around registered product systems instead of a flat mix of workspace code. Shared platform code stays outside systems, and each system owns its own routes, pages, features, widgets, API adapters, and server orchestration.
 
-This structure is designed so a future third system can be added by registration plus local modules, without another top-level rewrite.
+Current systems are `UPuse`, `Scano`, and `Ops Center`. This structure is designed so additional systems can be added by registration plus local modules, without another top-level rewrite.
 
 ## Web Layout
 
@@ -39,6 +39,9 @@ apps/web/src/
       pages/
       routes/
       widgets/
+    ops/
+      pages/
+      routes/
 ```
 
 ### Web Rules
@@ -58,7 +61,6 @@ Each system registers a `WebSystemModule` with:
 - `basePath`
 - `switcher` shell metadata
 - `resolveAccess(user)` for system access, role labels, and capabilities
-- `resolveLegacyAuth(context)` only for temporary compatibility aliases
 - `canAccess(auth)`
 - `resolveHomePath(auth)`
 - `getNavigation(auth, location)`
@@ -100,6 +102,10 @@ apps/server/src/
       policies/
       routes/
       services/
+    ops/
+      module.ts
+      policies/
+      routes/
 ```
 
 ### Server Rules
@@ -140,7 +146,8 @@ Avoid:
 
 ## Current Architectural Highlights
 
-- Web routing is registry-driven through `core/systems/registry` and system modules under `systems/upuse/routes` and `systems/scano/routes`.
+- Web routing is registry-driven through `core/systems/registry` and system modules under `systems/upuse/routes`, `systems/scano/routes`, and `systems/ops/routes`.
+- `Ops Center` is registered as a primary-admin-only system with its own route shell and protected backend health endpoint.
 - `TopBar` moved to `app/shell` and consumes generic system navigation data from the registry.
 - `MonitorStatusProvider` is scoped to the UPuse route shell instead of the global app provider tree.
 - Shared web API transport stays in `shared/api/httpClient.ts`, while owned API surfaces live under `systems/upuse/api` and `systems/scano/api`.
@@ -149,7 +156,7 @@ Avoid:
 - `authStore` was split so shared session/user persistence lives under `shared/persistence/auth`, while Scano membership synchronization lives in `systems/scano/services/userAccessSynchronizer.ts`.
 - Server startup is now composed from system modules instead of registering everything directly in `src/index.ts`.
 
-## Adding A Third System
+## Adding Another System
 
 ### Web
 
