@@ -12,6 +12,7 @@
   - kept Ops health, summary, sessions, events, and errors read/admin APIs primary-admin-only
   - instrumented frontend presence, route changes, API failures, runtime errors, and high-value dashboard, performance, settings, and token-test events
   - added client-side sanitization so query values, tokens, passwords, cookies, and nested metadata are not sent
+  - closed the telemetry ownership boundary so foreign session ids rotate to fresh owned sessions, foreign end requests are safe no-ops, logout clears the tab telemetry id, and identity changes in the same tab start a clean session
 
 ## 2026-04-12
 

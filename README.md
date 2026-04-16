@@ -59,6 +59,7 @@ If you want one Windows command that loads `.env`, builds, and starts production
 - Non-session upstream auth failures are normalized into integration errors so the UI can show a toast/error without collapsing the current workspace session.
 - Ops telemetry writes (`/api/ops/ingest`, `/api/ops/presence/heartbeat`, `/api/ops/presence/end`) accept any authenticated user session so the product can record frontend presence, route, API failure, and runtime-error telemetry.
 - Ops Center read/admin APIs and the `/ops` workspace remain primary-admin-only and are not configurable from User Management.
+- Ops telemetry sessions are ownership-bound to the authenticated user. Reusing another user's telemetry `sessionId` cannot rewrite or end that session; the server rotates writes to a fresh owned session id, and the browser adopts the returned replacement id.
 
 ## Workspaces and access model
 - The product now has three workspaces:

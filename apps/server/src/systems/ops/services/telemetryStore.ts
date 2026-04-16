@@ -443,6 +443,19 @@ function getSessionRow(sessionId: string) {
   return db.prepare<[string], OpsSessionRow>("SELECT * FROM ops_sessions WHERE id = ? LIMIT 1").get(sessionId) ?? null;
 }
 
+function isSessionOwnedByUser(session: OpsSessionRow, user: AppUser) {
+  return session.userId === user.id;
+}
+
+function createUniqueSessionId() {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const sessionId = randomUUID();
+    if (!getSessionRow(sessionId)) return sessionId;
+  }
+
+  throw new Error("Failed to allocate a unique Ops session id.");
+}
+
 function shouldRecordHeartbeat(existing: OpsSessionRow | null, normalized: NormalizedSessionInput) {
   if (!existing) return true;
   return existing.currentSystem !== normalized.system
@@ -519,8 +532,12 @@ function recordHeartbeatEvent(params: {
 export function upsertOpsSession(input: OpsSessionInput | undefined, user: AppUser, fallbackEvent?: OpsTelemetryEventInput) {
   const seedSessionId = input?.sessionId;
   const existing = seedSessionId ? getSessionRow(seedSessionId) : null;
-  const normalized = normalizeSessionInput(input, existing, fallbackEvent);
-  const nextExisting = existing ?? getSessionRow(normalized.sessionId);
+  const ownedExisting = existing && isSessionOwnedByUser(existing, user) ? existing : null;
+  const safeInput = existing && !ownedExisting
+    ? { ...input, sessionId: createUniqueSessionId() }
+    : input;
+  const normalized = normalizeSessionInput(safeInput, ownedExisting, fallbackEvent);
+  const nextExisting = ownedExisting ?? getSessionRow(normalized.sessionId);
   const changedForHeartbeat = shouldRecordHeartbeat(nextExisting, normalized);
   const timestamp = nowIso();
   const lastActiveAt = normalized.state === "active" ? normalized.occurredAt : nextExisting?.lastActiveAt ?? null;
@@ -590,14 +607,27 @@ export function upsertOpsSession(input: OpsSessionInput | undefined, user: AppUs
   };
 }
 
-export function endOpsSession(sessionId: string, endedAt?: string) {
+export function endOpsSession(sessionId: string, user: AppUser, endedAt?: string) {
+  const existing = getSessionRow(sessionId);
+  if (!existing || !isSessionOwnedByUser(existing, user)) {
+    return {
+      ok: true as const,
+      sessionId,
+      ended: false,
+    };
+  }
+
   const timestamp = normalizeIso(endedAt);
   db.prepare(`
     UPDATE ops_sessions
     SET state = 'offline', endedAt = ?, lastSeenAt = ?, updatedAt = ?
     WHERE id = ?
   `).run(timestamp, timestamp, nowIso(), sessionId);
-  return { ok: true as const };
+  return {
+    ok: true as const,
+    sessionId,
+    ended: true,
+  };
 }
 
 function normalizeTelemetryError(params: {

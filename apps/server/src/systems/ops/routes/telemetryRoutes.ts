@@ -158,7 +158,7 @@ export function createOpsEndRoute() {
   return (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = EndBodySchema.parse(req.body ?? {});
-      res.json(endOpsSession(body.sessionId, body.endedAt));
+      res.json(endOpsSession(body.sessionId, getAuthenticatedUser(req), body.endedAt));
     } catch (error) {
       next(error);
     }
@@ -226,4 +226,3 @@ export function createOpsErrorsRoute() {
     }
   };
 }
-

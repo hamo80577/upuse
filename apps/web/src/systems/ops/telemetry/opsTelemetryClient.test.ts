@@ -11,6 +11,7 @@ import type { OpsTelemetryIngestPayload, OpsTelemetrySessionPayload } from "../a
 import type { OpsTelemetryRouteContext } from "./routeContext";
 
 const SESSION_ID = "11111111-1111-4111-8111-111111111111";
+const REPLACEMENT_SESSION_ID = "22222222-2222-4222-8222-222222222222";
 
 function route(path: string, system: OpsTelemetryRouteContext["system"] = "upuse"): OpsTelemetryRouteContext {
   return {
@@ -23,10 +24,10 @@ function route(path: string, system: OpsTelemetryRouteContext["system"] = "upuse
 
 function createClient() {
   const heartbeat = vi.fn<(payload: OpsTelemetrySessionPayload) => Promise<{ sessionId: string }>>()
-    .mockResolvedValue({ sessionId: SESSION_ID });
+    .mockImplementation(async (payload) => ({ sessionId: payload.sessionId ?? SESSION_ID }));
   const end = vi.fn().mockResolvedValue({ ok: true });
-  const ingest = vi.fn<(payload: OpsTelemetryIngestPayload) => Promise<unknown>>()
-    .mockResolvedValue({ ok: true });
+  const ingest = vi.fn<(payload: OpsTelemetryIngestPayload) => Promise<{ ok: true; sessionId?: string }>>()
+    .mockImplementation(async (payload) => ({ ok: true, sessionId: payload.session?.sessionId }));
   const sendBeacon = vi.fn().mockReturnValue(false);
   const client = new OpsTelemetryClient({ heartbeat, end, ingest, sendBeacon });
   return {
@@ -48,6 +49,7 @@ describe("OpsTelemetryClient", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
     window.sessionStorage.clear();
   });
 
@@ -205,6 +207,53 @@ describe("OpsTelemetryClient", () => {
     vi.advanceTimersByTime(OPS_TELEMETRY_FLUSH_MS);
 
     expect(ingest).not.toHaveBeenCalled();
+    client.resetForTests();
+  });
+
+  it("clears telemetry session storage when an identity boundary is closed", () => {
+    const { client } = createClient();
+
+    client.start(route("/"));
+    client.stop({ clearSessionId: true, discardQueue: true });
+
+    expect(window.sessionStorage.getItem(OPS_TELEMETRY_SESSION_STORAGE_KEY)).toBeNull();
+    client.resetForTests();
+  });
+
+  it("uses a fresh telemetry session after logout and login in the same tab", () => {
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(REPLACEMENT_SESSION_ID as `${string}-${string}-${string}-${string}-${string}`);
+    const { client, heartbeat } = createClient();
+
+    client.start(route("/"));
+    client.stop({ clearSessionId: true, discardQueue: true });
+    client.start(route("/"));
+
+    expect(heartbeat.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+      sessionId: REPLACEMENT_SESSION_ID,
+    }));
+    expect(window.sessionStorage.getItem(OPS_TELEMETRY_SESSION_STORAGE_KEY)).toBe(REPLACEMENT_SESSION_ID);
+    client.resetForTests();
+  });
+
+  it("adopts a server-returned replacement session id from heartbeat", async () => {
+    const { client, heartbeat } = createClient();
+    heartbeat.mockResolvedValueOnce({ sessionId: REPLACEMENT_SESSION_ID });
+
+    client.start(route("/"));
+    await Promise.resolve();
+
+    expect(window.sessionStorage.getItem(OPS_TELEMETRY_SESSION_STORAGE_KEY)).toBe(REPLACEMENT_SESSION_ID);
+    client.resetForTests();
+  });
+
+  it("adopts a server-returned replacement session id from ingest", async () => {
+    const { client, ingest } = createClient();
+    ingest.mockResolvedValueOnce({ ok: true, sessionId: REPLACEMENT_SESSION_ID });
+
+    client.start(route("/"));
+    await vi.advanceTimersByTimeAsync(OPS_TELEMETRY_FLUSH_MS);
+
+    expect(window.sessionStorage.getItem(OPS_TELEMETRY_SESSION_STORAGE_KEY)).toBe(REPLACEMENT_SESSION_ID);
     client.resetForTests();
   });
 });

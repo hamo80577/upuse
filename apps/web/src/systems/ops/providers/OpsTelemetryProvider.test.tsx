@@ -5,8 +5,8 @@ import { setApiFailureReporter } from "../../../shared/api/httpClient";
 
 const authState = vi.hoisted(() => ({
   current: {
-    status: "authenticated",
-    user: null,
+    status: "authenticated" as "authenticated" | "unauthenticated" | "loading",
+    user: { id: 1 } as { id: number } | null,
   },
 }));
 
@@ -36,7 +36,7 @@ describe("OpsTelemetryProvider", () => {
   afterEach(() => {
     authState.current = {
       status: "authenticated",
-      user: null,
+      user: { id: 1 },
     };
     setApiFailureReporter(null);
     vi.clearAllMocks();
@@ -79,6 +79,38 @@ describe("OpsTelemetryProvider", () => {
     );
 
     expect(telemetryMocks.start).not.toHaveBeenCalled();
-    expect(telemetryMocks.stop).toHaveBeenCalled();
+    expect(telemetryMocks.stop).toHaveBeenCalledWith({
+      clearSessionId: true,
+      discardQueue: true,
+    });
+  });
+
+  it("rotates telemetry when the authenticated user identity changes in the same tab", () => {
+    const view = render(
+      <MemoryRouter initialEntries={["/"]}>
+        <OpsTelemetryProvider>
+          <div>Screen</div>
+        </OpsTelemetryProvider>
+      </MemoryRouter>,
+    );
+    expect(telemetryMocks.start).toHaveBeenCalledTimes(1);
+
+    authState.current = {
+      status: "authenticated",
+      user: { id: 2 },
+    };
+    view.rerender(
+      <MemoryRouter initialEntries={["/"]}>
+        <OpsTelemetryProvider>
+          <div>Screen</div>
+        </OpsTelemetryProvider>
+      </MemoryRouter>,
+    );
+
+    expect(telemetryMocks.stop).toHaveBeenCalledWith({
+      clearSessionId: true,
+      discardQueue: true,
+    });
+    expect(telemetryMocks.start).toHaveBeenCalledTimes(2);
   });
 });

@@ -97,6 +97,8 @@ export interface OpsTelemetryHeartbeatResponse {
 
 export interface OpsTelemetryEndResponse {
   ok: true;
+  sessionId?: string;
+  ended?: boolean;
 }
 
 export interface OpsTelemetryIngestResponse {

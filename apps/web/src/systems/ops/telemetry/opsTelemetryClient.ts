@@ -28,7 +28,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 interface OpsTelemetryTransport {
   heartbeat: (payload: OpsTelemetrySessionPayload) => Promise<{ sessionId: string }>;
   end: (payload: { sessionId: string; endedAt?: string }) => Promise<unknown>;
-  ingest: (payload: OpsTelemetryIngestPayload) => Promise<unknown>;
+  ingest: (payload: OpsTelemetryIngestPayload) => Promise<{ sessionId?: string }>;
   sendBeacon?: (url: string, payload: unknown) => boolean;
 }
 
@@ -132,6 +132,19 @@ function getOrCreateSessionId() {
     storage?.setItem(OPS_TELEMETRY_SESSION_STORAGE_KEY, next);
   } catch {}
   return next;
+}
+
+function persistSessionId(sessionId: string) {
+  if (!UUID_PATTERN.test(sessionId)) return;
+  try {
+    getSessionStorage()?.setItem(OPS_TELEMETRY_SESSION_STORAGE_KEY, sessionId);
+  } catch {}
+}
+
+function clearStoredSessionId() {
+  try {
+    getSessionStorage()?.removeItem(OPS_TELEMETRY_SESSION_STORAGE_KEY);
+  } catch {}
 }
 
 function normalizeStatusCode(value: unknown) {
@@ -251,6 +264,7 @@ export class OpsTelemetryClient {
   private cleanupListeners: Array<() => void> = [];
   private errorDedupe = new Map<string, number>();
   private lastRouteKey: string | null = null;
+  private sessionGeneration = 0;
 
   constructor(transport: Partial<OpsTelemetryTransport> = {}) {
     this.transport = {
@@ -272,21 +286,36 @@ export class OpsTelemetryClient {
     void this.sendHeartbeat();
   }
 
-  stop() {
+  stop(options: { clearSessionId?: boolean; discardQueue?: boolean; endSession?: boolean } = {}) {
     if (!this.started && !this.sessionId) return;
 
     const sessionId = this.sessionId;
+    const generation = this.sessionGeneration;
     this.started = false;
     this.clearTimers();
     this.removeListeners();
     this.lastRouteKey = null;
+    if (options.discardQueue) {
+      this.queue = [];
+      this.flushing = false;
+    }
+
+    if (options.clearSessionId) {
+      this.sessionGeneration += 1;
+      this.sessionId = null;
+      this.disabled = false;
+      clearStoredSessionId();
+    }
 
     if (!sessionId) return;
-    this.flush({ useBeacon: true });
+    if (!options.discardQueue) {
+      this.flush({ useBeacon: true });
+    }
     const endedAt = nowIso();
+    if (options.endSession === false) return;
     if (!this.transport.sendBeacon?.("/api/ops/presence/end", { sessionId, endedAt })) {
       void this.transport.end({ sessionId, endedAt }).catch((error) => {
-        if (isTerminalTelemetryAuthError(error)) {
+        if (this.sessionGeneration === generation && isTerminalTelemetryAuthError(error)) {
           this.disabled = true;
         }
       });
@@ -391,18 +420,26 @@ export class OpsTelemetryClient {
     }
 
     this.flushing = true;
+    const generation = this.sessionGeneration;
     void this.transport.ingest(payload)
+      .then((response) => {
+        this.adoptSessionId(response?.sessionId, generation);
+      })
       .catch((error) => {
-        if (isTerminalTelemetryAuthError(error)) {
+        if (this.sessionGeneration === generation && isTerminalTelemetryAuthError(error)) {
           this.disabled = true;
           this.queue = [];
           return;
         }
-        this.queue.unshift(...batch);
-        this.trimQueue();
+        if (this.sessionGeneration === generation) {
+          this.queue.unshift(...batch);
+          this.trimQueue();
+        }
       })
       .finally(() => {
-        this.flushing = false;
+        if (this.sessionGeneration === generation) {
+          this.flushing = false;
+        }
       });
   }
 
@@ -417,6 +454,7 @@ export class OpsTelemetryClient {
     this.flushing = false;
     this.errorDedupe.clear();
     this.lastRouteKey = null;
+    this.sessionGeneration += 1;
     this.clearTimers();
     this.removeListeners();
   }
@@ -468,6 +506,12 @@ export class OpsTelemetryClient {
     if (this.queue.length > OPS_TELEMETRY_QUEUE_CAP) {
       this.queue.splice(0, this.queue.length - OPS_TELEMETRY_QUEUE_CAP);
     }
+  }
+
+  private adoptSessionId(sessionId: string | undefined, generation = this.sessionGeneration) {
+    if (!sessionId || !UUID_PATTERN.test(sessionId) || this.sessionGeneration !== generation) return;
+    this.sessionId = sessionId;
+    persistSessionId(sessionId);
   }
 
   private installTimers() {
@@ -620,13 +664,12 @@ export class OpsTelemetryClient {
       userAgent: getWindow()?.navigator.userAgent,
     });
 
+    const generation = this.sessionGeneration;
     try {
       const response = await this.transport.heartbeat(payload);
-      if (response.sessionId && UUID_PATTERN.test(response.sessionId)) {
-        this.sessionId = response.sessionId;
-      }
+      this.adoptSessionId(response.sessionId, generation);
     } catch (error) {
-      if (isTerminalTelemetryAuthError(error)) {
+      if (this.sessionGeneration === generation && isTerminalTelemetryAuthError(error)) {
         this.disabled = true;
         this.queue = [];
       }

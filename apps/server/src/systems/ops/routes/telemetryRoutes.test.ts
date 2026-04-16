@@ -127,6 +127,32 @@ function jsonHeaders(extra: Record<string, string> = {}) {
   };
 }
 
+function getSession(sessionId: string) {
+  return testDb.prepare<[string], {
+    id: string;
+    userId: number | null;
+    userEmail: string | null;
+    currentPath: string | null;
+    state: string;
+    endedAt: string | null;
+  }>(`
+    SELECT id, userId, userEmail, currentPath, state, endedAt
+    FROM ops_sessions
+    WHERE id = ?
+  `).get(sessionId);
+}
+
+function countEventsForSession(sessionId: string, userId?: number) {
+  const row = userId == null
+    ? testDb.prepare<[string], { count: number }>(`
+      SELECT COUNT(*) AS count FROM ops_events WHERE sessionId = ?
+    `).get(sessionId)
+    : testDb.prepare<[string, number], { count: number }>(`
+      SELECT COUNT(*) AS count FROM ops_events WHERE sessionId = ? AND userId = ?
+    `).get(sessionId, userId);
+  return row?.count ?? 0;
+}
+
 describe("Ops telemetry routes", () => {
   let server: Server | null = null;
   let baseUrl = "";
@@ -244,6 +270,190 @@ describe("Ops telemetry routes", () => {
       });
       expect(response.status).toBe(200);
     }
+  });
+
+  it("rotates heartbeat writes away from a foreign session id without overwriting the original owner", async () => {
+    const foreignSessionId = "11111111-1111-4111-8111-111111111111";
+    const ownerResponse = await fetch(`${baseUrl}/api/ops/presence/heartbeat`, {
+      method: "POST",
+      headers: jsonHeaders({ "x-test-user": "admin" }),
+      body: JSON.stringify({
+        sessionId: foreignSessionId,
+        path: "/performance",
+        system: "upuse",
+        state: "active",
+      }),
+    });
+    expect(ownerResponse.status).toBe(200);
+
+    const rotatedResponse = await fetch(`${baseUrl}/api/ops/presence/heartbeat`, {
+      method: "POST",
+      headers: jsonHeaders({ "x-test-user": "user" }),
+      body: JSON.stringify({
+        sessionId: foreignSessionId,
+        path: "/scano/my-tasks",
+        system: "scano",
+        state: "active",
+      }),
+    });
+    const rotatedBody = await rotatedResponse.json();
+
+    expect(rotatedResponse.status).toBe(200);
+    expect(rotatedBody.sessionId).not.toBe(foreignSessionId);
+    expect(rotatedBody.session).toMatchObject({
+      id: rotatedBody.sessionId,
+      userId: 3,
+      userEmail: "user@example.com",
+      currentPath: "/scano/my-tasks",
+    });
+    expect(getSession(foreignSessionId)).toMatchObject({
+      userId: 2,
+      userEmail: "admin@example.com",
+      currentPath: "/performance",
+      state: "active",
+      endedAt: null,
+    });
+  });
+
+  it("attaches ingest events to a rotated owned session instead of a foreign session id", async () => {
+    const foreignSessionId = "11111111-1111-4111-8111-111111111111";
+    const ownerResponse = await fetch(`${baseUrl}/api/ops/presence/heartbeat`, {
+      method: "POST",
+      headers: jsonHeaders({ "x-test-user": "admin" }),
+      body: JSON.stringify({
+        sessionId: foreignSessionId,
+        path: "/settings",
+        system: "upuse",
+      }),
+    });
+    expect(ownerResponse.status).toBe(200);
+
+    const ingestResponse = await fetch(`${baseUrl}/api/ops/ingest`, {
+      method: "POST",
+      headers: jsonHeaders({ "x-test-user": "user" }),
+      body: JSON.stringify({
+        session: {
+          sessionId: foreignSessionId,
+          path: "/scano/assign-task",
+          system: "scano",
+        },
+        events: [
+          { type: "page_view", path: "/scano/assign-task", system: "scano" },
+        ],
+      }),
+    });
+    const ingestBody = await ingestResponse.json();
+
+    expect(ingestResponse.status).toBe(200);
+    expect(ingestBody.sessionId).not.toBe(foreignSessionId);
+    expect(countEventsForSession(foreignSessionId, 3)).toBe(0);
+    expect(countEventsForSession(ingestBody.sessionId, 3)).toBeGreaterThan(0);
+    expect(getSession(foreignSessionId)).toMatchObject({
+      userId: 2,
+      userEmail: "admin@example.com",
+      currentPath: "/settings",
+    });
+    expect(getSession(ingestBody.sessionId)).toMatchObject({
+      userId: 3,
+      userEmail: "user@example.com",
+      currentPath: "/scano/assign-task",
+    });
+  });
+
+  it("does not let one authenticated user end another user's Ops session", async () => {
+    const foreignSessionId = "11111111-1111-4111-8111-111111111111";
+    const ownerResponse = await fetch(`${baseUrl}/api/ops/presence/heartbeat`, {
+      method: "POST",
+      headers: jsonHeaders({ "x-test-user": "admin" }),
+      body: JSON.stringify({
+        sessionId: foreignSessionId,
+        path: "/",
+        system: "upuse",
+        state: "active",
+      }),
+    });
+    expect(ownerResponse.status).toBe(200);
+
+    const foreignEndResponse = await fetch(`${baseUrl}/api/ops/presence/end`, {
+      method: "POST",
+      headers: jsonHeaders({ "x-test-user": "user" }),
+      body: JSON.stringify({
+        sessionId: foreignSessionId,
+        endedAt: "2026-04-16T09:10:00.000Z",
+      }),
+    });
+    const foreignEndBody = await foreignEndResponse.json();
+
+    expect(foreignEndResponse.status).toBe(200);
+    expect(foreignEndBody).toMatchObject({
+      ok: true,
+      sessionId: foreignSessionId,
+      ended: false,
+    });
+    expect(getSession(foreignSessionId)).toMatchObject({
+      userId: 2,
+      state: "active",
+      endedAt: null,
+    });
+
+    const ownerEndResponse = await fetch(`${baseUrl}/api/ops/presence/end`, {
+      method: "POST",
+      headers: jsonHeaders({ "x-test-user": "admin" }),
+      body: JSON.stringify({
+        sessionId: foreignSessionId,
+        endedAt: "2026-04-16T09:12:00.000Z",
+      }),
+    });
+    const ownerEndBody = await ownerEndResponse.json();
+
+    expect(ownerEndResponse.status).toBe(200);
+    expect(ownerEndBody).toMatchObject({
+      ok: true,
+      sessionId: foreignSessionId,
+      ended: true,
+    });
+    expect(getSession(foreignSessionId)).toMatchObject({
+      userId: 2,
+      state: "offline",
+      endedAt: "2026-04-16T09:12:00.000Z",
+    });
+  });
+
+  it("lets the same owner continue using the same session id without rotation", async () => {
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    const firstResponse = await fetch(`${baseUrl}/api/ops/presence/heartbeat`, {
+      method: "POST",
+      headers: jsonHeaders({ "x-test-user": "user" }),
+      body: JSON.stringify({
+        sessionId,
+        path: "/",
+        system: "upuse",
+        state: "active",
+      }),
+    });
+    const firstBody = await firstResponse.json();
+    const secondResponse = await fetch(`${baseUrl}/api/ops/presence/heartbeat`, {
+      method: "POST",
+      headers: jsonHeaders({ "x-test-user": "user" }),
+      body: JSON.stringify({
+        sessionId,
+        path: "/performance",
+        system: "upuse",
+        state: "idle",
+      }),
+    });
+    const secondBody = await secondResponse.json();
+
+    expect(firstResponse.status).toBe(200);
+    expect(secondResponse.status).toBe(200);
+    expect(firstBody.sessionId).toBe(sessionId);
+    expect(secondBody.sessionId).toBe(sessionId);
+    expect(getSession(sessionId)).toMatchObject({
+      userId: 3,
+      userEmail: "user@example.com",
+      currentPath: "/performance",
+      state: "idle",
+    });
   });
 
   it("tracks heartbeat and end state transitions", async () => {
