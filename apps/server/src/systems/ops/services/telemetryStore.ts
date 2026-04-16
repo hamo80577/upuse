@@ -34,9 +34,14 @@ const MAX_TEXT_LENGTH = 240;
 const MAX_LONG_TEXT_LENGTH = 1_000;
 const ACTIVE_USER_WINDOW_MINUTES = 5;
 const ONLINE_SESSION_WINDOW_MINUTES = 15;
+const FRESH_TELEMETRY_MINUTES = 10;
+const STALE_TELEMETRY_MINUTES = 30;
+const SLOW_API_WARNING_MS = 1_500;
+const SLOW_API_CRITICAL_MS = 4_000;
 
 type DbValue = string | number | null;
 type CountRow = { count: number | null };
+type OpsHealthStatus = "healthy" | "degraded" | "critical";
 
 interface OpsSessionRow {
   id: string;
@@ -134,6 +139,29 @@ interface NormalizedEventInput {
   severity: OpsEventSeverity;
   metadata: OpsMetadata;
   error: OpsTelemetryErrorInput | null;
+}
+
+interface OpsQualityFactor {
+  key: string;
+  label: string;
+  status: OpsHealthStatus;
+  penalty: number;
+  value: number | null;
+  unit: string;
+  detail: string;
+  threshold: number | null;
+}
+
+interface OpsQualityAlert {
+  id: string;
+  severity: "info" | "warning" | "critical";
+  subsystem: "overall" | "dashboard" | "performance" | "api" | "frontend" | "monitor" | "token" | "telemetry";
+  title: string;
+  message: string;
+  metric: string;
+  value: number | null;
+  threshold: number | null;
+  createdAt: string;
 }
 
 export interface OpsSessionListFilters {
@@ -1048,6 +1076,91 @@ function groupedRows(sql: string, values: DbValue[]) {
     }));
 }
 
+function percentage(numerator: number, denominator: number) {
+  if (!denominator) return 0;
+  return numerator / denominator;
+}
+
+function clampScore(value: number) {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function statusFromScore(score: number, hasCriticalFactor = false): OpsHealthStatus {
+  if (hasCriticalFactor || score < 70) return "critical";
+  if (score < 90) return "degraded";
+  return "healthy";
+}
+
+function statusFromPenalty(penalty: number): OpsHealthStatus {
+  if (penalty >= 15) return "critical";
+  if (penalty > 0) return "degraded";
+  return "healthy";
+}
+
+function minutesSince(iso: string | null, nowIsoValue: string) {
+  if (!iso) return null;
+  const parsed = Date.parse(iso);
+  const now = Date.parse(nowIsoValue);
+  if (!Number.isFinite(parsed) || !Number.isFinite(now)) return null;
+  return Math.max(0, (now - parsed) / 60_000);
+}
+
+function countWindowEvents(window: { startUtcIso: string; endUtcIso: string }, extraClause = "1 = 1", values: DbValue[] = []) {
+  return countEventsBetween(window.startUtcIso, window.endUtcIso, extraClause, values);
+}
+
+function percentileApiLatencyMs(window: { startUtcIso: string; endUtcIso: string }, extraClause = "1 = 1", values: DbValue[] = []) {
+  const rows = queryRows<{ durationMs: number | null }>(`
+    SELECT durationMs
+    FROM ops_events
+    WHERE eventType IN ('api_request', 'api_error')
+      AND durationMs IS NOT NULL
+      AND occurredAt >= ?
+      AND occurredAt < ?
+      AND ${extraClause}
+    ORDER BY durationMs ASC
+  `, [window.startUtcIso, window.endUtcIso, ...values]);
+  if (!rows.length) return null;
+  const index = Math.max(0, Math.ceil(rows.length * 0.95) - 1);
+  return rows[index]?.durationMs ?? null;
+}
+
+function scopedActivityClause(scope: "dashboard" | "performance") {
+  if (scope === "dashboard") {
+    return `(
+      COALESCE(path, '') = '/'
+      OR COALESCE(path, '') LIKE '/dashboard%'
+      OR COALESCE(routePattern, '') = '/'
+      OR COALESCE(routePattern, '') LIKE '/dashboard%'
+      OR COALESCE(endpoint, '') LIKE '/api/dashboard%'
+      OR COALESCE(endpoint, '') LIKE '/api/ws/dashboard%'
+      OR COALESCE(pageTitle, '') LIKE '%Dashboard%'
+    )`;
+  }
+
+  return `(
+    COALESCE(path, '') LIKE '/performance%'
+    OR COALESCE(routePattern, '') LIKE '/performance%'
+    OR COALESCE(endpoint, '') LIKE '/api/performance%'
+    OR COALESCE(endpoint, '') LIKE '/api/ws/performance%'
+    OR COALESCE(pageTitle, '') LIKE '%Performance%'
+  )`;
+}
+
+function latestIsoValue(values: Array<string | null>) {
+  let latest: string | null = null;
+  let latestMs = Number.NEGATIVE_INFINITY;
+  for (const value of values) {
+    if (!value) continue;
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed) && parsed > latestMs) {
+      latest = value;
+      latestMs = parsed;
+    }
+  }
+  return latest;
+}
+
 function buildCurrentPreviousWindows(windowMinutes: number) {
   const end = DateTime.utc();
   const start = end.minus({ minutes: windowMinutes });
@@ -1084,12 +1197,451 @@ function performanceHealth(window: { startUtcIso: string; endUtcIso: string }) {
     "eventType IN ('api_request', 'api_error') AND (success = 0 OR statusCode >= 500) AND (COALESCE(path, '') LIKE ? OR COALESCE(endpoint, '') LIKE ?)",
     ["%performance%", "%performance%"],
   );
+  const websocketFailureCount = countEventsBetween(
+    window.startUtcIso,
+    window.endUtcIso,
+    "eventType = 'api_error' AND source = 'websocket' AND COALESCE(endpoint, '') LIKE ?",
+    ["/api/ws/performance%"],
+  );
+  const p95LatencyMs = percentileApiLatencyMs(window, scopedActivityClause("performance"));
+  const status =
+    errorCount >= 10 || apiFailureCount >= 5 || websocketFailureCount >= 4 || (p95LatencyMs ?? 0) >= SLOW_API_CRITICAL_MS
+      ? "critical"
+      : errorCount > 0 || apiFailureCount > 0 || websocketFailureCount > 0 || (p95LatencyMs ?? 0) >= SLOW_API_WARNING_MS
+        ? "warning"
+        : "good";
 
   return {
-    status: errorCount > 0 || apiFailureCount > 0 ? "warning" : "good",
+    status,
     lastOpenedAt: lastOpened,
     errorCount,
     apiFailureCount,
+    websocketFailureCount,
+    p95LatencyMs,
+  };
+}
+
+function makeQualityFactor(params: Omit<OpsQualityFactor, "status" | "penalty"> & { penalty: number }): OpsQualityFactor {
+  const penalty = Math.max(0, Math.round(params.penalty));
+  return {
+    ...params,
+    penalty,
+    status: statusFromPenalty(penalty),
+  };
+}
+
+function makeAlert(params: Omit<OpsQualityAlert, "id" | "createdAt"> & { createdAt: string }): OpsQualityAlert {
+  const normalizedMetric = params.metric.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase();
+  return {
+    id: `${params.subsystem}-${normalizedMetric}-${params.severity}`,
+    ...params,
+  };
+}
+
+function scoreDirection(delta: number) {
+  if (delta > 0) return "up";
+  if (delta < 0) return "down";
+  return "flat";
+}
+
+function apiFailurePenalty(failureRate: number, failureCount: number) {
+  if (!failureCount) return 0;
+  if (failureRate >= 0.15 || failureCount >= 20) return 25;
+  if (failureRate >= 0.05 || failureCount >= 5) return 15;
+  return Math.max(5, Math.round(failureRate * 100));
+}
+
+function runtimeErrorPenalty(errorRate: number, errorCount: number) {
+  if (!errorCount) return 0;
+  if (errorRate >= 0.15 || errorCount >= 10) return 20;
+  if (errorRate >= 0.05 || errorCount >= 4) return 12;
+  return Math.max(6, errorCount * 3);
+}
+
+function latencyPenalty(p95LatencyMs: number | null) {
+  if (p95LatencyMs == null) return 0;
+  if (p95LatencyMs >= SLOW_API_CRITICAL_MS) return 18;
+  if (p95LatencyMs >= SLOW_API_WARNING_MS) return 10;
+  if (p95LatencyMs >= 800) return 4;
+  return 0;
+}
+
+function telemetryFreshnessPenalty(ageMinutes: number | null) {
+  if (ageMinutes == null) return 5;
+  if (ageMinutes >= STALE_TELEMETRY_MINUTES) return 20;
+  if (ageMinutes >= FRESH_TELEMETRY_MINUTES) return 10;
+  return 0;
+}
+
+function buildOpsQualityModel(params: {
+  generatedAt: string;
+  windows: ReturnType<typeof buildCurrentPreviousWindows>;
+  dashboardHealth: ReturnType<typeof buildHealthPayload>;
+  performanceHealth: ReturnType<typeof performanceHealth>;
+  engineAvailable: boolean;
+  counts: {
+    currentApiRequests: number;
+    previousApiRequests: number;
+    currentPageViews: number;
+    previousPageViews: number;
+    currentErrors: number;
+    previousErrors: number;
+    apiFailureCount: number;
+    previousApiFailureCount: number;
+    currentSessions: number;
+  };
+  freshness: {
+    sessionsLastSeenAt: string | null;
+    eventsLastSeenAt: string | null;
+    errorsLastSeenAt: string | null;
+  };
+}) {
+  const runtimeErrors = countWindowEvents(
+    params.windows.current,
+    "eventType IN ('js_error', 'unhandled_rejection')",
+  );
+  const previousRuntimeErrors = countWindowEvents(
+    params.windows.previous,
+    "eventType IN ('js_error', 'unhandled_rejection')",
+  );
+  const websocketFailures = countWindowEvents(
+    params.windows.current,
+    "eventType = 'api_error' AND source = 'websocket'",
+  );
+  const tokenTestFailures = countWindowEvents(
+    params.windows.current,
+    "eventType = 'token_test_finished' AND (success = 0 OR severity IN ('warning', 'error', 'critical'))",
+  );
+  const p95LatencyMs = percentileApiLatencyMs(params.windows.current);
+  const dashboardFailures = countWindowEvents(
+    params.windows.current,
+    `eventType IN ('api_error', 'js_error', 'unhandled_rejection') AND ${scopedActivityClause("dashboard")}`,
+  );
+  const dashboardWebsocketFailures = countWindowEvents(
+    params.windows.current,
+    "eventType = 'api_error' AND source = 'websocket' AND COALESCE(endpoint, '') LIKE ?",
+    ["/api/ws/dashboard%"],
+  );
+  const dashboardP95LatencyMs = percentileApiLatencyMs(params.windows.current, scopedActivityClause("dashboard"));
+  const performanceFailures = countWindowEvents(
+    params.windows.current,
+    `eventType IN ('api_error', 'js_error', 'unhandled_rejection') AND ${scopedActivityClause("performance")}`,
+  );
+  const performanceP95LatencyMs = params.performanceHealth.p95LatencyMs;
+  const latestTelemetryAt = latestIsoValue([
+    params.freshness.sessionsLastSeenAt,
+    params.freshness.eventsLastSeenAt,
+    params.freshness.errorsLastSeenAt,
+  ]);
+  const telemetryAgeMinutes = minutesSince(latestTelemetryAt, params.generatedAt);
+  const apiFailureRate = percentage(params.counts.apiFailureCount, params.counts.currentApiRequests);
+  const previousApiFailureRate = percentage(params.counts.previousApiFailureCount, params.counts.previousApiRequests);
+  const runtimeErrorRate = percentage(runtimeErrors, Math.max(params.counts.currentPageViews, params.counts.currentSessions, 1));
+  const previousRuntimeErrorRate = percentage(previousRuntimeErrors, Math.max(params.counts.previousPageViews, 1));
+
+  const ordersSync = params.dashboardHealth.ordersSync;
+  const staleBranchCount = ordersSync?.staleBranchCount ?? 0;
+  const monitorDegraded = params.dashboardHealth.ready === false
+    || params.dashboardHealth.monitorDegraded === true
+    || ordersSync?.state === "degraded";
+  const monitorPenalty = !params.engineAvailable
+    ? 0
+    : monitorDegraded
+      ? 25
+      : params.dashboardHealth.monitorRunning === false
+        ? 8
+        : staleBranchCount > 0
+          ? Math.min(15, 4 + staleBranchCount * 2)
+          : 0;
+
+  const factors = [
+    makeQualityFactor({
+      key: "api_failure_rate",
+      label: "API failure rate",
+      value: Number((apiFailureRate * 100).toFixed(2)),
+      unit: "%",
+      threshold: 5,
+      penalty: apiFailurePenalty(apiFailureRate, params.counts.apiFailureCount),
+      detail: `${params.counts.apiFailureCount} failed API events from ${params.counts.currentApiRequests} request events.`,
+    }),
+    makeQualityFactor({
+      key: "runtime_error_rate",
+      label: "Frontend runtime errors",
+      value: runtimeErrors,
+      unit: "events",
+      threshold: 1,
+      penalty: runtimeErrorPenalty(runtimeErrorRate, runtimeErrors),
+      detail: `${runtimeErrors} JavaScript or unhandled rejection events in the selected window.`,
+    }),
+    makeQualityFactor({
+      key: "p95_api_latency",
+      label: "p95 API latency",
+      value: p95LatencyMs,
+      unit: "ms",
+      threshold: SLOW_API_WARNING_MS,
+      penalty: latencyPenalty(p95LatencyMs),
+      detail: p95LatencyMs == null ? "No API duration telemetry in this window." : `p95 API duration is ${p95LatencyMs}ms.`,
+    }),
+    makeQualityFactor({
+      key: "websocket_instability",
+      label: "Live stream stability",
+      value: websocketFailures,
+      unit: "failures",
+      threshold: 1,
+      penalty: Math.min(20, websocketFailures * 5),
+      detail: `${websocketFailures} live WebSocket failure events reported by the shared HTTP client.`,
+    }),
+    makeQualityFactor({
+      key: "telemetry_freshness",
+      label: "Telemetry freshness",
+      value: telemetryAgeMinutes == null ? null : Number(telemetryAgeMinutes.toFixed(1)),
+      unit: "minutes",
+      threshold: FRESH_TELEMETRY_MINUTES,
+      penalty: telemetryFreshnessPenalty(telemetryAgeMinutes),
+      detail: latestTelemetryAt ? `Latest Ops signal at ${latestTelemetryAt}.` : "No Ops telemetry signal has been stored yet.",
+    }),
+    makeQualityFactor({
+      key: "monitor_health",
+      label: "Dashboard monitor health",
+      value: staleBranchCount,
+      unit: "stale branches",
+      threshold: 1,
+      penalty: monitorPenalty,
+      detail: params.dashboardHealth.readiness?.message ?? "Monitor health is unavailable.",
+    }),
+    makeQualityFactor({
+      key: "dashboard_surface",
+      label: "UPuse Dashboard surface",
+      value: dashboardFailures,
+      unit: "failures",
+      threshold: 1,
+      penalty: Math.min(18, dashboardFailures * 5 + dashboardWebsocketFailures * 4 + latencyPenalty(dashboardP95LatencyMs)),
+      detail: `${dashboardFailures} dashboard-scoped failures, ${dashboardWebsocketFailures} live stream failures.`,
+    }),
+    makeQualityFactor({
+      key: "performance_surface",
+      label: "UPuse Performance surface",
+      value: performanceFailures,
+      unit: "failures",
+      threshold: 1,
+      penalty: Math.min(20, performanceFailures * 5 + params.performanceHealth.websocketFailureCount * 4 + latencyPenalty(performanceP95LatencyMs)),
+      detail: `${performanceFailures} performance-scoped failures, ${params.performanceHealth.websocketFailureCount} live stream failures.`,
+    }),
+    makeQualityFactor({
+      key: "token_test_failures",
+      label: "Token test failures",
+      value: tokenTestFailures,
+      unit: "failures",
+      threshold: 1,
+      penalty: Math.min(16, tokenTestFailures * 4),
+      detail: `${tokenTestFailures} token test failures reported by Settings telemetry.`,
+    }),
+  ];
+
+  const totalPenalty = factors.reduce((total, factor) => total + factor.penalty, 0);
+  const previousPenalty =
+    apiFailurePenalty(previousApiFailureRate, params.counts.previousApiFailureCount)
+    + runtimeErrorPenalty(previousRuntimeErrorRate, previousRuntimeErrors)
+    + monitorPenalty;
+  const score = clampScore(100 - totalPenalty);
+  const previousScore = clampScore(100 - previousPenalty);
+  const delta = score - previousScore;
+  const hasCriticalFactor = factors.some((factor) => factor.status === "critical");
+  const status = statusFromScore(score, hasCriticalFactor);
+
+  const alerts: OpsQualityAlert[] = [];
+  const addAlert = (alert: Omit<OpsQualityAlert, "id" | "createdAt">) => {
+    alerts.push(makeAlert({ ...alert, createdAt: params.generatedAt }));
+  };
+
+  if (params.counts.apiFailureCount > 0 && apiFailureRate >= 0.05) {
+    addAlert({
+      severity: apiFailureRate >= 0.15 ? "critical" : "warning",
+      subsystem: "api",
+      title: "API failure rate is elevated",
+      message: `${params.counts.apiFailureCount} API failures in the selected window.`,
+      metric: "api_failure_rate",
+      value: Number((apiFailureRate * 100).toFixed(2)),
+      threshold: 5,
+    });
+  }
+  if (params.counts.currentErrors >= Math.max(3, params.counts.previousErrors * 2 + 2)) {
+    addAlert({
+      severity: params.counts.currentErrors >= 10 ? "critical" : "warning",
+      subsystem: "overall",
+      title: "Error spike detected",
+      message: `${params.counts.currentErrors} error events vs ${params.counts.previousErrors} in the previous window.`,
+      metric: "error_spike",
+      value: params.counts.currentErrors,
+      threshold: params.counts.previousErrors * 2 + 2,
+    });
+  }
+  if (runtimeErrors > 0) {
+    addAlert({
+      severity: runtimeErrors >= 10 ? "critical" : "warning",
+      subsystem: "frontend",
+      title: "Frontend runtime errors detected",
+      message: `${runtimeErrors} JavaScript error or unhandled rejection events were captured.`,
+      metric: "runtime_errors",
+      value: runtimeErrors,
+      threshold: 1,
+    });
+  }
+  if ((p95LatencyMs ?? 0) >= SLOW_API_WARNING_MS) {
+    addAlert({
+      severity: (p95LatencyMs ?? 0) >= SLOW_API_CRITICAL_MS ? "critical" : "warning",
+      subsystem: "api",
+      title: "API latency is elevated",
+      message: `p95 API duration is ${p95LatencyMs}ms.`,
+      metric: "p95_api_latency_ms",
+      value: p95LatencyMs,
+      threshold: SLOW_API_WARNING_MS,
+    });
+  }
+  if (websocketFailures > 0) {
+    addAlert({
+      severity: websocketFailures >= 4 ? "critical" : "warning",
+      subsystem: "overall",
+      title: "Live stream instability detected",
+      message: `${websocketFailures} WebSocket failure events were reported.`,
+      metric: "websocket_failures",
+      value: websocketFailures,
+      threshold: 1,
+    });
+  }
+  if (telemetryAgeMinutes == null || telemetryAgeMinutes >= FRESH_TELEMETRY_MINUTES) {
+    addAlert({
+      severity: telemetryAgeMinutes != null && telemetryAgeMinutes >= STALE_TELEMETRY_MINUTES ? "critical" : "warning",
+      subsystem: "telemetry",
+      title: telemetryAgeMinutes == null ? "Ops telemetry has not started" : "Ops telemetry is stale",
+      message: telemetryAgeMinutes == null
+        ? "No telemetry signal is available for freshness checks."
+        : `Latest telemetry signal is ${telemetryAgeMinutes.toFixed(1)} minutes old.`,
+      metric: "telemetry_age_minutes",
+      value: telemetryAgeMinutes == null ? null : Number(telemetryAgeMinutes.toFixed(1)),
+      threshold: FRESH_TELEMETRY_MINUTES,
+    });
+  }
+  if (monitorDegraded || (params.engineAvailable && params.dashboardHealth.monitorRunning === false) || staleBranchCount > 0) {
+    addAlert({
+      severity: monitorDegraded ? "critical" : "warning",
+      subsystem: "monitor",
+      title: monitorDegraded ? "Dashboard monitor degraded" : params.dashboardHealth.monitorRunning === false ? "Dashboard monitor is stopped" : "Dashboard data is partially stale",
+      message: params.dashboardHealth.readiness?.message ?? `${staleBranchCount} stale branches reported by orders sync.`,
+      metric: "dashboard_monitor_health",
+      value: staleBranchCount,
+      threshold: 1,
+    });
+  }
+  if (params.performanceHealth.status !== "good") {
+    addAlert({
+      severity: params.performanceHealth.status === "critical" ? "critical" : "warning",
+      subsystem: "performance",
+      title: "Performance surface needs attention",
+      message: `${params.performanceHealth.errorCount} errors, ${params.performanceHealth.apiFailureCount} API failures, ${params.performanceHealth.websocketFailureCount} WebSocket failures.`,
+      metric: "performance_failures",
+      value: params.performanceHealth.errorCount + params.performanceHealth.apiFailureCount + params.performanceHealth.websocketFailureCount,
+      threshold: 1,
+    });
+  }
+  if (dashboardFailures > 0 || dashboardWebsocketFailures > 0) {
+    addAlert({
+      severity: dashboardFailures >= 5 || dashboardWebsocketFailures >= 3 ? "critical" : "warning",
+      subsystem: "dashboard",
+      title: "Dashboard surface needs attention",
+      message: `${dashboardFailures} dashboard-scoped failures and ${dashboardWebsocketFailures} dashboard stream failures.`,
+      metric: "dashboard_failures",
+      value: dashboardFailures + dashboardWebsocketFailures,
+      threshold: 1,
+    });
+  }
+  if (tokenTestFailures > 0) {
+    addAlert({
+      severity: tokenTestFailures >= 4 ? "critical" : "warning",
+      subsystem: "token",
+      title: "Token test failures detected",
+      message: `${tokenTestFailures} Settings token test failures were reported.`,
+      metric: "token_test_failures",
+      value: tokenTestFailures,
+      threshold: 1,
+    });
+  }
+
+  const dashboardScore = clampScore(100 - monitorPenalty - Math.min(18, dashboardFailures * 5 + dashboardWebsocketFailures * 4 + latencyPenalty(dashboardP95LatencyMs)));
+  const performanceScore = clampScore(100 - Math.min(20, performanceFailures * 5 + params.performanceHealth.websocketFailureCount * 4 + latencyPenalty(performanceP95LatencyMs)));
+  const telemetryScore = clampScore(100 - telemetryFreshnessPenalty(telemetryAgeMinutes) - Math.min(20, websocketFailures * 5));
+  const dashboardStatus = monitorDegraded || dashboardFailures >= 5 || dashboardWebsocketFailures >= 3
+    ? "critical"
+    : monitorPenalty > 0 || dashboardFailures > 0 || dashboardWebsocketFailures > 0 || latencyPenalty(dashboardP95LatencyMs) > 0
+      ? "degraded"
+      : statusFromScore(dashboardScore);
+  const performanceStatus = params.performanceHealth.status === "critical"
+    ? "critical"
+    : performanceFailures > 0 || params.performanceHealth.websocketFailureCount > 0 || latencyPenalty(performanceP95LatencyMs) > 0
+      ? "degraded"
+      : statusFromScore(performanceScore);
+  const telemetryStatus = telemetryAgeMinutes != null && telemetryAgeMinutes >= STALE_TELEMETRY_MINUTES
+    ? "critical"
+    : telemetryFreshnessPenalty(telemetryAgeMinutes) > 0 || websocketFailures > 0
+      ? "degraded"
+      : statusFromScore(telemetryScore);
+
+  return {
+    quality: {
+      score,
+      status,
+      factors,
+      trend: {
+        previousScore,
+        delta,
+        direction: scoreDirection(delta),
+      },
+      metrics: {
+        apiFailureRate,
+        runtimeErrorRate,
+        p95LatencyMs,
+        websocketFailures,
+        telemetryAgeMinutes,
+        tokenTestFailures,
+      },
+    },
+    alerts,
+    subsystems: {
+      dashboard: {
+        label: "UPuse Dashboard",
+        status: dashboardStatus,
+        score: dashboardScore,
+        monitorRunning: params.dashboardHealth.monitorRunning,
+        monitorDegraded: params.dashboardHealth.monitorDegraded,
+        ordersSyncState: ordersSync?.state ?? "unknown",
+        staleBranchCount,
+        failures: dashboardFailures,
+        websocketFailures: dashboardWebsocketFailures,
+        p95LatencyMs: dashboardP95LatencyMs,
+        lastHealthyAt: params.dashboardHealth.lastSnapshotAt ?? null,
+        message: params.dashboardHealth.readiness?.message ?? "Dashboard health is unavailable.",
+      },
+      performance: {
+        label: "UPuse Performance",
+        status: performanceStatus,
+        score: performanceScore,
+        failures: performanceFailures,
+        apiFailureCount: params.performanceHealth.apiFailureCount,
+        websocketFailures: params.performanceHealth.websocketFailureCount,
+        p95LatencyMs: performanceP95LatencyMs,
+        lastOpenedAt: params.performanceHealth.lastOpenedAt,
+        message: params.performanceHealth.status === "good" ? "Performance telemetry is healthy." : "Performance telemetry has recent failure pressure.",
+      },
+      telemetry: {
+        label: "Ops Telemetry",
+        status: telemetryStatus,
+        score: telemetryScore,
+        lastSignalAt: latestTelemetryAt,
+        ageMinutes: telemetryAgeMinutes == null ? null : Number(telemetryAgeMinutes.toFixed(1)),
+        websocketFailures,
+        message: latestTelemetryAt ? "Ops telemetry freshness is being tracked." : "Ops telemetry has not stored a signal yet.",
+      },
+    },
   };
 }
 
@@ -1110,6 +1662,7 @@ export function getOpsSummary(params: { windowMinutes?: number; engine?: Monitor
   const currentSessions = countSessionsBetween(windows.current.startUtcIso, windows.current.endUtcIso);
   const previousSessions = countSessionsBetween(windows.previous.startUtcIso, windows.previous.endUtcIso);
   const apiFailureCount = countEventsBetween(windows.current.startUtcIso, windows.current.endUtcIso, "eventType IN ('api_request', 'api_error') AND (success = 0 OR statusCode >= 400)");
+  const previousApiFailureCount = countEventsBetween(windows.previous.startUtcIso, windows.previous.endUtcIso, "eventType IN ('api_request', 'api_error') AND (success = 0 OR statusCode >= 400)");
   const onlineUsers = countOnlineUsers(onlineStartIso);
   const activeUsers = countActiveUsers(activeStartIso);
   const idleUsers = countRows(`
@@ -1156,14 +1709,37 @@ export function getOpsSummary(params: { windowMinutes?: number; engine?: Monitor
     LIMIT 10
   `, [windows.current.startUtcIso, windows.current.endUtcIso]);
 
+  const freshness = {
+    sessionsLastSeenAt: maxTimestamp("ops_sessions", "lastSeenAt"),
+    eventsLastSeenAt: maxTimestamp("ops_events", "occurredAt"),
+    errorsLastSeenAt: maxTimestamp("ops_errors", "lastSeenAt"),
+  };
+  const dashboardHealth = buildHealthPayload(params.engine);
+  const currentPerformanceHealth = performanceHealth(windows.current);
+  const qualityModel = buildOpsQualityModel({
+    generatedAt,
+    windows,
+    dashboardHealth,
+    performanceHealth: currentPerformanceHealth,
+    engineAvailable: Boolean(params.engine),
+    counts: {
+      currentApiRequests,
+      previousApiRequests,
+      currentPageViews,
+      previousPageViews,
+      currentErrors,
+      previousErrors,
+      apiFailureCount,
+      previousApiFailureCount,
+      currentSessions,
+    },
+    freshness,
+  });
+
   return {
     ok: true as const,
     generatedAt,
-    freshness: {
-      sessionsLastSeenAt: maxTimestamp("ops_sessions", "lastSeenAt"),
-      eventsLastSeenAt: maxTimestamp("ops_events", "occurredAt"),
-      errorsLastSeenAt: maxTimestamp("ops_errors", "lastSeenAt"),
-    },
+    freshness,
     windows: {
       current: windows.current,
       previous: windows.previous,
@@ -1242,8 +1818,11 @@ export function getOpsSummary(params: { windowMinutes?: number; engine?: Monitor
     topPages,
     topEventTypes,
     health: {
-      dashboard: buildHealthPayload(params.engine),
-      performance: performanceHealth(windows.current),
+      dashboard: dashboardHealth,
+      performance: currentPerformanceHealth,
     },
+    quality: qualityModel.quality,
+    alerts: qualityModel.alerts,
+    subsystems: qualityModel.subsystems,
   };
 }

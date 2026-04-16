@@ -1,4 +1,4 @@
-import type { OpsEventSeverity, OpsSessionState, OpsSystemId } from "../../../api/types";
+import type { OpsEventSeverity, OpsHealthStatus, OpsSessionState, OpsSystemId } from "../../../api/types";
 
 export function formatOpsNumber(value: number) {
   return value.toLocaleString("en-US");
@@ -89,6 +89,19 @@ export function severityLabel(severity: OpsEventSeverity | string | null | undef
   }
 }
 
+export function healthStatusLabel(status: OpsHealthStatus | string | null | undefined) {
+  switch (status) {
+    case "healthy":
+      return "Healthy";
+    case "degraded":
+      return "Degraded";
+    case "critical":
+      return "Critical";
+    default:
+      return "Unknown";
+  }
+}
+
 export function systemColor(system: OpsSystemId | string | null | undefined) {
   switch (system) {
     case "upuse":
@@ -125,6 +138,19 @@ export function severityColor(severity: OpsEventSeverity | string | null | undef
       return "#ca8a04";
     case "info":
       return "#2563eb";
+    default:
+      return "#64748b";
+  }
+}
+
+export function healthStatusColor(status: OpsHealthStatus | string | null | undefined) {
+  switch (status) {
+    case "healthy":
+      return "#15803d";
+    case "degraded":
+      return "#ca8a04";
+    case "critical":
+      return "#dc2626";
     default:
       return "#64748b";
   }

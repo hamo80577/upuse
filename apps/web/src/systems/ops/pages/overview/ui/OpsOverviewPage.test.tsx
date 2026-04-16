@@ -131,6 +131,96 @@ const baseSummary: OpsSummaryResponse = {
       lastOpenedAt: "2026-04-16T09:55:00.000Z",
       errorCount: 1,
       apiFailureCount: 1,
+      websocketFailureCount: 1,
+      p95LatencyMs: 1800,
+    },
+  },
+  quality: {
+    score: 74,
+    status: "degraded",
+    factors: [
+      {
+        key: "api_failure_rate",
+        label: "API failure rate",
+        status: "critical",
+        penalty: 25,
+        value: 12.5,
+        unit: "%",
+        detail: "1 failed API events from 8 request events.",
+        threshold: 5,
+      },
+      {
+        key: "performance_surface",
+        label: "UPuse Performance surface",
+        status: "degraded",
+        penalty: 10,
+        value: 1,
+        unit: "failures",
+        detail: "1 performance-scoped failures, 1 live stream failures.",
+        threshold: 1,
+      },
+    ],
+    trend: {
+      previousScore: 90,
+      delta: -16,
+      direction: "down",
+    },
+    metrics: {
+      apiFailureRate: 0.125,
+      runtimeErrorRate: 0,
+      p95LatencyMs: 1800,
+      websocketFailures: 1,
+      telemetryAgeMinutes: 0.3,
+      tokenTestFailures: 0,
+    },
+  },
+  alerts: [
+    {
+      id: "api-api-failure-rate-warning",
+      severity: "warning",
+      subsystem: "api",
+      title: "API failure rate is elevated",
+      message: "1 API failures in the selected window.",
+      metric: "api_failure_rate",
+      value: 12.5,
+      threshold: 5,
+      createdAt: "2026-04-16T10:00:00.000Z",
+    },
+  ],
+  subsystems: {
+    dashboard: {
+      label: "UPuse Dashboard",
+      status: "healthy",
+      score: 96,
+      monitorRunning: true,
+      monitorDegraded: false,
+      ordersSyncState: "healthy",
+      staleBranchCount: 0,
+      failures: 0,
+      websocketFailures: 0,
+      p95LatencyMs: 400,
+      lastHealthyAt: "2026-04-16T09:59:00.000Z",
+      message: "Monitor ready",
+    },
+    performance: {
+      label: "UPuse Performance",
+      status: "degraded",
+      score: 82,
+      failures: 1,
+      apiFailureCount: 1,
+      websocketFailures: 1,
+      p95LatencyMs: 1800,
+      lastOpenedAt: "2026-04-16T09:55:00.000Z",
+      message: "Performance telemetry has recent failure pressure.",
+    },
+    telemetry: {
+      label: "Ops Telemetry",
+      status: "healthy",
+      score: 95,
+      lastSignalAt: "2026-04-16T09:59:40.000Z",
+      ageMinutes: 0.3,
+      websocketFailures: 1,
+      message: "Ops telemetry freshness is being tracked.",
     },
   },
 };
@@ -296,6 +386,11 @@ describe("OpsOverviewPage", () => {
     expect(screen.getByText("Online Users")).toBeInTheDocument();
     expect(screen.getByText("API Requests")).toBeInTheDocument();
     expect(screen.getByText("13% failure rate in this window")).toBeInTheDocument();
+    expect(screen.getByText("Quality And Alerts")).toBeInTheDocument();
+    expect(screen.getByText("Quality Score")).toBeInTheDocument();
+    expect(screen.getByText("API failure rate is elevated")).toBeInTheDocument();
+    expect(screen.getByText("UPuse Dashboard")).toBeInTheDocument();
+    expect(screen.getByText("UPuse Performance")).toBeInTheDocument();
     expect(screen.getByTestId("ops-event-trend-chart")).toBeInTheDocument();
     expect(screen.getByTestId("ops-system-distribution-chart")).toBeInTheDocument();
     expect(screen.getByTestId("ops-top-pages-chart")).toBeInTheDocument();
@@ -384,6 +479,57 @@ describe("OpsOverviewPage", () => {
         },
         topPages: [],
         topEventTypes: [],
+        quality: {
+          ...baseSummary.quality,
+          score: 95,
+          status: "healthy",
+          factors: baseSummary.quality.factors.map((factor) => ({
+            ...factor,
+            status: "healthy",
+            penalty: 0,
+            value: 0,
+          })),
+          trend: {
+            previousScore: 95,
+            delta: 0,
+            direction: "flat",
+          },
+          metrics: {
+            apiFailureRate: 0,
+            runtimeErrorRate: 0,
+            p95LatencyMs: null,
+            websocketFailures: 0,
+            telemetryAgeMinutes: null,
+            tokenTestFailures: 0,
+          },
+        },
+        alerts: [],
+        subsystems: {
+          dashboard: {
+            ...baseSummary.subsystems.dashboard,
+            status: "healthy",
+            score: 100,
+            failures: 0,
+            websocketFailures: 0,
+          },
+          performance: {
+            ...baseSummary.subsystems.performance,
+            status: "healthy",
+            score: 100,
+            failures: 0,
+            apiFailureCount: 0,
+            websocketFailures: 0,
+            p95LatencyMs: null,
+          },
+          telemetry: {
+            ...baseSummary.subsystems.telemetry,
+            status: "healthy",
+            score: 95,
+            websocketFailures: 0,
+            ageMinutes: null,
+            lastSignalAt: null,
+          },
+        },
       },
       sessions: [],
       events: [],

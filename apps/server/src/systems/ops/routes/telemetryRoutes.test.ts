@@ -659,6 +659,34 @@ describe("Ops telemetry routes", () => {
           status: "good",
         },
       },
+      quality: {
+        status: "critical",
+        score: 75,
+      },
+    });
+    expect(summary.quality.factors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        key: "api_failure_rate",
+        status: "critical",
+        penalty: 25,
+      }),
+    ]));
+    expect(summary.alerts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        subsystem: "api",
+        title: "API failure rate is elevated",
+      }),
+    ]));
+    expect(summary.subsystems).toMatchObject({
+      dashboard: {
+        label: "UPuse Dashboard",
+      },
+      performance: {
+        label: "UPuse Performance",
+      },
+      telemetry: {
+        label: "Ops Telemetry",
+      },
     });
     expect(summary.topPages).toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "/ops", views: 1 }),
@@ -701,5 +729,94 @@ describe("Ops telemetry routes", () => {
       statusCode: 500,
       count: 1,
     });
+  });
+
+  it("classifies dashboard and performance subsystem regressions in the Ops quality model", async () => {
+    const ingest = await fetch(`${baseUrl}/api/ops/ingest`, {
+      method: "POST",
+      headers: jsonHeaders({ "x-test-user": "primary" }),
+      body: JSON.stringify({
+        session: {
+          path: "/performance",
+          system: "upuse",
+          state: "active",
+        },
+        events: [
+          {
+            type: "api_error",
+            endpoint: "/api/dashboard",
+            method: "GET",
+            statusCode: 502,
+            success: false,
+            source: "frontend",
+            system: "upuse",
+            error: { message: "Dashboard snapshot failed" },
+          },
+          {
+            type: "api_error",
+            endpoint: "/api/ws/performance",
+            method: "GET",
+            success: false,
+            source: "websocket",
+            system: "upuse",
+            error: { message: "Performance websocket disconnected" },
+          },
+          {
+            type: "api_request",
+            endpoint: "/api/performance",
+            method: "GET",
+            statusCode: 200,
+            success: true,
+            durationMs: 5000,
+            system: "upuse",
+          },
+          {
+            type: "js_error",
+            path: "/performance",
+            system: "upuse",
+            error: { message: "Performance render failed" },
+          },
+          {
+            type: "token_test_finished",
+            path: "/settings",
+            system: "upuse",
+            success: false,
+            severity: "warning",
+          },
+        ],
+      }),
+    });
+    expect(ingest.status).toBe(200);
+
+    const summaryResponse = await fetch(`${baseUrl}/api/ops/summary?windowMinutes=1440`, {
+      headers: { "x-test-user": "primary" },
+    });
+    const summary = await summaryResponse.json();
+
+    expect(summaryResponse.status).toBe(200);
+    expect(summary.quality).toMatchObject({
+      status: "critical",
+    });
+    expect(summary.quality.factors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "p95_api_latency", status: "critical" }),
+      expect.objectContaining({ key: "performance_surface", status: "critical" }),
+      expect.objectContaining({ key: "token_test_failures", status: "degraded" }),
+    ]));
+    expect(summary.subsystems.dashboard).toMatchObject({
+      label: "UPuse Dashboard",
+      status: "degraded",
+      failures: 1,
+    });
+    expect(summary.subsystems.performance).toMatchObject({
+      label: "UPuse Performance",
+      status: "critical",
+      websocketFailures: 1,
+      p95LatencyMs: 5000,
+    });
+    expect(summary.alerts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: "Dashboard surface needs attention" }),
+      expect.objectContaining({ title: "Performance surface needs attention" }),
+      expect.objectContaining({ title: "Token test failures detected" }),
+    ]));
   });
 });

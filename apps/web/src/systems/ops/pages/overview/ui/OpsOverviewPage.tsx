@@ -49,9 +49,10 @@ import type {
   OpsSystemId,
   OpsTelemetryEventType,
 } from "../../../api/types";
-import { formatOpsDateTime, formatOpsNumber, formatOpsRate, formatOpsRelativeTime, stateLabel, systemLabel } from "../lib/opsFormat";
+import { formatOpsDateTime, formatOpsNumber, formatOpsRate, formatOpsRelativeTime, healthStatusColor, healthStatusLabel, stateLabel, systemLabel } from "../lib/opsFormat";
 import { OpsErrorCharts, OpsTrafficCharts } from "./OpsDashboardCharts";
 import { OpsErrorIntelligence, OpsLiveSessionsTable, OpsRecentEventsTable, OpsSearchControl } from "./OpsDashboardTables";
+import { OpsQualityPanel } from "./OpsQualityPanel";
 
 const AUTO_REFRESH_MS = 30_000;
 const DATA_PAGE_SIZE = 100;
@@ -249,7 +250,7 @@ function HealthPanel(props: { summary: OpsSummaryResponse; now: number }) {
     props.summary.freshness.errorsLastSeenAt,
   ]);
   const dashboardWarning = props.summary.health.dashboard.ready === false || props.summary.health.dashboard.monitorDegraded === true;
-  const performanceWarning = props.summary.health.performance.status === "warning";
+  const performanceWarning = props.summary.health.performance.status !== "good";
   const freshnessLabel = lastIngestAt ? formatOpsRelativeTime(lastIngestAt, props.now) : "No telemetry yet";
   const generatedAt = formatOpsDateTime(props.summary.generatedAt);
 
@@ -466,17 +467,12 @@ export function OpsOverviewPage() {
     const failureRate = summary.counts.apiRequestCount > 0
       ? summary.counts.apiFailureCount / summary.counts.apiRequestCount
       : 0;
-    const performanceWarning = summary.health.performance.status === "warning";
-    const dashboardWarning = summary.health.dashboard.ready === false || summary.health.dashboard.monitorDegraded === true;
-    const overallWarning = performanceWarning || dashboardWarning || summary.counts.apiFailureCount > 0 || errorKpi.value > 0;
-
     return {
       sessionKpi,
       pageViewKpi,
       apiRequestKpi,
       errorKpi,
       failureRate,
-      overallWarning,
     };
   }, [summary]);
 
@@ -667,14 +663,31 @@ export function OpsOverviewPage() {
                 />
                 <KpiTile
                   title="Overall Health"
-                  value={overview.overallWarning ? "Watch" : "Healthy"}
-                  detail={overview.overallWarning ? "Recent failures need review." : "No recent failure pressure detected."}
-                  accent={overview.overallWarning ? "#ca8a04" : "#15803d"}
+                  value={healthStatusLabel(summary.quality.status)}
+                  detail={`${formatOpsNumber(summary.quality.score)} score from ${formatOpsNumber(summary.quality.factors.length)} signals`}
+                  accent={healthStatusColor(summary.quality.status)}
                   icon={<MonitorHeartRoundedIcon fontSize="small" />}
                 />
               </Box>
 
               {!hasTelemetry ? <EmptySummaryCallout /> : null}
+
+              <SectionTitle
+                title="Quality And Alerts"
+                subtitle="Current health judgement, penalties, active anomalies, and monitored subsystem trust."
+                action={(
+                  <Chip
+                    label={`${formatOpsNumber(summary.quality.score)} quality score`}
+                    sx={{
+                      borderRadius: "8px",
+                      fontWeight: 900,
+                      bgcolor: `${healthStatusColor(summary.quality.status)}14`,
+                      color: healthStatusColor(summary.quality.status),
+                    }}
+                  />
+                )}
+              />
+              <OpsQualityPanel summary={summary} />
 
               <Box
                 sx={{

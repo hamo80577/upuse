@@ -3,6 +3,7 @@ export type OpsSessionState = "active" | "idle" | "offline";
 export type OpsTelemetryWriteSessionState = Exclude<OpsSessionState, "offline">;
 export type OpsEventSeverity = "info" | "warning" | "error" | "critical";
 export type OpsEventSource = "frontend" | "backend" | "websocket" | "integration" | "unknown";
+export type OpsHealthStatus = "healthy" | "degraded" | "critical";
 export type OpsTelemetryEventType =
   | "page_view"
   | "route_change"
@@ -151,6 +152,80 @@ export interface OpsSummaryTopError {
   lastSeenAt: string;
 }
 
+export interface OpsQualityFactor {
+  key: string;
+  label: string;
+  status: OpsHealthStatus;
+  penalty: number;
+  value: number | null;
+  unit: string;
+  detail: string;
+  threshold: number | null;
+}
+
+export interface OpsQualityAlert {
+  id: string;
+  severity: "info" | "warning" | "critical";
+  subsystem: "overall" | "dashboard" | "performance" | "api" | "frontend" | "monitor" | "token" | "telemetry";
+  title: string;
+  message: string;
+  metric: string;
+  value: number | null;
+  threshold: number | null;
+  createdAt: string;
+}
+
+export interface OpsQualitySummary {
+  score: number;
+  status: OpsHealthStatus;
+  factors: OpsQualityFactor[];
+  trend: {
+    previousScore: number;
+    delta: number;
+    direction: "up" | "down" | "flat";
+  };
+  metrics: {
+    apiFailureRate: number;
+    runtimeErrorRate: number;
+    p95LatencyMs: number | null;
+    websocketFailures: number;
+    telemetryAgeMinutes: number | null;
+    tokenTestFailures: number;
+  };
+}
+
+export interface OpsSubsystemHealth {
+  label: string;
+  status: OpsHealthStatus;
+  score: number;
+  message: string;
+}
+
+export interface OpsDashboardSubsystemHealth extends OpsSubsystemHealth {
+  monitorRunning: boolean;
+  monitorDegraded: boolean;
+  ordersSyncState: string;
+  staleBranchCount: number;
+  failures: number;
+  websocketFailures: number;
+  p95LatencyMs: number | null;
+  lastHealthyAt: string | null;
+}
+
+export interface OpsPerformanceSubsystemHealth extends OpsSubsystemHealth {
+  failures: number;
+  apiFailureCount: number;
+  websocketFailures: number;
+  p95LatencyMs: number | null;
+  lastOpenedAt: string | null;
+}
+
+export interface OpsTelemetrySubsystemHealth extends OpsSubsystemHealth {
+  lastSignalAt: string | null;
+  ageMinutes: number | null;
+  websocketFailures: number;
+}
+
 export interface OpsSummaryResponse {
   ok: true;
   generatedAt: string;
@@ -210,13 +285,29 @@ export interface OpsSummaryResponse {
       monitorDegraded?: boolean;
       lastSnapshotAt?: string | null;
       lastErrorAt?: string | null;
+      ordersSync?: {
+        mode?: string;
+        state?: string;
+        staleBranchCount?: number;
+        consecutiveSourceFailures?: number;
+        lastSuccessfulSyncAt?: string | null;
+      };
     };
     performance: {
-      status: "good" | "warning";
+      status: "good" | "warning" | "critical";
       lastOpenedAt: string | null;
       errorCount: number;
       apiFailureCount: number;
+      websocketFailureCount: number;
+      p95LatencyMs: number | null;
     };
+  };
+  quality: OpsQualitySummary;
+  alerts: OpsQualityAlert[];
+  subsystems: {
+    dashboard: OpsDashboardSubsystemHealth;
+    performance: OpsPerformanceSubsystemHealth;
+    telemetry: OpsTelemetrySubsystemHealth;
   };
 }
 

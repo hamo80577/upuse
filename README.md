@@ -60,6 +60,7 @@ If you want one Windows command that loads `.env`, builds, and starts production
 - Ops telemetry writes (`/api/ops/ingest`, `/api/ops/presence/heartbeat`, `/api/ops/presence/end`) accept any authenticated user session so the product can record frontend presence, route, API failure, and runtime-error telemetry.
 - Ops Center read/admin APIs and the `/ops` workspace remain primary-admin-only and are not configurable from User Management.
 - The `/ops` workspace renders a primary-admin dashboard from live Ops summary, session, event, and error read APIs, with filters, auto-refresh, charts, and drill-down tables.
+- The Ops summary includes a 100-point quality score, active admin alerts, and subsystem health for UPuse Dashboard, UPuse Performance, and Ops telemetry freshness.
 - Ops telemetry sessions are ownership-bound to the authenticated user. Reusing another user's telemetry `sessionId` cannot rewrite or end that session; the server rotates writes to a fresh owned session id, and the browser adopts the returned replacement id.
 
 ## Workspaces and access model
