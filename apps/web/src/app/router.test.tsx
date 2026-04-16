@@ -135,6 +135,9 @@ vi.mock("../systems/scano/pages/scano/ui/ScanoMasterProductPage", () => ({
 
 vi.mock("../systems/ops/pages/overview/ui/OpsOverviewPage", () => ({
   OpsOverviewPage: () => <div>ops-overview-route</div>,
+  OpsActivityPage: () => <div>ops-activity-route</div>,
+  OpsEventsPage: () => <div>ops-events-route</div>,
+  OpsTokensPage: () => <div>ops-tokens-route</div>,
 }));
 
 vi.mock("../systems/upuse/pages/branches/ui/BranchesPage", () => ({
@@ -257,6 +260,43 @@ describe("AppRouter", () => {
       expect(screen.getByText("ops-overview-route")).toBeInTheDocument();
     });
     expect(window.sessionStorage.getItem("upuse.active-system")).toBe("ops");
+  });
+
+  it("routes Ops subsections for the primary admin", async () => {
+    mockUseAuth.mockReturnValue(createAuthState({
+      isAdmin: true,
+      isPrimaryAdmin: true,
+      canAccessUpuse: true,
+      canAccessOps: true,
+    }));
+
+    const renderAt = (path: string) => render(
+      <MemoryRouter initialEntries={[path]}>
+        <AppRouter />
+      </MemoryRouter>,
+    );
+
+    const activityView = renderAt("/ops/activity");
+
+    await waitFor(() => {
+      expect(screen.getByText("ops-activity-route")).toBeInTheDocument();
+    });
+
+    activityView.unmount();
+
+    const eventsView = renderAt("/ops/events");
+
+    await waitFor(() => {
+      expect(screen.getByText("ops-events-route")).toBeInTheDocument();
+    });
+
+    eventsView.unmount();
+
+    renderAt("/ops/tokens");
+
+    await waitFor(() => {
+      expect(screen.getByText("ops-tokens-route")).toBeInTheDocument();
+    });
   });
 
   it("redirects non-primary authenticated users away from Ops", async () => {

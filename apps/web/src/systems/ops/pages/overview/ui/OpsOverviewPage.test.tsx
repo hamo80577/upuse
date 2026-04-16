@@ -45,7 +45,7 @@ vi.mock("../../../telemetry/opsTelemetryClient", () => ({
   },
 }));
 
-import { OpsOverviewPage } from "./OpsOverviewPage";
+import { OpsActivityPage, OpsEventsPage, OpsOverviewPage, OpsTokensPage } from "./OpsOverviewPage";
 
 const TEST_TIMEOUT_MS = 15_000;
 
@@ -410,7 +410,7 @@ describe("OpsOverviewPage", () => {
     mockDashboardData();
   });
 
-  it("loads Ops read APIs and renders KPI, chart, table, and health sections", async () => {
+  it("loads Ops read APIs and renders KPI, quality, and health sections", async () => {
     render(<OpsOverviewPage />);
 
     expect(screen.getByText("TopBar")).toBeInTheDocument();
@@ -430,23 +430,52 @@ describe("OpsOverviewPage", () => {
     expect(screen.getByText("13% failure rate in this window")).toBeInTheDocument();
     expect(screen.getByText("Quality And Alerts")).toBeInTheDocument();
     expect(screen.getByText("Quality Score")).toBeInTheDocument();
-    expect(await screen.findByText("Token Management")).toBeInTheDocument();
     expect(screen.getByText("API failure rate is elevated")).toBeInTheDocument();
     expect(screen.getByText("UPuse Dashboard")).toBeInTheDocument();
     expect(screen.getByText("UPuse Performance")).toBeInTheDocument();
-    expect(screen.getByTestId("ops-event-trend-chart")).toBeInTheDocument();
-    expect(screen.getByTestId("ops-system-distribution-chart")).toBeInTheDocument();
-    expect(screen.getByTestId("ops-top-pages-chart")).toBeInTheDocument();
-    expect(screen.getByTestId("ops-event-types-chart")).toBeInTheDocument();
-    expect(screen.getByTestId("ops-error-severity-chart")).toBeInTheDocument();
-    expect(screen.getByTestId("ops-api-status-chart")).toBeInTheDocument();
-    expect(screen.getByText("Ali User")).toBeInTheDocument();
-    expect(screen.getByText("Scano tasks request failed")).toBeInTheDocument();
+    expect(screen.queryByTestId("ops-event-trend-chart")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ali User")).not.toBeInTheDocument();
     expect(screen.getByText("Health And Freshness")).toBeInTheDocument();
   }, TEST_TIMEOUT_MS);
 
+  it("renders the activity subsection without quality or token-management sections", async () => {
+    render(<OpsActivityPage />);
+
+    await waitFor(() => {
+      expect(mockOpsSummary).toHaveBeenCalledWith({ windowMinutes: 60 });
+    });
+
+    expect(screen.getByRole("heading", { name: "Traffic Overview" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Live User Activity" })).toBeInTheDocument();
+    expect(screen.queryByText("Quality And Alerts")).not.toBeInTheDocument();
+    expect(screen.queryByText("Token Management")).not.toBeInTheDocument();
+  }, TEST_TIMEOUT_MS);
+
+  it("renders the events subsection without session activity sections", async () => {
+    render(<OpsEventsPage />);
+
+    await waitFor(() => {
+      expect(mockOpsSummary).toHaveBeenCalledWith({ windowMinutes: 60 });
+    });
+
+    expect(screen.getByRole("heading", { name: "Event Intelligence" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Error Intelligence" })).toBeInTheDocument();
+    expect(screen.queryByText("Live User Activity")).not.toBeInTheDocument();
+  }, TEST_TIMEOUT_MS);
+
+  it("renders the token subsection without loading telemetry dashboard data", async () => {
+    render(<OpsTokensPage />);
+
+    expect(await screen.findByText("Token Management")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockOpsTokens).toHaveBeenCalled();
+    });
+    expect(mockOpsSummary).not.toHaveBeenCalled();
+    expect(screen.queryByText("Quality And Alerts")).not.toBeInTheDocument();
+  }, TEST_TIMEOUT_MS);
+
   it("filters dashboard tables and opens a session drill-down", async () => {
-    render(<OpsOverviewPage />);
+    render(<OpsActivityPage />);
 
     await waitFor(() => {
       expect(screen.getByText("Ali User")).toBeInTheDocument();
@@ -582,9 +611,7 @@ describe("OpsOverviewPage", () => {
     render(<OpsOverviewPage />);
 
     expect(await screen.findByText("No Ops telemetry has landed for the selected window yet.")).toBeInTheDocument();
-    expect(screen.getAllByText("No telemetry in this window").length).toBeGreaterThan(0);
-    expect(screen.getByText("No sessions match the current filters.")).toBeInTheDocument();
-    expect(screen.getByText("No events match the current filters.")).toBeInTheDocument();
+    expect(screen.getByText("Online Users")).toBeInTheDocument();
   }, TEST_TIMEOUT_MS);
 
   it("renders a read API failure state and recovers on retry", async () => {
@@ -596,7 +623,7 @@ describe("OpsOverviewPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
     await waitFor(() => {
-      expect(screen.getByText("Ali User")).toBeInTheDocument();
+      expect(screen.getByText("Online Users")).toBeInTheDocument();
     });
   }, TEST_TIMEOUT_MS);
 });

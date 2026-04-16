@@ -16,6 +16,7 @@
 - Built the live Ops Center dashboard UI on the existing primary-admin-only read APIs:
   - added KPI cards, traffic and error charts, live session tables, event and error intelligence sections, filters, time-range controls, auto-refresh, and health/freshness blocks
   - kept the initial dashboard data-driven and avoided placeholder observability data
+  - split Ops Center into focused primary-admin pages for overview, activity, events/errors, and tokens instead of one long dashboard route
 - Added Ops quality scoring and admin alerts:
   - extended the primary-admin Ops summary with a 100-point quality score, explainable penalties, active alerts, and dashboard/performance/telemetry subsystem health
   - scored real signals from API failure rate, runtime errors, p95 API latency, WebSocket failures, telemetry freshness, monitor health, dashboard/performance scoped failures, and token test failures

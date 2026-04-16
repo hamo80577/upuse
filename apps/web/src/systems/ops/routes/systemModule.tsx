@@ -1,5 +1,8 @@
 import AdminPanelSettingsRoundedIcon from "@mui/icons-material/AdminPanelSettingsRounded";
+import ErrorOutlineRoundedIcon from "@mui/icons-material/ErrorOutlineRounded";
 import InsightsRoundedIcon from "@mui/icons-material/InsightsRounded";
+import KeyRoundedIcon from "@mui/icons-material/KeyRounded";
+import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
 import { lazy } from "react";
 import { Navigate, Route } from "react-router-dom";
 import type { WebSystemModule } from "../../../core/systems/types";
@@ -8,6 +11,15 @@ import { OpsRouteShell } from "./OpsRouteShell";
 
 const OpsOverviewPage = lazy(() =>
   import("../pages/overview/ui/OpsOverviewPage").then((module) => ({ default: module.OpsOverviewPage })),
+);
+const OpsActivityPage = lazy(() =>
+  import("../pages/overview/ui/OpsOverviewPage").then((module) => ({ default: module.OpsActivityPage })),
+);
+const OpsEventsPage = lazy(() =>
+  import("../pages/overview/ui/OpsOverviewPage").then((module) => ({ default: module.OpsEventsPage })),
+);
+const OpsTokensPage = lazy(() =>
+  import("../pages/overview/ui/OpsOverviewPage").then((module) => ({ default: module.OpsTokensPage })),
 );
 
 export const opsSystemModule: WebSystemModule = {
@@ -31,16 +43,43 @@ export const opsSystemModule: WebSystemModule = {
   },
   canAccess: (auth) => auth.hasSystemAccess("ops"),
   resolveHomePath: () => "/ops",
-  getNavigation: (_auth, location) => [
-    {
-      key: "overview",
-      label: "Overview",
-      caption: "Admin command center",
-      path: "/ops",
-      icon: <InsightsRoundedIcon fontSize="small" />,
-      isActive: location.pathname === "/ops" || location.pathname.startsWith("/ops/"),
-    },
-  ],
+  getNavigation: (_auth, location) => {
+    const pathname = location.pathname.replace(/\/+$/, "") || "/ops";
+    return [
+      {
+        key: "overview",
+        label: "Overview",
+        caption: "Quality and health",
+        path: "/ops",
+        icon: <InsightsRoundedIcon fontSize="small" />,
+        isActive: pathname === "/ops",
+      },
+      {
+        key: "activity",
+        label: "Activity",
+        caption: "Traffic and sessions",
+        path: "/ops/activity",
+        icon: <TimelineRoundedIcon fontSize="small" />,
+        isActive: pathname === "/ops/activity",
+      },
+      {
+        key: "events",
+        label: "Events",
+        caption: "Events and errors",
+        path: "/ops/events",
+        icon: <ErrorOutlineRoundedIcon fontSize="small" />,
+        isActive: pathname === "/ops/events",
+      },
+      {
+        key: "tokens",
+        label: "Tokens",
+        caption: "Integration keys",
+        path: "/ops/tokens",
+        icon: <KeyRoundedIcon fontSize="small" />,
+        isActive: pathname === "/ops/tokens",
+      },
+    ];
+  },
   getRoutes: () => [
     <Route
       key="ops-root"
@@ -52,6 +91,10 @@ export const opsSystemModule: WebSystemModule = {
       )}
     >
       <Route index element={<OpsOverviewPage />} />
+      <Route path="activity" element={<OpsActivityPage />} />
+      <Route path="events" element={<OpsEventsPage />} />
+      <Route path="tokens" element={<OpsTokensPage />} />
+      <Route path="*" element={<Navigate to="/ops" replace />} />
     </Route>,
     <Route
       key="ops-fallback"
