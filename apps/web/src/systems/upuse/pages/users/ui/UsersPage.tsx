@@ -17,6 +17,7 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
+  ListItemText,
   MenuItem,
   Snackbar,
   Stack,
@@ -226,12 +227,12 @@ export function UsersPage() {
     [chainOptions, form.assignedChains],
   );
 
-  function toggleAssignedChain(chainName: string, checked: boolean) {
-    setForm((current) => {
-      const nextAssignedChains = checked
-        ? normalizeChainSelection([...current.assignedChains, chainName])
-        : current.assignedChains.filter((item) => item.toLowerCase() !== chainName.toLowerCase());
+  function changeAssignedChains(value: unknown) {
+    const nextAssignedChains = Array.isArray(value)
+      ? normalizeChainSelection(value.map((item) => String(item)))
+      : normalizeChainSelection(String(value).split(","));
 
+    setForm((current) => {
       return {
         ...current,
         assignedChains: nextAssignedChains,
@@ -538,28 +539,37 @@ export function UsersPage() {
                           </Box>
 
                           {trackerChainOptions.length ? (
-                            <Stack direction="row" spacing={0.8} flexWrap="wrap" useFlexGap>
-                              {trackerChainOptions.map((chainName) => (
-                                <FormControlLabel
-                                  key={chainName}
-                                  control={(
-                                    <Checkbox
-                                      checked={form.assignedChains.some((item) => item.toLowerCase() === chainName.toLowerCase())}
-                                      onChange={(event) => toggleAssignedChain(chainName, event.target.checked)}
-                                    />
-                                  )}
-                                  label={chainName}
-                                  sx={{
-                                    m: 0,
-                                    px: 0.8,
-                                    py: 0.2,
-                                    borderRadius: 1.5,
-                                    border: "1px solid rgba(148,163,184,0.14)",
-                                    bgcolor: "rgba(255,255,255,0.9)",
-                                  }}
-                                />
-                              ))}
-                            </Stack>
+                            <TextField
+                              select
+                              label="Assigned Chains"
+                              value={form.assignedChains}
+                              onChange={(event) => changeAssignedChains(event.target.value)}
+                              fullWidth
+                              SelectProps={{
+                                multiple: true,
+                                renderValue: (selected) => {
+                                  const selectedChains = Array.isArray(selected)
+                                    ? normalizeChainSelection(selected.map((item) => String(item)))
+                                    : normalizeChainSelection(String(selected).split(","));
+                                  return getAssignedChainsLabel(selectedChains);
+                                },
+                                MenuProps: {
+                                  PaperProps: {
+                                    sx: { maxHeight: 320 },
+                                  },
+                                },
+                              }}
+                            >
+                              {trackerChainOptions.map((chainName) => {
+                                const checked = form.assignedChains.some((item) => item.toLowerCase() === chainName.toLowerCase());
+                                return (
+                                  <MenuItem key={chainName} value={chainName}>
+                                    <Checkbox checked={checked} />
+                                    <ListItemText primary={chainName} />
+                                  </MenuItem>
+                                );
+                              })}
+                            </TextField>
                           ) : (
                             <Alert severity="info" variant="outlined">
                               No UPuse chains are available yet. This tracker will see an empty dashboard until chains are added.

@@ -188,10 +188,14 @@ describe("UsersPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     expect(screen.getByDisplayValue("tracker")).toBeInTheDocument();
-    expect(screen.getByLabelText("Chain A")).toBeChecked();
-    expect(screen.getByLabelText("Chain B")).not.toBeChecked();
+    expect(screen.getByLabelText("Assigned Chains")).toHaveTextContent("Chain A");
 
-    fireEvent.click(screen.getByLabelText("Chain B"));
+    fireEvent.mouseDown(screen.getByLabelText("Assigned Chains"));
+    fireEvent.click(await screen.findByRole("option", { name: "Chain B" }));
+    fireEvent.keyDown(screen.getByRole("listbox", { name: "Assigned Chains" }), { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.queryByRole("listbox", { name: "Assigned Chains" })).not.toBeInTheDocument();
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
 
     await waitFor(() => {
