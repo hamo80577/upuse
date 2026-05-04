@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { FIXED_AVAILABILITY_REFRESH_SECONDS } from "../config/monitoring.js";
 import type { CloseReason, OrdersMetrics, AvailabilityRecord, ResolvedBranchMapping, Settings } from "../types/models.js";
 import { derivePreparingNow } from "./orders/classification.js";
 import { resolveBranchThresholdProfile } from "./thresholds.js";
@@ -75,7 +76,7 @@ function hasTrustedTrackedRuntime(
     return false;
   }
 
-  const toleranceSeconds = Math.max(120, settings.availabilityRefreshSeconds + 30);
+  const toleranceSeconds = Math.max(120, FIXED_AVAILABILITY_REFRESH_SECONDS + 30);
   return Math.abs(actionAt.diff(closeAt).as("seconds")) <= toleranceSeconds;
 }
 
@@ -98,7 +99,7 @@ function isMonitorOwnedClosure(
   const actualUntil = DateTime.fromISO(availability.closedUntil, { zone: "utc" });
   if (!actualUntil.isValid) return false;
 
-  const toleranceSeconds = Math.max(90, settings.availabilityRefreshSeconds + 30);
+  const toleranceSeconds = Math.max(90, FIXED_AVAILABILITY_REFRESH_SECONDS + 30);
   return Math.abs(actualUntil.diff(expectedUntil).as("seconds")) <= toleranceSeconds;
 }
 
@@ -176,8 +177,8 @@ export function decide(input: PolicyInput): PolicyDecision {
     // After a UPuse close, give the availability source one refresh window to reflect the new state
     // before treating an OPEN response as a true external/manual reopen.
     if (lastCloseAt) {
-      const sourceSyncDeadline = lastCloseAt.plus({ seconds: Math.max(20, settings.availabilityRefreshSeconds + 5) });
-      if (now < sourceSyncDeadline) {
+      const sourceSyncDeadline = lastCloseAt.plus({ seconds: Math.max(20, FIXED_AVAILABILITY_REFRESH_SECONDS + 5) });
+      if (now <= sourceSyncDeadline) {
         return { type: "NOOP", note: "Waiting for close state propagation" };
       }
     }

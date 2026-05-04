@@ -1,9 +1,11 @@
 import type {
+  AvailabilityKind,
   AvailabilityRecord,
   DashboardSnapshot,
   MonitorSourceError,
   OrdersMetrics,
 } from "../../types/models.js";
+import { FIXED_AVAILABILITY_REFRESH_SECONDS } from "../../config/monitoring.js";
 import { getSettings } from "../../services/settingsStore.js";
 import { getRuntime, listResolvedBranches } from "../../services/branchStore.js";
 import { getOrdersMirrorEntitySyncStatus } from "../../services/ordersMirrorStore.js";
@@ -17,11 +19,14 @@ type MonitorSnapshotInput = {
   degraded: boolean;
   errors: { orders?: MonitorSourceError; availability?: MonitorSourceError };
   lastOrdersFetchAt?: string;
+  lastAvailabilityAttemptAt?: string;
   lastAvailabilityFetchAt?: string;
   lastHealthyAt?: string;
   ordersLastSuccessfulSyncAt?: string;
+  availabilityLastSuccessfulSyncAt?: string;
   staleOrdersBranchCount: number;
   consecutiveOrdersSourceFailures: number;
+  consecutiveAvailabilitySourceFailures: number;
   ordersByVendor: ReadonlyMap<number, OrdersMetrics>;
   availabilityByVendor: ReadonlyMap<string, AvailabilityRecord>;
   preparationByVendor: ReadonlyMap<number, OrdersPressureSummary>;
@@ -39,6 +44,44 @@ function resolveStaleAgeSeconds(fetchedAt: string | null | undefined, cacheState
   const ageMs = Date.now() - new Date(fetchedAt).getTime();
   if (!Number.isFinite(ageMs) || ageMs < 0) return null;
   return Math.floor(ageMs / 1000);
+}
+
+function resolveAvailabilityKind(
+  runtime: ReturnType<typeof getRuntime> | null | undefined,
+  availabilityState: AvailabilityRecord | undefined,
+  tracker: Pick<MonitorRuntimeTracker, "isMonitorOwnedClosure">,
+): AvailabilityKind {
+  if (!availabilityState) return "unknown";
+
+  if (availabilityState.availabilityState === "CLOSED_UNTIL" && tracker.isMonitorOwnedClosure(runtime ?? undefined, availabilityState)) {
+    return "upuseTempClose";
+  }
+
+  if (availabilityState.vssGroup === "shortClosures" || availabilityState.availabilityState === "CLOSED_UNTIL") {
+    return "sourceShortClosure";
+  }
+
+  if (availabilityState.vssGroup === "issues") {
+    return "sourceIssue";
+  }
+
+  if (availabilityState.vssGroup === "inactive") {
+    return "sourceInactive";
+  }
+
+  if (availabilityState.vssGroup === "offHours") {
+    return "sourceOffHours";
+  }
+
+  if (availabilityState.vssGroup === "highDemand") {
+    return "highDemand";
+  }
+
+  if (availabilityState.availabilityState === "OPEN" || availabilityState.vssGroup === "open") {
+    return "open";
+  }
+
+  return "unknown";
 }
 
 export function buildMonitorSnapshot(input: MonitorSnapshotInput, tracker: Pick<
@@ -104,6 +147,7 @@ export function buildMonitorSnapshot(input: MonitorSnapshotInput, tracker: Pick<
     const trackedMonitorClosedUntil = runtime?.closureObservedUntil ?? runtime?.lastUpuseCloseUntil ?? undefined;
     let status: "OPEN" | "TEMP_CLOSE" | "CLOSED" | "UNKNOWN" = "UNKNOWN";
     let statusColor: "green" | "red" | "orange" | "grey" = "grey";
+    let availabilityKind: AvailabilityKind = "unknown";
     let closedUntil: string | undefined;
     let closeStartedAt: string | undefined;
     let closedByUpuse = false;
@@ -115,17 +159,21 @@ export function buildMonitorSnapshot(input: MonitorSnapshotInput, tracker: Pick<
     const availabilityState = input.availabilityByVendor.get(branch.availabilityVendorId);
 
     if (availabilityState) {
-      if (availabilityState.availabilityState === "OPEN") {
+      availabilityKind = resolveAvailabilityKind(runtime, availabilityState, tracker);
+
+      if (availabilityKind === "open" || availabilityKind === "highDemand") {
         status = "OPEN";
         statusColor = "green";
         totals.open += 1;
-      } else if (availabilityState.availabilityState === "CLOSED_UNTIL") {
+      } else if (availabilityKind === "upuseTempClose" || availabilityKind === "sourceShortClosure") {
         status = "TEMP_CLOSE";
         statusColor = "red";
-        closedByUpuse = tracker.isMonitorOwnedClosure(runtime, availabilityState);
-        closedUntil = availabilityState.closedUntil ?? (closedByUpuse ? trackedMonitorClosedUntil : undefined);
+        closedByUpuse = availabilityKind === "upuseTempClose";
+        closedUntil = availabilityKind === "upuseTempClose"
+          ? availabilityState.closedUntil ?? trackedMonitorClosedUntil
+          : availabilityState.vssNextOpeningAt ?? availabilityState.closedUntil;
         closureSource = closedByUpuse ? "UPUSE" : "EXTERNAL";
-        sourceClosedReason = closedByUpuse ? undefined : availabilityState.closedReason;
+        sourceClosedReason = closedByUpuse ? undefined : availabilityState.vssClosedReason ?? availabilityState.closedReason;
         closeStartedAt = closedByUpuse
           ? tracker.inferCloseStartedAt(closedUntil, settings.tempCloseMinutes)
           : tracker.inferObservedExternalCloseStartedAt(runtime, availabilityState.closedUntil);
@@ -142,13 +190,17 @@ export function buildMonitorSnapshot(input: MonitorSnapshotInput, tracker: Pick<
             );
         }
         totals.tempClose += 1;
-      } else if (availabilityState.availabilityState === "CLOSED" || availabilityState.availabilityState === "CLOSED_TODAY") {
+      } else if (
+        availabilityKind === "sourceIssue" ||
+        availabilityKind === "sourceInactive" ||
+        availabilityKind === "sourceOffHours"
+      ) {
         status = "CLOSED";
         statusColor = "orange";
         closureSource = "EXTERNAL";
-        sourceClosedReason = availabilityState.closedReason;
+        sourceClosedReason = availabilityState.vssClosedReason ?? availabilityState.closedReason;
         totals.closed += 1;
-      } else if (availabilityState.availabilityState === "UNKNOWN") {
+      } else {
         totals.unknown += 1;
       }
     } else {
@@ -164,6 +216,7 @@ export function buildMonitorSnapshot(input: MonitorSnapshotInput, tracker: Pick<
       availabilityVendorId: branch.availabilityVendorId,
       status,
       statusColor,
+      availabilityKind,
       closedUntil,
       closeStartedAt,
       closedByUpuse,
@@ -172,6 +225,13 @@ export function buildMonitorSnapshot(input: MonitorSnapshotInput, tracker: Pick<
       sourceClosedReason,
       autoReopen,
       changeable: availabilityState?.changeable,
+      vssBucket: availabilityState?.vssBucket,
+      vssGroup: availabilityState?.vssGroup,
+      vssNextOpeningAt: availabilityState?.vssNextOpeningAt,
+      vssEndTime: availabilityState?.vssEndTime,
+      vssClosedReason: availabilityState?.vssClosedReason,
+      vssChangeable: availabilityState?.vssChangeable,
+      preptimeAdjustment: availabilityState?.preptimeAdjustment,
       thresholds,
       metrics: rawMetrics,
       preparingNow: preparation.preparingNow,
@@ -202,9 +262,26 @@ export function buildMonitorSnapshot(input: MonitorSnapshotInput, tracker: Pick<
               (totals.branchesMonitored > 0 && input.staleOrdersBranchCount / totals.branchesMonitored > 0.25)
               ? "degraded"
               : "healthy",
+        cadenceSeconds: settings.ordersRefreshSeconds,
         lastSuccessfulSyncAt: input.ordersLastSuccessfulSyncAt,
         staleBranchCount: input.staleOrdersBranchCount,
         consecutiveSourceFailures: input.consecutiveOrdersSourceFailures,
+        error: input.errors.orders,
+      },
+      availabilitySync: {
+        state:
+          !input.lastAvailabilityAttemptAt
+            ? "warming"
+            : input.errors.availability
+              ? "degraded"
+              : input.lastAvailabilityFetchAt
+                ? "healthy"
+                : "warming",
+        cadenceSeconds: FIXED_AVAILABILITY_REFRESH_SECONDS,
+        lastAttemptAt: input.lastAvailabilityAttemptAt,
+        lastSuccessfulSyncAt: input.availabilityLastSuccessfulSyncAt,
+        consecutiveFailures: input.consecutiveAvailabilitySourceFailures,
+        error: input.errors.availability,
       },
       errors: { ...input.errors },
     },

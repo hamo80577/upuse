@@ -263,6 +263,41 @@ describe("BranchDetailDialog", () => {
     expect(screen.getByText("Live Operations")).toBeInTheDocument();
   });
 
+  it("shows source issues without a reopen timer or stale UPuse trigger badges", () => {
+    const detailBranch = createBranchSnapshot({
+      status: "CLOSED",
+      statusColor: "orange",
+      availabilityKind: "sourceIssue",
+      vssGroup: "issues",
+      sourceClosedReason: "TECHNICAL_PROBLEM",
+      closedUntil: undefined,
+      closeStartedAt: undefined,
+      closedByUpuse: false,
+      closureSource: "EXTERNAL",
+      closeReason: undefined,
+      lastUpdatedAt: "2026-03-08T14:21:00.000Z",
+    });
+
+    mockUseBranchDetailState.mockReturnValue(buildHookState({
+      kind: "ok",
+      branch: detailBranch,
+      totals: detailBranch.metrics,
+      fetchedAt: "2026-03-08T14:22:00.000Z",
+      cacheState: "fresh",
+      unassignedOrders: [],
+      preparingOrders: [],
+      readyToPickupOrders: [],
+      pickers: emptyPickers(),
+    }));
+
+    render(<BranchDetailDialog open branchId={7} branchSnapshot={detailBranch} onClose={() => {}} />);
+
+    expect(screen.getAllByText("issues").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("TECHNICAL_PROBLEM").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Countdown")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Unassigned Trigger")).not.toBeInTheDocument();
+  });
+
   it("shows picker analytics in the overview and picker tabs", () => {
     mockUseBranchDetailState.mockReturnValue(buildHookState({
       kind: "ok",
@@ -394,7 +429,7 @@ describe("BranchDetailDialog", () => {
     render(<BranchDetailDialog open branchId={7} branchSnapshot={createBranchSnapshot()} onClose={() => {}} />);
 
     expect(screen.getAllByText("Temporary Close")).toHaveLength(1);
-    expect(screen.getByText("UPuse Control")).toBeInTheDocument();
+    expect(screen.getAllByText("UPuse").length).toBeGreaterThan(0);
     expect(screen.getByText("Unassigned Trigger")).toBeInTheDocument();
     expect(screen.getByLabelText("Unassigned Trigger")).toBeInTheDocument();
     expect(screen.queryByText("Late Trigger")).not.toBeInTheDocument();

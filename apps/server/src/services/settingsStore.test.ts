@@ -18,6 +18,7 @@ vi.mock("../config/db.js", async () => {
 });
 
 import { db } from "../config/db.js";
+import { FIXED_AVAILABILITY_REFRESH_SECONDS } from "../config/monitoring.js";
 import { getSettings, updateSettings } from "./settingsStore.js";
 
 function seedSettingsRow() {
@@ -168,5 +169,20 @@ describe("settingsStore.updateSettings", () => {
         capacityPerHourLimit: null,
       }),
     })).toThrowError(/Capacity \/ hour limit is required when the hourly rule is enabled\./);
+  });
+
+  it("always returns the fixed availability refresh cadence", () => {
+    expect(getSettings().availabilityRefreshSeconds).toBe(FIXED_AVAILABILITY_REFRESH_SECONDS);
+  });
+
+  it("ignores attempts to change the availability refresh cadence", () => {
+    const updated = updateSettings({
+      availabilityRefreshSeconds: 45,
+      ordersRefreshSeconds: 55,
+    });
+
+    expect(updated.ordersRefreshSeconds).toBe(55);
+    expect(updated.availabilityRefreshSeconds).toBe(FIXED_AVAILABILITY_REFRESH_SECONDS);
+    expect(getSettings().availabilityRefreshSeconds).toBe(FIXED_AVAILABILITY_REFRESH_SECONDS);
   });
 });

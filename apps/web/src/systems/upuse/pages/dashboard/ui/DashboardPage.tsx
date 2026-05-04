@@ -1,7 +1,10 @@
 import { Alert, Backdrop, Box, Button, CircularProgress, Container, Snackbar, Stack, Typography } from "@mui/material";
 import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../../app/providers/AuthProvider";
+import type { MonitorSourceError } from "../../../api/types";
 import {
+  UPUSE_FULL_WORKSPACE_CAPABILITY,
   UPUSE_MONITOR_MANAGE_CAPABILITY,
   UPUSE_MONITOR_ORDERS_REFRESH_CAPABILITY,
 } from "../../../routes/capabilities";
@@ -39,12 +42,6 @@ function fmtIssueAt(iso?: string) {
   }
 }
 
-function extractIssueDetail(message: string, baseContext: string) {
-  const escapedContext = baseContext.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = message.trim().match(new RegExp(`^${escapedContext}(?: \\(HTTP \\d+\\))?(?::\\s*(.*))?$`, "i"));
-  return match?.[1]?.trim() ?? "";
-}
-
 function isTunnelIssue(message: string) {
   return /cloudflare tunnel/i.test(message) || /tunnel is temporarily unavailable/i.test(message);
 }
@@ -70,23 +67,14 @@ function getSyncIssueCopy(message: string) {
   };
 }
 
-function getOrdersIssueCopy(message: string) {
-  const detail = extractIssueDetail(message, "Orders API request failed");
-  const tunnelIssue = isTunnelIssue(message);
-
-  if (tunnelIssue) {
-    return {
-      title: "Orders feed unavailable",
-      message: "Cloudflare tunnel is temporarily unavailable.",
-      hint: "Monitoring is still running, but live orders counts may lag until the tunnel recovers.",
-    };
-  }
-
+function buildStructuredIssueCopy(source: "orders" | "availability", error: MonitorSourceError) {
   return {
-    title: "Orders API error",
-    message: detail || "The orders feed returned an unexpected response.",
-    hint: "Monitoring is still running, but live orders metrics may be stale until the next healthy sync.",
-  };
+    kind: source === "availability" ? "availability" : "orders",
+    title: error.summary,
+    message: error.message,
+    hint: error.actionHint,
+    tokenAction: error.category === "token_missing" || error.category === "auth",
+  } as const;
 }
 
 function getOrdersStaleSummary(staleBranchCount: number) {
@@ -102,6 +90,8 @@ function getOrdersStaleSummary(staleBranchCount: number) {
 
 export function DashboardPage() {
   const { hasSystemCapability } = useAuth();
+  const navigate = useNavigate();
+  const canAccessFullWorkspace = hasSystemCapability("upuse", UPUSE_FULL_WORKSPACE_CAPABILITY);
   const canManageMonitor = hasSystemCapability("upuse", UPUSE_MONITOR_MANAGE_CAPABILITY);
   const canRefreshOrdersNow = hasSystemCapability("upuse", UPUSE_MONITOR_ORDERS_REFRESH_CAPABILITY);
   const {
@@ -154,7 +144,12 @@ export function DashboardPage() {
   );
 
   const ordersSync = snap.monitoring.ordersSync;
-  const ordersError = ordersSync?.state === "degraded" ? snap.monitoring.errors?.orders : undefined;
+  const availabilitySync = snap.monitoring.availabilitySync;
+  const ordersError = ordersSync?.state === "degraded" ? ordersSync.error ?? snap.monitoring.errors?.orders : undefined;
+  const availabilityError =
+    availabilitySync?.state === "degraded"
+      ? availabilitySync.error ?? snap.monitoring.errors?.availability
+      : undefined;
   const ordersSyncState =
     ordersSync?.state === "warming"
       ? "syncing"
@@ -162,7 +157,8 @@ export function DashboardPage() {
         ? "stale"
         : "fresh";
   const syncIssue = syncError ? getSyncIssueCopy(syncError) : null;
-  const ordersIssue = ordersError ? getOrdersIssueCopy(ordersError.message) : null;
+  const ordersIssue = ordersError ? buildStructuredIssueCopy("orders", ordersError) : null;
+  const availabilityIssue = availabilityError ? buildStructuredIssueCopy("availability", availabilityError) : null;
   const partialOrdersIssue =
     snap.monitoring.running &&
     ordersSync &&
@@ -181,8 +177,8 @@ export function DashboardPage() {
       <TopBar
         running={snap.monitoring.running}
         degraded={snap.monitoring.degraded}
-        degradedLabel={ordersError ? "Orders Sync Degraded" : undefined}
-        degradedColor={ordersError ? "error" : "warning"}
+        degradedLabel={availabilityError?.summary ?? ordersError?.summary ?? undefined}
+        degradedColor={availabilityError || ordersError ? "error" : "warning"}
         branchSummary={snap.branches}
         onStart={onStart}
         onStop={onStop}
@@ -198,34 +194,58 @@ export function DashboardPage() {
             hint={syncIssue?.hint}
           />
         ) : null}
+        {snap.monitoring.running && availabilityError && availabilityIssue ? (
+          <DashboardIssueBanner
+            kind={availabilityIssue.kind}
+            title={availabilityIssue.title}
+            message={availabilityIssue.message}
+            hint={availabilityIssue.hint}
+            statusCode={availabilityError.statusCode}
+            detectedLabel={fmtIssueAt(availabilityError.at) ? `Detected ${fmtIssueAt(availabilityError.at)}` : undefined}
+            action={availabilityIssue.tokenAction && canAccessFullWorkspace ? (
+              <Button
+                variant="contained"
+                color="warning"
+                onClick={() => navigate("/settings#tokens")}
+                sx={{ minWidth: { xs: "100%", md: 158 }, alignSelf: { xs: "stretch", md: "center" } }}
+              >
+                Open Tokens
+              </Button>
+            ) : undefined}
+          />
+        ) : null}
         {snap.monitoring.running && ordersError && ordersIssue ? (
           <DashboardIssueBanner
-            kind="orders"
+            kind={ordersIssue.kind}
             title={ordersIssue.title}
             message={ordersIssue.message}
             hint={ordersIssue.hint}
             statusCode={ordersError.statusCode}
             detectedLabel={fmtIssueAt(ordersError.at) ? `Detected ${fmtIssueAt(ordersError.at)}` : undefined}
-            action={(
+            action={ordersIssue.tokenAction && canAccessFullWorkspace ? (
+              <Button
+                variant="contained"
+                color="error"
+                onClick={() => navigate("/settings#tokens")}
+                sx={{ minWidth: { xs: "100%", md: 158 }, alignSelf: { xs: "stretch", md: "center" } }}
+              >
+                Open Tokens
+              </Button>
+            ) : canManageMonitor ? (
               <Button
                 variant="contained"
                 color="error"
                 onClick={onStop}
-                disabled={!canManageMonitor}
                 sx={{ minWidth: { xs: "100%", md: 158 }, alignSelf: { xs: "stretch", md: "center" } }}
               >
-                {canManageMonitor ? (
-                  <>
-                    <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
-                      Stop
-                    </Box>
-                    <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
-                      Stop Monitor
-                    </Box>
-                  </>
-                ) : "No Access"}
+                <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
+                  Stop
+                </Box>
+                <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+                  Stop Monitor
+                </Box>
               </Button>
-            )}
+            ) : undefined}
           />
         ) : null}
         {partialOrdersIssue ? (
@@ -248,6 +268,7 @@ export function DashboardPage() {
             ageMs: syncAgeMs,
             thresholdMs: staleThresholdMs,
           }}
+          canOpenReport={canAccessFullWorkspace}
           onRefreshNow={onRefreshNowWithLoading}
           onOpenReport={() => setReportDialogOpen(true)}
         />
@@ -316,10 +337,12 @@ export function DashboardPage() {
       </Suspense>
 
       <Suspense fallback={null}>
-        <ReportDownloadDialog
-          open={reportDialogOpen}
-          onClose={() => setReportDialogOpen(false)}
-        />
+        {canAccessFullWorkspace ? (
+          <ReportDownloadDialog
+            open={reportDialogOpen}
+            onClose={() => setReportDialogOpen(false)}
+          />
+        ) : null}
       </Suspense>
 
       <Snackbar open={!!toast} autoHideDuration={2500} onClose={() => setToast(null)} anchorOrigin={{ vertical: "bottom", horizontal: "center" }}>

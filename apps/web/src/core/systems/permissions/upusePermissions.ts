@@ -3,6 +3,7 @@ import type { AppUserRole } from "../../../api/types";
 export interface AppPermissions {
   isAdmin: boolean;
   canManage: boolean;
+  canAccessFullWorkspace: boolean;
   canManageUsers: boolean;
   canManageMonitor: boolean;
   canRefreshOrdersNow: boolean;
@@ -18,6 +19,7 @@ export interface AppPermissions {
 const anonymousPermissions: AppPermissions = {
   isAdmin: false,
   canManage: false,
+  canAccessFullWorkspace: false,
   canManageUsers: false,
   canManageMonitor: false,
   canRefreshOrdersNow: false,
@@ -31,6 +33,7 @@ const anonymousPermissions: AppPermissions = {
 };
 
 type UiCapability =
+  | "access_full_workspace"
   | "manage_users"
   | "manage_monitor"
   | "refresh_monitor_orders"
@@ -44,6 +47,7 @@ type UiCapability =
 
 const roleCapabilities: Record<AppUserRole, ReadonlySet<UiCapability>> = {
   admin: new Set<UiCapability>([
+    "access_full_workspace",
     "manage_users",
     "manage_monitor",
     "refresh_monitor_orders",
@@ -56,6 +60,7 @@ const roleCapabilities: Record<AppUserRole, ReadonlySet<UiCapability>> = {
     "clear_logs",
   ]),
   user: new Set<UiCapability>([
+    "access_full_workspace",
     "manage_monitor",
     "manage_branch_mappings",
     "delete_branch_mappings",
@@ -63,6 +68,7 @@ const roleCapabilities: Record<AppUserRole, ReadonlySet<UiCapability>> = {
     "manage_settings_tokens",
     "test_settings_tokens",
   ]),
+  tracker: new Set<UiCapability>(),
 };
 
 function hasUiCapability(role: AppUserRole | null | undefined, capability: UiCapability) {
@@ -79,6 +85,7 @@ export function getAppPermissionsForAccess(role?: AppUserRole | null, upuseAcces
     ...anonymousPermissions,
     isAdmin: upuseAccess && role === "admin",
     canManage: upuseAccess && role === "admin",
+    canAccessFullWorkspace: upuseAccess && hasUiCapability(role, "access_full_workspace"),
     canManageUsers: upuseAccess && hasUiCapability(role, "manage_users"),
     canManageMonitor: upuseAccess && hasUiCapability(role, "manage_monitor"),
     canRefreshOrdersNow: upuseAccess && hasUiCapability(role, "refresh_monitor_orders"),

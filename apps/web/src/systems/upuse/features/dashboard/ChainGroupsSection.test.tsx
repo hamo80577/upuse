@@ -16,7 +16,7 @@ describe("ChainGroupsSection", () => {
           {
             key: "chain:carrefour",
             label: "Carrefour",
-            totals: { open: 1, tempClose: 0, closed: 0, unknown: 0 },
+            totals: { open: 1, tempClose: 0, closed: 0, unknown: 0, upuse: 0, shortClosures: 0, issues: 0, inactive: 0, offHours: 0, highDemand: 0 },
             items: [
               {
                 rank: 1,
@@ -65,7 +65,7 @@ describe("ChainGroupsSection", () => {
             {
               key: "chain:carrefour",
               label: "Carrefour",
-              totals: { open: 1, tempClose: 0, closed: 0, unknown: 0 },
+              totals: { open: 1, tempClose: 0, closed: 0, unknown: 0, upuse: 0, shortClosures: 0, issues: 0, inactive: 0, offHours: 0, highDemand: 0 },
               items: [
                 {
                   rank: 1,

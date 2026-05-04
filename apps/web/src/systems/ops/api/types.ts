@@ -6,6 +6,7 @@ export type OpsTelemetryWriteSessionState = Exclude<OpsSessionState, "offline">;
 export type OpsEventSeverity = "info" | "warning" | "error" | "critical";
 export type OpsEventSource = "frontend" | "backend" | "websocket" | "integration" | "unknown";
 export type OpsHealthStatus = "healthy" | "degraded" | "critical";
+export type OpsUsageSatisfactionStatus = "positive" | "mixed" | "friction";
 export type OpsTelemetryEventType =
   | "page_view"
   | "route_change"
@@ -313,6 +314,62 @@ export interface OpsSummaryResponse {
   };
 }
 
+export interface OpsUsageSatisfactionSignal {
+  score: number;
+  status: OpsUsageSatisfactionStatus;
+  note: string;
+}
+
+export interface OpsUsageDaySatisfactionSummary extends OpsUsageSatisfactionSignal {
+  positiveUsers: number;
+  mixedUsers: number;
+  frictionUsers: number;
+}
+
+export interface OpsUsageHistoryUserReport {
+  userId: number | null;
+  userEmail: string | null;
+  userName: string | null;
+  systems: OpsSystemId[];
+  sessionCount: number;
+  pageViews: number;
+  totalDurationMs: number;
+  averageSessionDurationMs: number;
+  topPage: string | null;
+  topPageViews: number;
+  errorCount: number;
+  satisfaction: OpsUsageSatisfactionSignal;
+}
+
+export interface OpsUsageHistoryDaySummary {
+  dayKey: string;
+  label: string;
+  startUtcIso: string;
+  endUtcExclusiveIso: string;
+  uniqueUsers: number;
+  sessionCount: number;
+  pageViews: number;
+  totalDurationMs: number;
+  averageSessionDurationMs: number;
+  topPage: string | null;
+  topPageViews: number;
+  usersWithErrors: number;
+  satisfaction: OpsUsageDaySatisfactionSummary;
+}
+
+export interface OpsUsageHistoryDayDetail extends OpsUsageHistoryDaySummary {
+  users: OpsUsageHistoryUserReport[];
+}
+
+export interface OpsUsageHistoryResponse {
+  ok: true;
+  generatedAt: string;
+  timezone: string;
+  selectedDayKey: string | null;
+  days: OpsUsageHistoryDaySummary[];
+  selectedDay: OpsUsageHistoryDayDetail | null;
+}
+
 export interface OpsEventItem {
   id: number;
   sessionId: string | null;
@@ -365,6 +422,11 @@ export interface OpsPageResponse<TItem> {
 
 export interface OpsSummaryQuery {
   windowMinutes?: number;
+}
+
+export interface OpsUsageHistoryQuery {
+  days?: number;
+  dayKey?: string;
 }
 
 export interface OpsListQuery {

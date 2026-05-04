@@ -30,6 +30,7 @@ async function resetSchema() {
     DROP TABLE IF EXISTS scano_tasks;
     DROP TABLE IF EXISTS scano_team_members;
     DROP TABLE IF EXISTS sessions;
+    DROP TABLE IF EXISTS upuse_user_chain_assignments;
     DROP TABLE IF EXISTS users;
 
     CREATE TABLE users (
@@ -181,6 +182,59 @@ describe("authStore Scano access guards", () => {
     const passwordRow = db.prepare("SELECT passwordHash FROM users WHERE id = ?").get(created.id) as { passwordHash: string };
     expect(passwordRow.passwordHash).toMatch(/^scrypt\$/);
     await expect(verifyPassword("new-user-password-123", passwordRow.passwordHash)).resolves.toBe(true);
+  });
+
+  it("persists normalized assigned chains for tracker users", async () => {
+    const created = await createUser({
+      email: "tracker@example.com",
+      name: "Tracker",
+      upuseAccess: true,
+      upuseRole: "tracker",
+      assignedChains: [" Chain A ", "chain a", "Chain B"],
+      password: "tracker-password-123",
+    });
+
+    const assignmentRows = db.prepare(`
+      SELECT chainName
+      FROM upuse_user_chain_assignments
+      WHERE userId = ?
+      ORDER BY LOWER(chainName) ASC
+    `).all(created.id) as Array<{ chainName: string }>;
+
+    expect(created.role).toBe("tracker");
+    expect(created.assignedChains).toEqual(["Chain A", "Chain B"]);
+    expect(assignmentRows.map((row) => row.chainName)).toEqual(["Chain A", "Chain B"]);
+  });
+
+  it("clears tracker assignments when the user is updated back to a full UPuse role", async () => {
+    const tracker = await createUser({
+      email: "tracker@example.com",
+      name: "Tracker",
+      upuseAccess: true,
+      upuseRole: "tracker",
+      assignedChains: ["Chain A"],
+      password: "tracker-password-123",
+    });
+
+    const updated = await updateUser({
+      id: tracker.id,
+      email: "tracker@example.com",
+      name: "Tracker",
+      upuseAccess: true,
+      upuseRole: "user",
+      assignedChains: ["Chain A"],
+      actorUserId: 1,
+    });
+
+    const assignmentCount = db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM upuse_user_chain_assignments
+      WHERE userId = ?
+    `).get(tracker.id) as { count: number };
+
+    expect(updated.role).toBe("user");
+    expect(updated.assignedChains).toEqual([]);
+    expect(assignmentCount.count).toBe(0);
   });
 
   it("revokes existing sessions after a password change", async () => {

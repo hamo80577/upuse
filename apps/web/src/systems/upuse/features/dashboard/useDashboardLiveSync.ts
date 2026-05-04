@@ -13,6 +13,7 @@ import {
 
 const STREAM_RECONNECT_DELAYS_MS = [1000, 3000, 5000, 10000] as const;
 const FALLBACK_POLL_MS = 15000;
+const DEFAULT_REFRESH_SECONDS = 30;
 
 const emptySnap: DashboardSnapshot = {
   monitoring: { running: false },
@@ -126,10 +127,6 @@ function isUnsupportedStreamError(error: unknown) {
 export function useDashboardLiveSync() {
   const { applyMonitoring } = useMonitorStatus();
   const [snap, setSnapState] = useState<DashboardSnapshot>(emptySnap);
-  const [refreshSettings, setRefreshSettings] = useState({
-    ordersRefreshSeconds: 30,
-    availabilityRefreshSeconds: 30,
-  });
   const [syncClock, setSyncClock] = useState(() => Date.now());
   const [syncRecovering, setSyncRecovering] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -326,17 +323,6 @@ export function useDashboardLiveSync() {
 
     connectStream();
 
-    api.getSettings()
-      .then((settings) => {
-        setRefreshSettings({
-          ordersRefreshSeconds: settings.ordersRefreshSeconds,
-          availabilityRefreshSeconds: settings.availabilityRefreshSeconds,
-        });
-      })
-      .catch((error) => {
-        setSyncError((current) => current ?? describeApiError(error, "Failed to load refresh settings"));
-      });
-
     const clock = window.setInterval(() => {
       setSyncClock(Date.now());
     }, 2000);
@@ -362,8 +348,8 @@ export function useDashboardLiveSync() {
   ]);
 
   const staleThresholdMs = getStaleThresholdMs({
-    ordersRefreshSeconds: refreshSettings.ordersRefreshSeconds,
-    availabilityRefreshSeconds: refreshSettings.availabilityRefreshSeconds,
+    ordersRefreshSeconds: snap.monitoring.ordersSync?.cadenceSeconds ?? DEFAULT_REFRESH_SECONDS,
+    availabilityRefreshSeconds: snap.monitoring.availabilitySync?.cadenceSeconds ?? DEFAULT_REFRESH_SECONDS,
   });
   const syncDelayWarningThresholdMs = getSyncDelayWarningThresholdMs(staleThresholdMs);
   const autoRecoveryCooldownMs = getSyncAutoRecoveryCooldownMs(staleThresholdMs);

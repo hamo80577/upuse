@@ -1,5 +1,6 @@
 import { db, cryptoBox } from "../config/db.js";
 import { GlobalEntityIdSchema } from "../config/globalEntityId.js";
+import { FIXED_AVAILABILITY_REFRESH_SECONDS } from "../config/monitoring.js";
 import { z } from "zod";
 import type { ChainThreshold, Settings } from "../types/models.js";
 
@@ -330,7 +331,7 @@ export function getSettings(): Settings {
     tempCloseMinutes: row.tempCloseMinutes,
     graceMinutes: row.graceMinutes,
     ordersRefreshSeconds: row.ordersRefreshSeconds,
-    availabilityRefreshSeconds: row.availabilityRefreshSeconds,
+    availabilityRefreshSeconds: FIXED_AVAILABILITY_REFRESH_SECONDS,
     maxVendorsPerOrdersRequest: row.maxVendorsPerOrdersRequest,
   };
   return settings;
@@ -350,6 +351,7 @@ export function updateSettings(patch: Partial<Settings>) {
   const merged: Settings = {
     ...current,
     ...patch,
+    availabilityRefreshSeconds: FIXED_AVAILABILITY_REFRESH_SECONDS,
     chainNames: (patch.chains ?? current.chains).map((item) => item.name),
     chains: patch.chains ?? current.chains,
   };
@@ -357,6 +359,7 @@ export function updateSettings(patch: Partial<Settings>) {
   const normalizedChains = normalizeChainThresholds(validated.chains);
   const normalized: Settings = {
     ...validated,
+    availabilityRefreshSeconds: FIXED_AVAILABILITY_REFRESH_SECONDS,
     chainNames: normalizedChains.map((item) => item.name),
     chains: normalizedChains,
   };

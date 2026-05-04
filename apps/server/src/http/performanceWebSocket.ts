@@ -8,6 +8,7 @@ import { buildPerformanceStatusColorMap } from "../services/performanceStatusCol
 import { subscribeOrdersMirrorEntitySync, type OrdersMirrorEntitySyncStatus } from "../services/ordersMirrorStore.js";
 import type { AppUser, PerformanceSummaryResponse } from "../types/models.js";
 import { authorizeUpuseUpgradeFromCookieHeader } from "../shared/http/auth/sessionAuth.js";
+import { hasFullUpuseAccess } from "../systems/upuse/policies/access.js";
 import { createConnectionQuota } from "./connectionQuota.js";
 import { isTrustedOrigin, parseCorsOrigins } from "./security.js";
 
@@ -209,6 +210,10 @@ export function attachPerformanceWebSocketServer(options: {
     const authorization = authorizeUpuseUpgradeFromCookieHeader(getHeaderValue(req, "cookie"));
     if (!authorization.ok) {
       writeUpgradeError(socket, authorization.statusCode, authorization.message);
+      return;
+    }
+    if (!hasFullUpuseAccess(authorization.user)) {
+      writeUpgradeError(socket, 403, "Forbidden");
       return;
     }
 

@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { FIXED_AVAILABILITY_REFRESH_SECONDS } from "../../config/monitoring.js";
 import type {
   AvailabilityRecord,
   BranchMapping,
@@ -114,7 +115,7 @@ export class MonitorRuntimeTracker {
       return false;
     }
 
-    const toleranceSeconds = Math.max(120, settings.availabilityRefreshSeconds + 30);
+    const toleranceSeconds = Math.max(120, FIXED_AVAILABILITY_REFRESH_SECONDS + 30);
     return Math.abs(actionAt.diff(closeAt).as("seconds")) <= toleranceSeconds;
   }
 
@@ -137,7 +138,7 @@ export class MonitorRuntimeTracker {
     if (!lastCloseAt.isValid || !actualUntil.isValid) return false;
 
     const expectedUntil = lastCloseAt.plus({ minutes: Math.max(1, settings.tempCloseMinutes) });
-    const toleranceSeconds = Math.max(90, settings.availabilityRefreshSeconds + 30);
+    const toleranceSeconds = Math.max(90, FIXED_AVAILABILITY_REFRESH_SECONDS + 30);
     return Math.abs(actualUntil.diff(expectedUntil).as("seconds")) <= toleranceSeconds;
   }
 
@@ -448,11 +449,42 @@ export class MonitorRuntimeTracker {
         continue;
       }
 
+      const authoritativeExternalClosed =
+        availability.vssGroup === "issues" ||
+        availability.vssGroup === "inactive" ||
+        availability.vssGroup === "offHours" ||
+        availability.availabilityState === "CLOSED" ||
+        availability.availabilityState === "CLOSED_TODAY";
+
+      if (authoritativeExternalClosed) {
+        const shouldClearTrackedMonitorState = Boolean(
+          runtime?.lastUpuseCloseUntil ||
+          runtime?.lastUpuseCloseReason ||
+          runtime?.lastUpuseCloseAt ||
+          runtime?.lastUpuseCloseEventId ||
+          runtime?.closureObservedUntil ||
+          runtime?.closureObservedAt ||
+          runtime?.closureOwner ||
+          runtime?.lastExternalCloseUntil ||
+          runtime?.lastExternalCloseAt,
+        );
+
+        if (shouldClearTrackedMonitorState) {
+          const sourceLabel = availability.vssGroup ?? "closed";
+          log(branch.id, "WARN", `CLOSED — external source (${sourceLabel})`);
+          setRuntime(branch.id, {
+            ...this.buildClearedClosureObservationPatch(runtime),
+            ...this.buildClearedMonitorRuntimePatch(runtime),
+            lastExternalCloseUntil: null,
+            lastExternalCloseAt: null,
+          });
+        }
+        continue;
+      }
+
       if (runtime?.lastExternalCloseUntil || runtime?.lastExternalCloseAt || runtime?.closureOwner === "EXTERNAL") {
         if (availability.availabilityState === "OPEN") {
           log(branch.id, "INFO", "OPEN — external source reopened");
-        } else if (availability.availabilityState === "CLOSED" || availability.availabilityState === "CLOSED_TODAY") {
-          log(branch.id, "WARN", "CLOSED — external source");
         }
 
         setRuntime(branch.id, {

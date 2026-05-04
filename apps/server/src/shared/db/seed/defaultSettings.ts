@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { resolveBootstrapGlobalEntityId } from "../../../config/globalEntityId.js";
+import { FIXED_AVAILABILITY_REFRESH_SECONDS } from "../../../config/monitoring.js";
 
 type EncryptLike = {
   encrypt(value: string): string;
@@ -32,7 +33,7 @@ export function ensureDefaultSettingsRow(params: {
     tempCloseMinutes: 30,
     graceMinutes: 5,
     ordersRefreshSeconds: 30,
-    availabilityRefreshSeconds: 30,
+    availabilityRefreshSeconds: FIXED_AVAILABILITY_REFRESH_SECONDS,
     maxVendorsPerOrdersRequest: 50,
   };
 

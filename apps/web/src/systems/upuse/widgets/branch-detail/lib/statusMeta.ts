@@ -1,12 +1,15 @@
 import type { BranchSnapshot } from "../../../api/types";
-import { formatSourceClosedReason, isExternalManualSourceClose } from "../../../shared/lib/branch/sourceClosedReason";
+import {
+  availabilityStatusChip,
+  availabilitySubtypeChip,
+  formatHighDemandMeta,
+  hasTimerBackedAvailability,
+  resolveAvailabilityKind,
+  resolveSourceClosedReason,
+} from "../../../shared/lib/branch/availabilityMeta";
 
 export function statusChip(branch: BranchSnapshot) {
-  if (!branch.monitorEnabled) return { label: "Paused", sx: { bgcolor: "#eef2ff", color: "#4338ca" } };
-  if (branch.status === "OPEN") return { label: "Open", sx: { bgcolor: "#e7f7ed", color: "#166534" } };
-  if (branch.status === "TEMP_CLOSE") return { label: "Temporary Close", sx: { bgcolor: "#fff1f2", color: "#be123c" } };
-  if (branch.status === "CLOSED") return { label: "Closed", sx: { bgcolor: "#fff7d6", color: "#92400e" } };
-  return { label: "Unknown", sx: { bgcolor: "#f1f5f9", color: "#475569" } };
+  return availabilityStatusChip(branch);
 }
 
 export function closeReasonMeta(reason?: BranchSnapshot["closeReason"]) {
@@ -19,12 +22,86 @@ export function closeReasonMeta(reason?: BranchSnapshot["closeReason"]) {
 }
 
 export function statusPanelMeta(branch: BranchSnapshot) {
+  const kind = resolveAvailabilityKind(branch);
+  const sourceReason = resolveSourceClosedReason(branch);
+  const highDemandMeta = formatHighDemandMeta(branch);
+  const subtype = availabilitySubtypeChip(branch);
+
   if (!branch.monitorEnabled) {
     return {
       title: "Paused from Monitor",
       caption: "This branch is excluded from live monitor cycles until it is turned back on.",
       tone: "#4338ca",
       sourceLabel: null,
+      showTimer: false,
+      footerCaption: null,
+    };
+  }
+
+  if (kind === "upuseTempClose") {
+    return {
+      title: "UPuse Temporary Close",
+      caption:
+        branch.autoReopen && branch.changeable !== false
+          ? "Auto reopen is armed when the trigger recovers."
+          : "Timer is tracked, but the source is not changeable right now.",
+      tone: "#166534",
+      sourceLabel: subtype?.label ?? "UPuse",
+      showTimer: true,
+      footerCaption: null,
+    };
+  }
+
+  if (kind === "sourceShortClosure") {
+    return {
+      title: "Source Temporary Close",
+      caption: "Source marks this branch as shortClosures.",
+      tone: "#166534",
+      sourceLabel: subtype?.label ?? "shortClosures",
+      showTimer: hasTimerBackedAvailability(branch),
+      footerCaption: null,
+    };
+  }
+
+  if (kind === "sourceIssue") {
+    return {
+      title: "Closed from Source",
+      caption: sourceReason ?? "Source marks this branch as issues.",
+      tone: "#92400e",
+      sourceLabel: subtype?.label ?? "issues",
+      showTimer: false,
+      footerCaption: "No timer is available while VSS reports issues for this branch.",
+    };
+  }
+
+  if (kind === "sourceInactive") {
+    return {
+      title: "Closed from Source",
+      caption: "Source marks this branch as inactive.",
+      tone: "#92400e",
+      sourceLabel: subtype?.label ?? "inactive",
+      showTimer: false,
+      footerCaption: "No timer is available while VSS reports this branch as inactive.",
+    };
+  }
+
+  if (kind === "sourceOffHours") {
+    return {
+      title: "Closed from Source",
+      caption: "Source marks this branch as offHours.",
+      tone: "#92400e",
+      sourceLabel: subtype?.label ?? "offHours",
+      showTimer: false,
+      footerCaption: "No timer is available while VSS reports this branch as offHours.",
+    };
+  }
+
+  if (kind === "highDemand") {
+    return {
+      title: "Live and Open",
+      caption: highDemandMeta ? `Source marks this branch as highDemand. ${highDemandMeta}.` : "Source marks this branch as highDemand.",
+      tone: "#166534",
+      sourceLabel: subtype?.label ?? "highDemand",
       showTimer: false,
       footerCaption: null,
     };
@@ -41,43 +118,12 @@ export function statusPanelMeta(branch: BranchSnapshot) {
     };
   }
 
-  if (branch.status === "TEMP_CLOSE") {
-    const isUpuseControlled = branch.closureSource === "UPUSE" || branch.closedByUpuse;
-    const canAutoReopen = Boolean(isUpuseControlled && branch.autoReopen && branch.changeable !== false);
-    const sourceReason = formatSourceClosedReason(branch.sourceClosedReason);
-    if (isExternalManualSourceClose(branch)) {
-      return {
-        title: "Source Temporary Close",
-        caption: sourceReason
-          ? "Colse To The End of slot"
-          : "Colse To The End of slot",
-        tone: "#92400e",
-        sourceLabel: "External Source",
-        showTimer: false,
-        footerCaption:
-          "No reopen timer is available. This branch stays closed until someone reopens it manually or source reaches normal closed hours.",
-      };
-    }
-    return {
-      title: isUpuseControlled ? "UPuse Temporary Close" : "Source Temporary Close",
-      caption: canAutoReopen
-        ? "Auto reopen is armed when the trigger recovers."
-        : isUpuseControlled
-          ? "Timer is tracked, but the source is not changeable right now."
-          : "Observed from source. The monitor will not reopen it automatically.",
-      tone: "#166534",
-      sourceLabel: isUpuseControlled ? "UPuse Control" : "External Source",
-      showTimer: true,
-      footerCaption: null,
-    };
-  }
-
   if (branch.status === "CLOSED") {
     return {
       title: "Closed from Source",
       caption: "No temporary timer is active for this branch.",
       tone: "#92400e",
-      sourceLabel: "Source Closed",
+      sourceLabel: subtype?.label ?? "Source Closed",
       showTimer: false,
       footerCaption: null,
     };

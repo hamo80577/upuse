@@ -17,6 +17,8 @@ import type {
   OpsTelemetryIngestPayload,
   OpsTelemetryIngestResponse,
   OpsTelemetrySessionPayload,
+  OpsUsageHistoryQuery,
+  OpsUsageHistoryResponse,
 } from "./types";
 
 const TELEMETRY_TIMEOUT_MS = 10_000;
@@ -38,6 +40,14 @@ function buildQuery(params: QueryParams) {
 export function opsSummary(params: OpsSummaryQuery = {}) {
   return requestJson<OpsSummaryResponse>(
     `/api/ops/summary${buildQuery({ windowMinutes: params.windowMinutes })}`,
+    undefined,
+    { timeoutMs: OPS_READ_TIMEOUT_MS },
+  );
+}
+
+export function opsHistory(params: OpsUsageHistoryQuery = {}) {
+  return requestJson<OpsUsageHistoryResponse>(
+    `/api/ops/history${buildQuery({ days: params.days, dayKey: params.dayKey })}`,
     undefined,
     { timeoutMs: OPS_READ_TIMEOUT_MS },
   );
@@ -124,6 +134,7 @@ export function opsTelemetryIngest(payload: OpsTelemetryIngestPayload) {
 
 export const opsApi = {
   opsSummary,
+  opsHistory,
   opsSessions,
   opsEvents,
   opsErrors,

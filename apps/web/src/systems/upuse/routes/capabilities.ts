@@ -1,5 +1,6 @@
 import type { SystemCapability } from "../../../core/systems/types";
 
+export const UPUSE_FULL_WORKSPACE_CAPABILITY = "workspace.full" satisfies SystemCapability;
 export const UPUSE_USERS_MANAGE_CAPABILITY = "users.manage" satisfies SystemCapability;
 export const UPUSE_MONITOR_MANAGE_CAPABILITY = "monitor.manage" satisfies SystemCapability;
 export const UPUSE_MONITOR_ORDERS_REFRESH_CAPABILITY = "monitor.orders.refresh" satisfies SystemCapability;

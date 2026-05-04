@@ -5,11 +5,31 @@ import { Box, Chip, Divider, Popover, Stack, Typography } from "@mui/material";
 import { memo, useMemo, useState } from "react";
 import type { MouseEvent, ReactNode } from "react";
 import type { BranchSnapshot } from "../../../api/types";
+import { availabilitySubtypeChip, resolveAvailabilitySubtypeLabel } from "../../../shared/lib/branch/availabilityMeta";
+
+type TickerBranch = Pick<
+  BranchSnapshot,
+  "branchId" | "name" | "status" | "availabilityKind" | "vssGroup" | "closedByUpuse" | "closureSource"
+>;
+
+function subtypeSummary(items: TickerBranch[]) {
+  const counts = new Map<string, number>();
+
+  items.forEach((branch) => {
+    const label = resolveAvailabilitySubtypeLabel(branch as BranchSnapshot);
+    if (!label) return;
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  });
+
+  return Array.from(counts.entries())
+    .map(([label, count]) => `${label} ${count}`)
+    .join(" • ");
+}
 
 function BranchStatusSection(props: {
   title: string;
   tone: "open" | "tempClose" | "closed" | "unknown";
-  items: Array<Pick<BranchSnapshot, "branchId" | "name" | "status">>;
+  items: TickerBranch[];
 }) {
   const meta =
     props.tone === "open"
@@ -19,6 +39,7 @@ function BranchStatusSection(props: {
         : props.tone === "closed"
           ? { chipLabel: "Closed", chipBg: "#fff7d6", chipColor: "#92400e", titleColor: "#92400e" }
           : { chipLabel: "Unknown", chipBg: "#eef2f7", chipColor: "#475569", titleColor: "#475569" };
+  const summary = subtypeSummary(props.items);
 
   return (
     <Box
@@ -42,7 +63,14 @@ function BranchStatusSection(props: {
           bgcolor: "rgba(248,250,252,0.78)",
         }}
       >
-        <Typography sx={{ fontWeight: 900, color: meta.titleColor, lineHeight: 1.1 }}>{props.title}</Typography>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontWeight: 900, color: meta.titleColor, lineHeight: 1.1 }}>{props.title}</Typography>
+          {summary ? (
+            <Typography variant="caption" sx={{ color: "text.secondary", lineHeight: 1.2 }}>
+              {summary}
+            </Typography>
+          ) : null}
+        </Box>
         <Chip
           size="small"
           label={props.items.length}
@@ -89,15 +117,31 @@ function BranchStatusSection(props: {
                 {branch.name}
               </Typography>
 
-              <Chip
-                size="small"
-                label={meta.chipLabel}
-                sx={{
-                  fontWeight: 800,
-                  bgcolor: meta.chipBg,
-                  color: meta.chipColor,
-                }}
-              />
+              <Stack direction="row" spacing={0.6} sx={{ flexWrap: "wrap", justifyContent: "flex-end", rowGap: 0.6 }}>
+                <Chip
+                  size="small"
+                  label={meta.chipLabel}
+                  sx={{
+                    fontWeight: 800,
+                    bgcolor: meta.chipBg,
+                    color: meta.chipColor,
+                  }}
+                />
+                {(() => {
+                  const subtype = availabilitySubtypeChip(branch as BranchSnapshot);
+                  return subtype ? (
+                    <Chip
+                      size="small"
+                      label={subtype.label}
+                      sx={{
+                        fontWeight: 800,
+                        border: "1px solid",
+                        ...subtype.sx,
+                      }}
+                    />
+                  ) : null;
+                })()}
+              </Stack>
             </Box>
           ))}
         </Stack>
@@ -143,7 +187,7 @@ function StateDot(props: {
 }
 
 function BranchStateTickerBase(props: {
-  branches: Array<Pick<BranchSnapshot, "branchId" | "name" | "status">>;
+  branches: TickerBranch[];
 }) {
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const grouped = useMemo(

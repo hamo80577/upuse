@@ -31,12 +31,32 @@ describe("health routes", () => {
             state: "degraded",
             staleBranchCount: 3,
             consecutiveSourceFailures: 2,
+            error: {
+              source: "orders",
+              category: "tunnel",
+              summary: "Orders tunnel unavailable",
+              message: "Orders sync could not reach the upstream because a tunnel or edge page was returned instead of API data.",
+              actionHint: "Cached orders can stay visible for a while, but live counts will drift until the upstream route recovers.",
+              at: "2026-03-14T08:00:10.000Z",
+              retryable: true,
+            },
+          },
+          availabilitySync: {
+            state: "healthy",
+            cadenceSeconds: 15,
+            lastAttemptAt: "2026-03-14T08:00:05.000Z",
+            lastSuccessfulSyncAt: "2026-03-14T08:00:05.000Z",
+            consecutiveFailures: 0,
           },
           errors: {
             orders: {
               source: "orders",
-              message: "Orders API request failed",
+              category: "tunnel",
+              summary: "Orders tunnel unavailable",
+              message: "Orders sync could not reach the upstream because a tunnel or edge page was returned instead of API data.",
+              actionHint: "Cached orders can stay visible for a while, but live counts will drift until the upstream route recovers.",
               at: "2026-03-14T08:00:10.000Z",
+              retryable: true,
             },
           },
         },
@@ -48,11 +68,14 @@ describe("health routes", () => {
       ready: false,
       readiness: {
         state: "degraded",
-        message: "Orders API request failed",
+        message: "Orders sync could not reach the upstream because a tunnel or edge page was returned instead of API data.",
       },
       monitorRunning: true,
       monitorDegraded: true,
       lastErrorAt: "2026-03-14T08:00:10.000Z",
+      availabilitySync: {
+        cadenceSeconds: 15,
+      },
     });
 
     const res = createResponse();
@@ -79,6 +102,11 @@ describe("health routes", () => {
             state: "warming",
             staleBranchCount: 0,
             consecutiveSourceFailures: 0,
+          },
+          availabilitySync: {
+            state: "warming",
+            cadenceSeconds: 15,
+            consecutiveFailures: 0,
           },
           errors: {},
         },
@@ -111,6 +139,11 @@ describe("health routes", () => {
             staleBranchCount: 0,
             consecutiveSourceFailures: 0,
           },
+          availabilitySync: {
+            state: "warming",
+            cadenceSeconds: 15,
+            consecutiveFailures: 0,
+          },
           errors: {},
         },
       }),
@@ -127,6 +160,50 @@ describe("health routes", () => {
         state: "idle",
       },
       monitorRunning: false,
+    });
+  });
+
+  it("surfaces degraded availability auth issues as not ready", () => {
+    const engine: any = {
+      getSnapshot: () => ({
+        monitoring: {
+          running: true,
+          degraded: true,
+          ordersSync: {
+            mode: "mirror",
+            state: "healthy",
+            staleBranchCount: 0,
+            consecutiveSourceFailures: 0,
+          },
+          availabilitySync: {
+            state: "degraded",
+            cadenceSeconds: 15,
+            lastAttemptAt: "2026-03-14T08:00:20.000Z",
+            lastSuccessfulSyncAt: "2026-03-14T08:00:00.000Z",
+            consecutiveFailures: 2,
+            error: {
+              source: "availability",
+              category: "auth",
+              summary: "Availability authentication failed",
+              message: "VSS availability sync is blocked because the upstream rejected the current credentials.",
+              actionHint: "Open Settings > Tokens to update or test the Availability API token.",
+              at: "2026-03-14T08:00:20.000Z",
+              statusCode: 401,
+              retryable: false,
+            },
+          },
+          errors: {},
+        },
+      }),
+    };
+
+    expect(buildHealthPayload(engine)).toMatchObject({
+      ready: false,
+      readiness: {
+        state: "degraded",
+        message: "VSS availability sync is blocked because the upstream rejected the current credentials.",
+      },
+      lastErrorAt: "2026-03-14T08:00:20.000Z",
     });
   });
 });

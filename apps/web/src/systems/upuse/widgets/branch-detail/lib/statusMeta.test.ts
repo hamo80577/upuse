@@ -30,13 +30,35 @@ function createBranch(overrides: Partial<BranchSnapshot> = {}): BranchSnapshot {
 }
 
 describe("statusPanelMeta", () => {
-  it("describes external issues closures without a reopen timer", () => {
-    const meta = statusPanelMeta(createBranch({ sourceClosedReason: "TECHNICAL_PROBLEM" }));
+  it("describes source issues closures without a reopen timer", () => {
+    const meta = statusPanelMeta(createBranch({
+      status: "CLOSED",
+      availabilityKind: "sourceIssue",
+      sourceClosedReason: "TECHNICAL_PROBLEM",
+    }));
 
-    expect(meta.title).toBe("Source Temporary Close");
-    expect(meta.caption).toBe("Colse To The End of slot");
+    expect(meta.title).toBe("Closed from Source");
+    expect(meta.caption).toBe("TECHNICAL_PROBLEM");
     expect(meta.showTimer).toBe(false);
-    expect(meta.footerCaption).toContain("manually");
+    expect(meta.footerCaption).toContain("issues");
+  });
+
+  it("keeps highDemand branches open while exposing the raw subtype", () => {
+    const meta = statusPanelMeta(createBranch({
+      status: "OPEN",
+      availabilityKind: "highDemand",
+      preptimeAdjustment: {
+        adjustmentMinutes: 15,
+        interval: {
+          startTime: "18:00",
+          endTime: "21:00",
+        },
+      },
+    }));
+
+    expect(meta.title).toBe("Live and Open");
+    expect(meta.caption).toContain("highDemand");
+    expect(meta.caption).toContain("+15 min");
   });
 
   it("labels capacity closures distinctly in the trigger badge", () => {

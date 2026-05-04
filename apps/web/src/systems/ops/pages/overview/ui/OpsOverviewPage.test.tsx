@@ -1,14 +1,16 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { OpsErrorItem, OpsEventItem, OpsPageResponse, OpsSessionItem, OpsSummaryResponse } from "../../../api/types";
+import type { OpsErrorItem, OpsEventItem, OpsPageResponse, OpsSessionItem, OpsSummaryResponse, OpsUsageHistoryResponse } from "../../../api/types";
 
 const {
+  mockOpsHistory,
   mockOpsSummary,
   mockOpsSessions,
   mockOpsEvents,
   mockOpsErrors,
   mockOpsTokens,
 } = vi.hoisted(() => ({
+  mockOpsHistory: vi.fn(),
   mockOpsSummary: vi.fn(),
   mockOpsSessions: vi.fn(),
   mockOpsEvents: vi.fn(),
@@ -19,6 +21,7 @@ const mockOpsTrack = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../../../api/client", () => ({
   api: {
+    opsHistory: mockOpsHistory,
     opsSummary: mockOpsSummary,
     opsSessions: mockOpsSessions,
     opsEvents: mockOpsEvents,
@@ -348,6 +351,119 @@ const baseErrors: OpsErrorItem[] = [
   },
 ];
 
+const baseHistory: OpsUsageHistoryResponse = {
+  ok: true,
+  generatedAt: "2026-04-16T10:00:00.000Z",
+  timezone: "Africa/Cairo",
+  selectedDayKey: "2026-04-16",
+  days: [
+    {
+      dayKey: "2026-04-16",
+      label: "Today",
+      startUtcIso: "2026-04-15T22:00:00.000Z",
+      endUtcExclusiveIso: "2026-04-16T22:00:00.000Z",
+      uniqueUsers: 2,
+      sessionCount: 3,
+      pageViews: 9,
+      totalDurationMs: 5_400_000,
+      averageSessionDurationMs: 1_800_000,
+      topPage: "/dashboard",
+      topPageViews: 4,
+      usersWithErrors: 1,
+      satisfaction: {
+        score: 72,
+        status: "positive",
+        note: "Longer sessions and repeat navigation suggest healthy engagement.",
+        positiveUsers: 1,
+        mixedUsers: 1,
+        frictionUsers: 0,
+      },
+    },
+    {
+      dayKey: "2026-04-15",
+      label: "Yesterday",
+      startUtcIso: "2026-04-14T22:00:00.000Z",
+      endUtcExclusiveIso: "2026-04-15T22:00:00.000Z",
+      uniqueUsers: 1,
+      sessionCount: 1,
+      pageViews: 2,
+      totalDurationMs: 600_000,
+      averageSessionDurationMs: 600_000,
+      topPage: "/settings",
+      topPageViews: 2,
+      usersWithErrors: 0,
+      satisfaction: {
+        score: 54,
+        status: "mixed",
+        note: "User behavior was mixed across the day.",
+        positiveUsers: 0,
+        mixedUsers: 1,
+        frictionUsers: 0,
+      },
+    },
+  ],
+  selectedDay: {
+    dayKey: "2026-04-16",
+    label: "Today",
+    startUtcIso: "2026-04-15T22:00:00.000Z",
+    endUtcExclusiveIso: "2026-04-16T22:00:00.000Z",
+    uniqueUsers: 2,
+    sessionCount: 3,
+    pageViews: 9,
+    totalDurationMs: 5_400_000,
+    averageSessionDurationMs: 1_800_000,
+    topPage: "/dashboard",
+    topPageViews: 4,
+    usersWithErrors: 1,
+    satisfaction: {
+      score: 72,
+      status: "positive",
+      note: "Longer sessions and repeat navigation suggest healthy engagement.",
+      positiveUsers: 1,
+      mixedUsers: 1,
+      frictionUsers: 0,
+    },
+    users: [
+      {
+        userId: 10,
+        userEmail: "ali@example.test",
+        userName: "Ali User",
+        systems: ["upuse"],
+        sessionCount: 2,
+        pageViews: 6,
+        totalDurationMs: 4_200_000,
+        averageSessionDurationMs: 2_100_000,
+        topPage: "/dashboard",
+        topPageViews: 4,
+        errorCount: 0,
+        satisfaction: {
+          score: 84,
+          status: "positive",
+          note: "Longer engaged visit with repeated navigation.",
+        },
+      },
+      {
+        userId: 11,
+        userEmail: "nada@example.test",
+        userName: "Nada Scanner",
+        systems: ["scano"],
+        sessionCount: 1,
+        pageViews: 3,
+        totalDurationMs: 1_200_000,
+        averageSessionDurationMs: 1_200_000,
+        topPage: "/scano/assign-task",
+        topPageViews: 2,
+        errorCount: 1,
+        satisfaction: {
+          score: 41,
+          status: "friction",
+          note: "Errors interrupted this user's journey.",
+        },
+      },
+    ],
+  },
+};
+
 function pageResponse<TItem>(items: TItem[]): OpsPageResponse<TItem> {
   return {
     items,
@@ -365,11 +481,13 @@ function mockDashboardData(params: {
   sessions?: OpsSessionItem[];
   events?: OpsEventItem[];
   errors?: OpsErrorItem[];
+  history?: OpsUsageHistoryResponse;
 } = {}) {
   mockOpsSummary.mockResolvedValue(params.summary ?? baseSummary);
   mockOpsSessions.mockResolvedValue(pageResponse(params.sessions ?? baseSessions));
   mockOpsEvents.mockResolvedValue(pageResponse(params.events ?? baseEvents));
   mockOpsErrors.mockResolvedValue(pageResponse(params.errors ?? baseErrors));
+  mockOpsHistory.mockResolvedValue(params.history ?? baseHistory);
   mockOpsTokens.mockResolvedValue({
     ok: true,
     tokens: [
@@ -446,6 +564,11 @@ describe("OpsOverviewPage", () => {
     });
 
     expect(screen.getByRole("heading", { name: "Traffic Overview" })).toBeInTheDocument();
+    expect(mockOpsHistory).toHaveBeenCalledWith({ days: 7, dayKey: undefined });
+    expect(screen.getByRole("heading", { name: "Daily Usage History" })).toBeInTheDocument();
+    expect(screen.getByText("User Behavior Report")).toBeInTheDocument();
+    expect(screen.getByText("Different Users")).toBeInTheDocument();
+    expect(screen.getAllByText("Ali User").length).toBeGreaterThan(0);
     expect(screen.getByRole("heading", { name: "Live User Activity" })).toBeInTheDocument();
     expect(screen.queryByText("Quality And Alerts")).not.toBeInTheDocument();
     expect(screen.queryByText("Token Management")).not.toBeInTheDocument();
@@ -478,21 +601,106 @@ describe("OpsOverviewPage", () => {
     render(<OpsActivityPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Ali User")).toBeInTheDocument();
+      const aliSessionRow = screen.getAllByRole("row").find((row) => (
+        row.textContent?.includes("Ali User")
+        && row.textContent?.includes("Active")
+        && row.textContent?.includes("/dashboard")
+      ));
+      expect(aliSessionRow).toBeTruthy();
     });
 
     fireEvent.change(screen.getByPlaceholderText("Search users, pages, events"), {
       target: { value: "nada" },
     });
 
-    expect(screen.queryByText("Ali User")).not.toBeInTheDocument();
-    expect(screen.getByText("Nada Scanner")).toBeInTheDocument();
+    await waitFor(() => {
+      const aliSessionRow = screen.getAllByRole("row").find((row) => (
+        row.textContent?.includes("Ali User")
+        && row.textContent?.includes("Active")
+        && row.textContent?.includes("/dashboard")
+      ));
+      expect(aliSessionRow).toBeUndefined();
+    });
 
-    fireEvent.click(screen.getByText("Nada Scanner"));
+    const nadaSessionRow = screen.getAllByRole("row").find((row) => (
+      row.textContent?.includes("Nada Scanner")
+      && row.textContent?.includes("Idle")
+      && row.textContent?.includes("/scano/assign-task")
+    ));
+    expect(nadaSessionRow).toBeTruthy();
+
+    fireEvent.click(nadaSessionRow!);
 
     const dialog = await screen.findByRole("dialog", { name: "Session Details" });
     expect(within(dialog).getByText("Edge")).toBeInTheDocument();
     expect(within(dialog).getByText("/scano/assign-task")).toBeInTheDocument();
+  }, TEST_TIMEOUT_MS);
+
+  it("reloads the selected day in the daily history report", async () => {
+    const yesterdayHistory: OpsUsageHistoryResponse = {
+      ...baseHistory,
+      selectedDayKey: "2026-04-15",
+      selectedDay: {
+        ...baseHistory.selectedDay!,
+        dayKey: "2026-04-15",
+        label: "Yesterday",
+        uniqueUsers: 1,
+        sessionCount: 1,
+        pageViews: 2,
+        totalDurationMs: 600_000,
+        averageSessionDurationMs: 600_000,
+        topPage: "/settings",
+        topPageViews: 2,
+        usersWithErrors: 0,
+        satisfaction: {
+          score: 54,
+          status: "mixed",
+          note: "User behavior was mixed across the day.",
+          positiveUsers: 0,
+          mixedUsers: 1,
+          frictionUsers: 0,
+        },
+        users: [
+          {
+            userId: 11,
+            userEmail: "nada@example.test",
+            userName: "Nada Scanner",
+            systems: ["scano"],
+            sessionCount: 1,
+            pageViews: 2,
+            totalDurationMs: 600_000,
+            averageSessionDurationMs: 600_000,
+            topPage: "/settings",
+            topPageViews: 2,
+            errorCount: 0,
+            satisfaction: {
+              score: 54,
+              status: "mixed",
+              note: "Moderate engagement without a strong friction signal.",
+            },
+          },
+        ],
+      },
+    };
+    mockOpsHistory.mockImplementation(async (params?: { dayKey?: string }) => (
+      params?.dayKey === "2026-04-15" ? yesterdayHistory : baseHistory
+    ));
+
+    render(<OpsActivityPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Today")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Yesterday"));
+
+    await waitFor(() => {
+      expect(mockOpsHistory).toHaveBeenLastCalledWith({ days: 7, dayKey: "2026-04-15" });
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText("/settings").length).toBeGreaterThan(1);
+    });
+    expect(screen.getByText("Moderate engagement without a strong friction signal.")).toBeInTheDocument();
   }, TEST_TIMEOUT_MS);
 
   it("reloads the summary when the time range changes and supports manual refresh", async () => {

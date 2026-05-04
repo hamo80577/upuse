@@ -1,13 +1,34 @@
 export type AvailabilityState = "OPEN" | "CLOSED_UNTIL" | "CLOSED" | "CLOSED_TODAY" | "UNKNOWN";
 export type OrdersVendorId = number;
 export type AvailabilityVendorId = string;
-export type AppUserRole = "admin" | "user";
+export type AppUserRole = "admin" | "user" | "tracker";
 export type ScanoRole = "team_lead" | "scanner";
 export type ThresholdSource = "branch" | "chain" | "global";
 export type BranchCatalogState = "available" | "missing";
 
 export type CloseReason = "LATE" | "UNASSIGNED" | "READY_TO_PICKUP" | "CAPACITY" | "CAPACITY_HOUR";
 export type MonitorIssueSource = "orders" | "availability";
+export type MonitorErrorCategory =
+  | "token_missing"
+  | "auth"
+  | "conflict"
+  | "tunnel"
+  | "timeout"
+  | "network"
+  | "malformed_response"
+  | "upstream";
+export type MonitorSyncState = "warming" | "healthy" | "degraded";
+export type VssBucket = "open" | "temporarilyClosed" | "offHours" | "unknown";
+export type VssGroup = "open" | "highDemand" | "shortClosures" | "issues" | "inactive" | "offHours" | "unknown";
+export type AvailabilityKind =
+  | "upuseTempClose"
+  | "sourceShortClosure"
+  | "sourceIssue"
+  | "sourceInactive"
+  | "sourceOffHours"
+  | "open"
+  | "highDemand"
+  | "unknown";
 
 export interface ChainThreshold {
   name: string;
@@ -37,9 +58,13 @@ export interface ThresholdProfile {
 
 export interface MonitorSourceError {
   source: MonitorIssueSource;
+  category: MonitorErrorCategory;
+  summary: string;
   message: string;
+  actionHint: string;
   at: string;
   statusCode?: number;
+  retryable: boolean;
 }
 
 export type OrdersDataState = "fresh" | "stale" | "warming";
@@ -153,13 +178,19 @@ export interface BranchPickersSummary {
 
 export interface AvailabilityRecord {
   platformKey: string;
-  changeable: boolean;
+  changeable: boolean | null;
   availabilityState: AvailabilityState;
   platformRestaurantId: string;
   currentSlotEndAt?: string;
   closedUntil?: string;
   closedReason?: string;
   modifiedBy?: string;
+  vssBucket?: VssBucket;
+  vssGroup?: VssGroup;
+  vssNextOpeningAt?: string;
+  vssEndTime?: string;
+  vssClosedReason?: string;
+  vssChangeable?: boolean | null;
   preptimeAdjustment?: {
     adjustmentMinutes: number;
     interval: { startTime: string; endTime: string };
@@ -178,7 +209,8 @@ export interface BranchSnapshot {
   status: "OPEN" | "TEMP_CLOSE" | "CLOSED" | "UNKNOWN";
   statusColor: "green" | "red" | "orange" | "grey";
 
-  closedUntil?: string; // ISO string (UTC)
+  availabilityKind?: AvailabilityKind;
+  closedUntil?: string; // ISO string (UTC), only when a real countdown target exists
   closeStartedAt?: string; // ISO string (UTC)
   closedByUpuse?: boolean;
   closureSource?: "UPUSE" | "EXTERNAL";
@@ -186,7 +218,14 @@ export interface BranchSnapshot {
   sourceClosedReason?: string;
   autoReopen?: boolean;
 
-  changeable?: boolean;
+  changeable?: boolean | null;
+  vssBucket?: VssBucket;
+  vssGroup?: VssGroup;
+  vssNextOpeningAt?: string;
+  vssEndTime?: string;
+  vssClosedReason?: string;
+  vssChangeable?: boolean | null;
+  preptimeAdjustment?: AvailabilityRecord["preptimeAdjustment"];
   thresholds?: ThresholdProfile;
 
   metrics: OrdersMetrics;
@@ -211,10 +250,20 @@ export interface DashboardSnapshot {
     degraded?: boolean;
     ordersSync?: {
       mode: OrdersSyncMode;
-      state: OrdersSyncState;
+      state: MonitorSyncState;
+      cadenceSeconds: number;
       lastSuccessfulSyncAt?: string;
       staleBranchCount: number;
       consecutiveSourceFailures: number;
+      error?: MonitorSourceError;
+    };
+    availabilitySync?: {
+      state: MonitorSyncState;
+      cadenceSeconds: number;
+      lastAttemptAt?: string;
+      lastSuccessfulSyncAt?: string;
+      consecutiveFailures: number;
+      error?: MonitorSourceError;
     };
     errors?: {
       orders?: MonitorSourceError;
@@ -608,6 +657,7 @@ export interface AppUser {
   createdAt: string;
   upuseAccess: boolean;
   isPrimaryAdmin: boolean;
+  assignedChains: string[];
   scanoMemberId?: number;
   scanoRole?: ScanoRole;
 }
@@ -632,6 +682,7 @@ export interface AuthMeResponse {
 export interface AuthUsersResponse {
   ok: true;
   items: AppUser[];
+  chainOptions: string[];
 }
 
 export interface ScanoCatalogPage<TItem> {

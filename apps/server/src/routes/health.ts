@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { FIXED_AVAILABILITY_REFRESH_SECONDS } from "../config/monitoring.js";
 import type { DashboardSnapshot } from "../types/models.js";
 import type { MonitorEngine } from "../monitor/engine/MonitorEngine.js";
 
@@ -9,9 +10,30 @@ function fallbackOrdersSync(): NonNullable<MonitoringStatus["ordersSync"]> {
   return {
     mode: "mirror",
     state: "warming",
+    cadenceSeconds: 30,
     staleBranchCount: 0,
     consecutiveSourceFailures: 0,
   };
+}
+
+function fallbackAvailabilitySync(): NonNullable<MonitoringStatus["availabilitySync"]> {
+  return {
+    state: "warming",
+    cadenceSeconds: FIXED_AVAILABILITY_REFRESH_SECONDS,
+    consecutiveFailures: 0,
+  };
+}
+
+function latestErrorAt(monitoring?: MonitoringStatus) {
+  const errors = [
+    monitoring?.ordersSync?.error?.at,
+    monitoring?.availabilitySync?.error?.at,
+    monitoring?.errors?.orders?.at,
+    monitoring?.errors?.availability?.at,
+  ].filter((value): value is string => typeof value === "string" && value.length > 0);
+
+  if (!errors.length) return null;
+  return errors.reduce((latest, current) => (new Date(current).getTime() > new Date(latest).getTime() ? current : latest));
 }
 
 function summarizeReadiness(monitoring?: MonitoringStatus) {
@@ -26,13 +48,19 @@ function summarizeReadiness(monitoring?: MonitoringStatus) {
   if (
     monitoring.degraded ||
     monitoring.ordersSync?.state === "degraded" ||
+    monitoring.availabilitySync?.state === "degraded" ||
     monitoring.errors?.orders ||
     monitoring.errors?.availability
   ) {
     return {
       ready: false,
       state: "degraded" as ReadinessState,
-      message: monitoring.errors?.orders?.message ?? monitoring.errors?.availability?.message ?? "Monitor is degraded.",
+      message:
+        monitoring.ordersSync?.error?.message ??
+        monitoring.availabilitySync?.error?.message ??
+        monitoring.errors?.orders?.message ??
+        monitoring.errors?.availability?.message ??
+        "Monitor is degraded.",
     };
   }
 
@@ -54,9 +82,6 @@ function summarizeReadiness(monitoring?: MonitoringStatus) {
 export function buildHealthPayload(engine?: MonitorEngine) {
   const monitoring = engine?.getSnapshot().monitoring;
   const readiness = summarizeReadiness(monitoring);
-  const lastErrorAt =
-    monitoring?.errors?.orders?.at ??
-    monitoring?.errors?.availability?.at;
 
   return {
     name: "UPuse",
@@ -69,8 +94,9 @@ export function buildHealthPayload(engine?: MonitorEngine) {
     monitorRunning: monitoring?.running ?? false,
     monitorDegraded: monitoring?.degraded ?? false,
     lastSnapshotAt: monitoring?.lastHealthyAt ?? monitoring?.lastOrdersFetchAt ?? monitoring?.lastAvailabilityFetchAt ?? null,
-    lastErrorAt: lastErrorAt ?? null,
+    lastErrorAt: latestErrorAt(monitoring),
     ordersSync: monitoring?.ordersSync ?? fallbackOrdersSync(),
+    availabilitySync: monitoring?.availabilitySync ?? fallbackAvailabilitySync(),
   };
 }
 

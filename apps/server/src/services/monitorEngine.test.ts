@@ -98,10 +98,12 @@ describe("monitorEngine.getErrorDetail", () => {
       },
     });
 
-    expect(detail).toEqual({
+    expect(detail).toEqual(expect.objectContaining({
       statusCode: 530,
       detail: "Cloudflare tunnel error",
-    });
+      category: "tunnel",
+      retryable: true,
+    }));
   });
 
   it("extracts a compact title from generic html error pages", () => {
@@ -114,10 +116,12 @@ describe("monitorEngine.getErrorDetail", () => {
       },
     });
 
-    expect(detail).toEqual({
+    expect(detail).toEqual(expect.objectContaining({
       statusCode: 502,
       detail: "HTML error page: 502 Bad Gateway",
-    });
+      category: "malformed_response",
+      retryable: true,
+    }));
   });
 });
 

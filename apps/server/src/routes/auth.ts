@@ -5,10 +5,13 @@ import { clearAuthSessionCookie, setAuthSessionCookie } from "../http/sessionCoo
 import { normalizeEmail } from "../services/auth/passwords.js";
 import { loginIpThrottleStore, loginThrottleStore } from "../services/loginThrottleStore.js";
 import type { AppUserRole, AuthMeResponse, AuthUsersResponse, LoginResponse, ScanoRole } from "../types/models.js";
+import { listUpuseChainOptions } from "../systems/upuse/services/trackerAssignments.js";
+import { normalizeAssignedChains } from "../systems/upuse/services/trackerAccess.js";
 
-const AppUserRoleSchema = z.enum(["admin", "user"] satisfies [AppUserRole, AppUserRole]);
+const AppUserRoleSchema = z.enum(["admin", "user", "tracker"] satisfies [AppUserRole, AppUserRole, AppUserRole]);
 const ScanoRoleSchema = z.enum(["team_lead", "scanner"] satisfies [ScanoRole, ScanoRole]);
 const MIN_PASSWORD_LENGTH = 12;
+const AssignedChainsSchema = z.array(z.string().trim().min(1).max(120)).max(200).optional();
 
 const LoginBody = z.object({
   email: z.string().email(),
@@ -21,6 +24,7 @@ const CreateUserBody = z.object({
   name: z.string().trim().min(1).max(120),
   upuseAccess: z.boolean(),
   upuseRole: AppUserRoleSchema.optional(),
+  assignedChains: AssignedChainsSchema,
   scanoAccessRole: ScanoRoleSchema.optional(),
 }).superRefine((value, ctx) => {
   if (!value.upuseAccess && !value.scanoAccessRole) {
@@ -54,6 +58,7 @@ const UpdateUserBody = z.object({
   name: z.string().trim().min(1).max(120),
   upuseAccess: z.boolean(),
   upuseRole: AppUserRoleSchema.optional(),
+  assignedChains: AssignedChainsSchema,
   scanoAccessRole: ScanoRoleSchema.optional(),
 }).superRefine((value, ctx) => {
   if (!value.upuseAccess && !value.scanoAccessRole) {
@@ -188,6 +193,7 @@ export function listUsersRoute(_req: Request, res: Response) {
   const body: AuthUsersResponse = {
     ok: true,
     items: listUsers(),
+    chainOptions: listUpuseChainOptions(),
   };
   res.json(body);
 }
@@ -196,7 +202,10 @@ export async function createUserRoute(req: Request, res: Response) {
   const input = CreateUserBody.parse(req.body);
 
   try {
-    const user = await createUser(input);
+    const user = await createUser({
+      ...input,
+      assignedChains: normalizeAssignedChains(input.assignedChains),
+    });
     res.status(201).json({
       ok: true,
       user,
@@ -224,6 +233,7 @@ export async function updateUserRoute(req: Request, res: Response) {
       name: input.name,
       upuseAccess: input.upuseAccess,
       upuseRole: input.upuseRole,
+      assignedChains: normalizeAssignedChains(input.assignedChains),
       scanoAccessRole: input.scanoAccessRole,
       password: typeof input.password === "string" && input.password.trim() ? input.password : undefined,
       actorUserId: req.authUser?.id,

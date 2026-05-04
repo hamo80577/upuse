@@ -5,6 +5,8 @@ import type { SecurityConfig } from "../config/security.js";
 import type { MonitorEngine } from "../monitor/engine/MonitorEngine.js";
 import type { AppUser, DashboardSnapshot } from "../types/models.js";
 import { authorizeUpuseUpgradeFromCookieHeader } from "../shared/http/auth/sessionAuth.js";
+import { getSessionUserByToken } from "../services/authStore.js";
+import { filterDashboardSnapshotForUser } from "../systems/upuse/services/trackerAccess.js";
 import { createConnectionQuota } from "./connectionQuota.js";
 import { isTrustedOrigin, parseCorsOrigins } from "./security.js";
 
@@ -94,20 +96,30 @@ export function attachDashboardWebSocketServer(options: {
     }
 
     webSocketServer.handleUpgrade(req, socket, head, (ws: WebSocket) => {
-      webSocketServer.emit("connection", ws, req, authorization.user);
+      webSocketServer.emit("connection", ws, req, authorization.user, authorization.sessionToken);
     });
   });
 
-  webSocketServer.on("connection", (ws: WebSocket, _req: IncomingMessage, user: AppUser) => {
+  webSocketServer.on("connection", (ws: WebSocket, _req: IncomingMessage, user: AppUser, sessionToken: string) => {
     let cleaned = false;
     aliveBySocket.set(ws, true);
 
     let unsubscribe = () => {};
     try {
       unsubscribe = options.engine.subscribe((snapshot) => {
+        const currentSession = getSessionUserByToken(sessionToken);
+        if (!currentSession?.user.upuseAccess) {
+          try {
+            ws.close(1008, "Forbidden");
+          } catch {
+            ws.terminate();
+          }
+          return;
+        }
+
         sendMessage(ws, {
           type: "snapshot",
-          data: snapshot,
+          data: filterDashboardSnapshotForUser(snapshot, currentSession.user),
         });
       });
     } catch (error) {

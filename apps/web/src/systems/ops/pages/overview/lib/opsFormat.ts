@@ -48,6 +48,15 @@ export function formatOpsDuration(start: string | null | undefined, end: string 
   return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
 }
 
+export function formatOpsDurationMs(value: number | null | undefined) {
+  if (!Number.isFinite(value ?? NaN) || (value ?? 0) <= 0) return "0m";
+  const totalMinutes = Math.max(0, Math.round((value ?? 0) / 60_000));
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
+}
+
 export function systemLabel(system: OpsSystemId | string | null | undefined) {
   switch (system) {
     case "upuse":

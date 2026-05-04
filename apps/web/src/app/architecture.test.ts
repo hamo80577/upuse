@@ -71,7 +71,7 @@ describe("frontend architecture guardrails", () => {
   });
 
   it("keeps /mapping as redirect-only route", () => {
-    const routerSource = readFileSync(resolve(webSrcRoot, "app/router.tsx"), "utf8");
+    const routerSource = readFileSync(resolve(webSrcRoot, "app/router/AppRouter.tsx"), "utf8");
 
     expect(routerSource).toContain('path="/mapping"');
     expect(routerSource).toContain('<Navigate to="/branches" replace />');

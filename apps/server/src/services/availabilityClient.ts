@@ -13,7 +13,9 @@ const FallbackVendorStatusSchema = z.object({
   platformVendorId: z.string().min(1),
   changeable: z.boolean().optional(),
   nextOpeningAt: z.string().optional(),
+  startTime: z.string().optional(),
   endTime: z.string().optional(),
+  closedReason: z.string().optional(),
   adjustmentMinutes: z.number().optional(),
 }).passthrough();
 
@@ -24,6 +26,7 @@ export interface FetchAvailabilitiesOptions {
 function createMalformedAvailabilityPayloadError(message: string) {
   const error = new Error(`Availability API returned malformed payload: ${message}`);
   (error as any).status = 502;
+  (error as any).code = "UPUSE_AVAILABILITY_MALFORMED_RESPONSE";
   return error;
 }
 
@@ -64,21 +67,70 @@ function collectFallbackVendorStatusGroups(node: unknown, path: string[] = []): 
   return groups;
 }
 
-function mapFallbackPathToAvailabilityState(path: string[]): AvailabilityRecord["availabilityState"] {
+function mapFallbackPathToClassification(path: string[]) {
   const normalizedPath = path.map((segment) => segment.toLowerCase());
+
   if (normalizedPath.includes("temporarilyclosed")) {
-    return "CLOSED_UNTIL";
+    if (normalizedPath.includes("shortclosures")) {
+      return {
+        availabilityState: "CLOSED_UNTIL" as AvailabilityRecord["availabilityState"],
+        vssBucket: "temporarilyClosed" as const,
+        vssGroup: "shortClosures" as const,
+      };
+    }
+
+    if (normalizedPath.includes("issues")) {
+      return {
+        availabilityState: "CLOSED" as AvailabilityRecord["availabilityState"],
+        vssBucket: "temporarilyClosed" as const,
+        vssGroup: "issues" as const,
+      };
+    }
+
+    if (normalizedPath.includes("inactive")) {
+      return {
+        availabilityState: "CLOSED" as AvailabilityRecord["availabilityState"],
+        vssBucket: "temporarilyClosed" as const,
+        vssGroup: "inactive" as const,
+      };
+    }
+
+    return {
+      availabilityState: "UNKNOWN" as AvailabilityRecord["availabilityState"],
+      vssBucket: "temporarilyClosed" as const,
+      vssGroup: "unknown" as const,
+    };
   }
+
   if (normalizedPath.includes("offhours")) {
-    return "CLOSED";
+    return {
+      availabilityState: "CLOSED" as AvailabilityRecord["availabilityState"],
+      vssBucket: "offHours" as const,
+      vssGroup: "offHours" as const,
+    };
   }
-  if (normalizedPath.includes("closed")) {
-    return "CLOSED";
-  }
+
   if (normalizedPath.includes("open")) {
-    return "OPEN";
+    if (normalizedPath.includes("highdemand")) {
+      return {
+        availabilityState: "OPEN" as AvailabilityRecord["availabilityState"],
+        vssBucket: "open" as const,
+        vssGroup: "highDemand" as const,
+      };
+    }
+
+    return {
+      availabilityState: "OPEN" as AvailabilityRecord["availabilityState"],
+      vssBucket: "open" as const,
+      vssGroup: "open" as const,
+    };
   }
-  return "UNKNOWN";
+
+  return {
+    availabilityState: "UNKNOWN" as AvailabilityRecord["availabilityState"],
+    vssBucket: "unknown" as const,
+    vssGroup: "unknown" as const,
+  };
 }
 
 function normalizeFallbackAvailabilityPayload(payload: unknown): AvailabilityRecord[] {
@@ -91,7 +143,7 @@ function normalizeFallbackAvailabilityPayload(payload: unknown): AvailabilityRec
   const records = new Map<string, AvailabilityRecord>();
 
   for (const group of groups) {
-    const availabilityState = mapFallbackPathToAvailabilityState(group.path);
+    const classification = mapFallbackPathToClassification(group.path);
     for (const [index, item] of group.items.entries()) {
       const parsedItem = FallbackVendorStatusSchema.safeParse(item);
       if (!parsedItem.success) {
@@ -103,14 +155,38 @@ function normalizeFallbackAvailabilityPayload(payload: unknown): AvailabilityRec
       }
 
       const value = parsedItem.data;
+      const changeable = typeof value.changeable === "boolean" ? value.changeable : null;
+      const vssNextOpeningAt = typeof value.nextOpeningAt === "string" ? value.nextOpeningAt : undefined;
+      const vssEndTime = typeof value.endTime === "string" ? value.endTime : undefined;
+      const vssClosedReason = typeof value.closedReason === "string" ? value.closedReason : undefined;
+      const preptimeAdjustment =
+        typeof value.adjustmentMinutes === "number"
+        && typeof value.startTime === "string"
+        && typeof value.endTime === "string"
+          ? {
+              adjustmentMinutes: value.adjustmentMinutes,
+              interval: {
+                startTime: value.startTime,
+                endTime: value.endTime,
+              },
+            }
+          : undefined;
+
       records.set(value.platformVendorId, {
         platformKey: "vss_vendor_status",
-        changeable: value.changeable ?? false,
-        availabilityState,
+        changeable,
+        availabilityState: classification.availabilityState,
         platformRestaurantId: value.platformVendorId,
-        currentSlotEndAt: typeof value.endTime === "string" ? value.endTime : undefined,
-        closedUntil: typeof value.nextOpeningAt === "string" ? value.nextOpeningAt : undefined,
-        closedReason: typeof value.closedReason === "string" ? value.closedReason : undefined,
+        currentSlotEndAt: vssEndTime,
+        closedUntil: classification.vssGroup === "shortClosures" ? vssNextOpeningAt : undefined,
+        closedReason: vssClosedReason,
+        vssBucket: classification.vssBucket,
+        vssGroup: classification.vssGroup,
+        vssNextOpeningAt,
+        vssEndTime,
+        vssClosedReason,
+        vssChangeable: changeable,
+        preptimeAdjustment,
       });
     }
   }

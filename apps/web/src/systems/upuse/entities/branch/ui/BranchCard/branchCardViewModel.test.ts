@@ -30,10 +30,14 @@ function createBranch(overrides: Partial<BranchSnapshot> = {}): BranchSnapshot {
 }
 
 describe("branchCardViewModel.statusMeta", () => {
-  it("shows a store-not-operational note for external issue closures without a timer", () => {
-    const meta = statusMeta(createBranch({ sourceClosedReason: "TECHNICAL_PROBLEM" }));
+  it("shows the raw source reason for issues closures without falling back to slot wording", () => {
+    const meta = statusMeta(createBranch({
+      status: "CLOSED",
+      availabilityKind: "sourceIssue",
+      sourceClosedReason: "TECHNICAL_PROBLEM",
+    }));
 
-    expect(meta.label).toBe("Temporary Close");
-    expect(meta.note).toBe("Colse To The End of slot");
+    expect(meta.label).toBe("Closed");
+    expect(meta.note).toBe("TECHNICAL_PROBLEM");
   });
 });

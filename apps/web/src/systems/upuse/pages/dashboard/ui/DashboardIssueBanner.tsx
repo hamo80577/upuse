@@ -3,7 +3,7 @@ import SyncProblemRoundedIcon from "@mui/icons-material/SyncProblemRounded";
 import { Box, Chip, Stack, Typography } from "@mui/material";
 import type { ReactNode } from "react";
 
-type DashboardIssueKind = "orders" | "sync";
+type DashboardIssueKind = "orders" | "availability" | "sync";
 
 const issueTheme = {
   orders: {
@@ -17,6 +17,18 @@ const issueTheme = {
     iconColor: "#b91c1c",
     eyebrowColor: "#991b1b",
     textColor: "#7f1d1d",
+  },
+  availability: {
+    eyebrow: "Availability Sync",
+    icon: <SyncProblemRoundedIcon sx={{ fontSize: 22 }} />,
+    border: "rgba(146,64,14,0.16)",
+    shadow: "rgba(146,64,14,0.08)",
+    background: "linear-gradient(135deg, rgba(255,251,235,0.98) 0%, rgba(255,255,255,0.98) 100%)",
+    glow: "rgba(251,191,36,0.16)",
+    iconBg: "rgba(245,158,11,0.12)",
+    iconColor: "#b45309",
+    eyebrowColor: "#92400e",
+    textColor: "#78350f",
   },
   sync: {
     eyebrow: "Live Sync",

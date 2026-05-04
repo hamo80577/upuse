@@ -14,6 +14,7 @@ import { UpuseRouteShell } from "./UpuseRouteShell";
 import {
   UPUSE_BRANCHES_DELETE_CAPABILITY,
   UPUSE_BRANCHES_MANAGE_CAPABILITY,
+  UPUSE_FULL_WORKSPACE_CAPABILITY,
   UPUSE_LOGS_CLEAR_CAPABILITY,
   UPUSE_MONITOR_MANAGE_CAPABILITY,
   UPUSE_MONITOR_ORDERS_REFRESH_CAPABILITY,
@@ -48,6 +49,7 @@ function isActivePath(pathname: string, path: string) {
 }
 
 const upuseCapabilityByPermission = {
+  canAccessFullWorkspace: UPUSE_FULL_WORKSPACE_CAPABILITY,
   canManageUsers: UPUSE_USERS_MANAGE_CAPABILITY,
   canManageMonitor: UPUSE_MONITOR_MANAGE_CAPABILITY,
   canRefreshOrdersNow: UPUSE_MONITOR_ORDERS_REFRESH_CAPABILITY,
@@ -61,7 +63,13 @@ const upuseCapabilityByPermission = {
 } satisfies Record<string, SystemCapability>;
 
 function getUpuseRoleLabel(role?: AppUserRole | null) {
-  return role === "admin" ? "Admin" : "User";
+  if (role === "admin") return "Admin";
+  if (role === "tracker") return "Tracker";
+  return "User";
+}
+
+function hasFullWorkspaceAccess(auth: Parameters<WebSystemModule["getNavigation"]>[0]) {
+  return auth.hasSystemCapability("upuse", UPUSE_FULL_WORKSPACE_CAPABILITY);
 }
 
 export const upuseSystemModule: WebSystemModule = {
@@ -89,7 +97,7 @@ export const upuseSystemModule: WebSystemModule = {
   },
   canAccess: (auth) => auth.hasSystemAccess("upuse"),
   resolveHomePath: () => "/",
-  getNavigation: (_auth, location) => [
+  getNavigation: (auth, location) => [
     {
       key: "dashboard",
       label: "Dashboard",
@@ -98,38 +106,40 @@ export const upuseSystemModule: WebSystemModule = {
       icon: <HubIcon fontSize="small" />,
       isActive: location.pathname === "/",
     },
-    {
-      key: "performance",
-      label: "Performance",
-      caption: "Chains and branches",
-      path: "/performance",
-      icon: <LeaderboardRoundedIcon fontSize="small" />,
-      isActive: location.pathname === "/performance",
-    },
-    {
-      key: "branches",
-      label: "Branches",
-      caption: "Branch mappings",
-      path: "/branches",
-      icon: <StorefrontIcon fontSize="small" />,
-      isActive: location.pathname === "/branches",
-    },
-    {
-      key: "thresholds",
-      label: "Thresholds",
-      caption: "Rules and overrides",
-      path: "/thresholds",
-      icon: <TuneRoundedIcon fontSize="small" />,
-      isActive: location.pathname === "/thresholds" || isActivePath(location.pathname, "/settings/thresholds"),
-    },
-    {
-      key: "settings",
-      label: "Settings",
-      caption: "Tokens and timings",
-      path: "/settings",
-      icon: <SettingsIcon fontSize="small" />,
-      isActive: location.pathname === "/settings",
-    },
+    ...(hasFullWorkspaceAccess(auth) ? [
+      {
+        key: "performance",
+        label: "Performance",
+        caption: "Chains and branches",
+        path: "/performance",
+        icon: <LeaderboardRoundedIcon fontSize="small" />,
+        isActive: location.pathname === "/performance",
+      },
+      {
+        key: "branches",
+        label: "Branches",
+        caption: "Branch mappings",
+        path: "/branches",
+        icon: <StorefrontIcon fontSize="small" />,
+        isActive: location.pathname === "/branches",
+      },
+      {
+        key: "thresholds",
+        label: "Thresholds",
+        caption: "Rules and overrides",
+        path: "/thresholds",
+        icon: <TuneRoundedIcon fontSize="small" />,
+        isActive: location.pathname === "/thresholds" || isActivePath(location.pathname, "/settings/thresholds"),
+      },
+      {
+        key: "settings",
+        label: "Settings",
+        caption: "Tokens and timings",
+        path: "/settings",
+        icon: <SettingsIcon fontSize="small" />,
+        isActive: location.pathname === "/settings",
+      },
+    ] : []),
   ],
   getAccountNavigation: (auth, location) => auth.hasSystemCapability("upuse", UPUSE_USERS_MANAGE_CAPABILITY)
     ? [{
@@ -152,11 +162,46 @@ export const upuseSystemModule: WebSystemModule = {
       )}
     >
       <Route index element={<DashboardPage />} />
-      <Route path="/performance" element={<PerformancePage />} />
-      <Route path="/branches" element={<BranchesPage />} />
-      <Route path="/thresholds" element={<ThresholdsPage />} />
-      <Route path="/settings/thresholds" element={<ThresholdsPage />} />
-      <Route path="/settings" element={<SettingsPage />} />
+      <Route
+        path="/performance"
+        element={(
+          <CapabilityRoute systemId="upuse" capability={UPUSE_FULL_WORKSPACE_CAPABILITY} fallbackPath="/">
+            <PerformancePage />
+          </CapabilityRoute>
+        )}
+      />
+      <Route
+        path="/branches"
+        element={(
+          <CapabilityRoute systemId="upuse" capability={UPUSE_FULL_WORKSPACE_CAPABILITY} fallbackPath="/">
+            <BranchesPage />
+          </CapabilityRoute>
+        )}
+      />
+      <Route
+        path="/thresholds"
+        element={(
+          <CapabilityRoute systemId="upuse" capability={UPUSE_FULL_WORKSPACE_CAPABILITY} fallbackPath="/">
+            <ThresholdsPage />
+          </CapabilityRoute>
+        )}
+      />
+      <Route
+        path="/settings/thresholds"
+        element={(
+          <CapabilityRoute systemId="upuse" capability={UPUSE_FULL_WORKSPACE_CAPABILITY} fallbackPath="/">
+            <ThresholdsPage />
+          </CapabilityRoute>
+        )}
+      />
+      <Route
+        path="/settings"
+        element={(
+          <CapabilityRoute systemId="upuse" capability={UPUSE_FULL_WORKSPACE_CAPABILITY} fallbackPath="/">
+            <SettingsPage />
+          </CapabilityRoute>
+        )}
+      />
       <Route
         path="/users"
         element={(

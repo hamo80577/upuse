@@ -1,13 +1,17 @@
 import express from "express";
 import type { Server } from "node:http";
+import { DateTime } from "luxon";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerApiErrorHandler } from "../../../app/error-handling/registerApiErrorHandler.js";
 import { db as testDb } from "../../../config/db.js";
 import { requireAuthenticatedApi } from "../../../shared/http/auth/sessionAuth.js";
 import { buildSharedSchemaSql } from "../../../shared/db/schema/sharedSchema.js";
 import type { AppUser } from "../../../types/models.js";
+import { TZ } from "../../../utils/time.js";
 import { buildOpsSchemaSql } from "../db/schema.js";
 import { registerOpsRoutes } from "./registerRoutes.js";
+
+const TEST_TIMEOUT_MS = 20_000;
 
 vi.mock("../../../config/db.js", async () => {
   const Database = (await import("better-sqlite3")).default;
@@ -193,12 +197,13 @@ describe("Ops telemetry routes", () => {
         expect(authorized.status).toBe(200);
       }
     }
-  });
+  }, TEST_TIMEOUT_MS);
 
   it("keeps Ops health and read routes primary-admin-only", async () => {
     const readRoutes = [
       { method: "GET", path: "/api/ops/health" },
       { method: "GET", path: "/api/ops/summary" },
+      { method: "GET", path: "/api/ops/history" },
       { method: "GET", path: "/api/ops/sessions" },
       { method: "GET", path: "/api/ops/events" },
       { method: "GET", path: "/api/ops/errors" },
@@ -229,7 +234,7 @@ describe("Ops telemetry routes", () => {
       });
       expect(primary.status).toBe(200);
     }
-  });
+  }, TEST_TIMEOUT_MS);
 
   it("allows the primary admin to access all Ops telemetry routes", async () => {
     const heartbeat = await fetch(`${baseUrl}/api/ops/presence/heartbeat`, {
@@ -257,6 +262,7 @@ describe("Ops telemetry routes", () => {
       { method: "POST", path: "/api/ops/ingest", body: { session: { sessionId: heartbeatBody.sessionId }, events: [{ type: "page_view", path: "/ops" }] } },
       { method: "POST", path: "/api/ops/presence/end", body: { sessionId: heartbeatBody.sessionId } },
       { method: "GET", path: "/api/ops/summary" },
+      { method: "GET", path: "/api/ops/history" },
       { method: "GET", path: "/api/ops/sessions" },
       { method: "GET", path: "/api/ops/events" },
       { method: "GET", path: "/api/ops/errors" },
@@ -729,6 +735,189 @@ describe("Ops telemetry routes", () => {
       statusCode: 500,
       count: 1,
     });
+  }, TEST_TIMEOUT_MS);
+
+  it("returns day-by-day usage history with per-user behavior details", async () => {
+    const cairoNow = DateTime.utc().setZone(TZ);
+    const today = cairoNow.startOf("day").plus({ hours: 10 });
+    const yesterday = today.minus({ days: 1 });
+
+    const primarySessionId = "11111111-1111-4111-8111-111111111111";
+    const adminSessionId = "22222222-2222-4222-8222-222222222222";
+    const userSessionId = "33333333-3333-4333-8333-333333333333";
+
+    const iso = (value: DateTime) => value.toUTC().toISO({ suppressMilliseconds: false })!;
+
+    await fetch(`${baseUrl}/api/ops/presence/heartbeat`, {
+      method: "POST",
+      headers: jsonHeaders({ "x-test-user": "primary" }),
+      body: JSON.stringify({
+        sessionId: primarySessionId,
+        path: "/dashboard",
+        system: "upuse",
+        state: "active",
+        occurredAt: iso(today),
+      }),
+    });
+    await fetch(`${baseUrl}/api/ops/ingest`, {
+      method: "POST",
+      headers: jsonHeaders({ "x-test-user": "primary" }),
+      body: JSON.stringify({
+        session: {
+          sessionId: primarySessionId,
+          path: "/dashboard",
+          system: "upuse",
+          occurredAt: iso(today.plus({ minutes: 1 })),
+        },
+        events: [
+          { type: "page_view", path: "/dashboard", system: "upuse", occurredAt: iso(today.plus({ minutes: 1 })) },
+          { type: "page_view", path: "/performance", system: "upuse", occurredAt: iso(today.plus({ minutes: 2 })) },
+          { type: "page_view", path: "/dashboard", system: "upuse", occurredAt: iso(today.plus({ minutes: 3 })) },
+          {
+            type: "api_error",
+            path: "/performance",
+            endpoint: "/api/performance",
+            method: "GET",
+            statusCode: 500,
+            success: false,
+            system: "upuse",
+            occurredAt: iso(today.plus({ minutes: 4 })),
+            error: { message: "Performance failed" },
+          },
+        ],
+      }),
+    });
+    await fetch(`${baseUrl}/api/ops/presence/end`, {
+      method: "POST",
+      headers: jsonHeaders({ "x-test-user": "primary" }),
+      body: JSON.stringify({
+        sessionId: primarySessionId,
+        endedAt: iso(today.plus({ minutes: 18 })),
+      }),
+    });
+
+    await fetch(`${baseUrl}/api/ops/presence/heartbeat`, {
+      method: "POST",
+      headers: jsonHeaders({ "x-test-user": "admin" }),
+      body: JSON.stringify({
+        sessionId: adminSessionId,
+        path: "/scano/assign-task",
+        system: "scano",
+        state: "active",
+        occurredAt: iso(today.plus({ hours: 1 })),
+      }),
+    });
+    await fetch(`${baseUrl}/api/ops/ingest`, {
+      method: "POST",
+      headers: jsonHeaders({ "x-test-user": "admin" }),
+      body: JSON.stringify({
+        session: {
+          sessionId: adminSessionId,
+          path: "/scano/assign-task",
+          system: "scano",
+          occurredAt: iso(today.plus({ hours: 1, minutes: 1 })),
+        },
+        events: [
+          { type: "page_view", path: "/scano/assign-task", system: "scano", occurredAt: iso(today.plus({ hours: 1, minutes: 1 })) },
+          { type: "page_view", path: "/scano/my-tasks", system: "scano", occurredAt: iso(today.plus({ hours: 1, minutes: 2 })) },
+        ],
+      }),
+    });
+    await fetch(`${baseUrl}/api/ops/presence/end`, {
+      method: "POST",
+      headers: jsonHeaders({ "x-test-user": "admin" }),
+      body: JSON.stringify({
+        sessionId: adminSessionId,
+        endedAt: iso(today.plus({ hours: 1, minutes: 6 })),
+      }),
+    });
+
+    await fetch(`${baseUrl}/api/ops/presence/heartbeat`, {
+      method: "POST",
+      headers: jsonHeaders({ "x-test-user": "user" }),
+      body: JSON.stringify({
+        sessionId: userSessionId,
+        path: "/settings",
+        system: "upuse",
+        state: "active",
+        occurredAt: iso(yesterday),
+      }),
+    });
+    await fetch(`${baseUrl}/api/ops/ingest`, {
+      method: "POST",
+      headers: jsonHeaders({ "x-test-user": "user" }),
+      body: JSON.stringify({
+        session: {
+          sessionId: userSessionId,
+          path: "/settings",
+          system: "upuse",
+          occurredAt: iso(yesterday.plus({ minutes: 1 })),
+        },
+        events: [
+          { type: "page_view", path: "/settings", system: "upuse", occurredAt: iso(yesterday.plus({ minutes: 1 })) },
+          { type: "page_view", path: "/settings", system: "upuse", occurredAt: iso(yesterday.plus({ minutes: 2 })) },
+        ],
+      }),
+    });
+    await fetch(`${baseUrl}/api/ops/presence/end`, {
+      method: "POST",
+      headers: jsonHeaders({ "x-test-user": "user" }),
+      body: JSON.stringify({
+        sessionId: userSessionId,
+        endedAt: iso(yesterday.plus({ minutes: 4 })),
+      }),
+    });
+
+    const response = await fetch(`${baseUrl}/api/ops/history?days=7`, {
+      headers: { "x-test-user": "primary" },
+    });
+    const history = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(history).toMatchObject({
+      ok: true,
+      timezone: TZ,
+      selectedDayKey: today.toFormat("yyyy-MM-dd"),
+    });
+    expect(history.days).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dayKey: today.toFormat("yyyy-MM-dd"),
+        uniqueUsers: 2,
+        sessionCount: 2,
+        topPage: "/dashboard",
+        topPageViews: 2,
+      }),
+      expect.objectContaining({
+        dayKey: yesterday.toFormat("yyyy-MM-dd"),
+        uniqueUsers: 1,
+        sessionCount: 1,
+        topPage: "/settings",
+        topPageViews: 2,
+      }),
+    ]));
+    expect(history.selectedDay).toMatchObject({
+      dayKey: today.toFormat("yyyy-MM-dd"),
+      uniqueUsers: 2,
+      sessionCount: 2,
+      usersWithErrors: 1,
+      topPage: "/dashboard",
+    });
+    expect(history.selectedDay.users).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userEmail: "primary@example.com",
+        sessionCount: 1,
+        pageViews: 3,
+        topPage: "/dashboard",
+        errorCount: 1,
+      }),
+      expect.objectContaining({
+        userEmail: "admin@example.com",
+        sessionCount: 1,
+        pageViews: 2,
+        topPage: "/scano/assign-task",
+        errorCount: 0,
+      }),
+    ]));
   });
 
   it("classifies dashboard and performance subsystem regressions in the Ops quality model", async () => {

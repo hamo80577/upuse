@@ -14,6 +14,19 @@ export function applySharedSchemaMigrations(db: Database.Database) {
   db.exec("UPDATE users SET upuseAccess = 1 WHERE upuseAccess IS NULL");
   db.exec("UPDATE users SET isPrimaryAdmin = 0 WHERE isPrimaryAdmin IS NULL");
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS upuse_user_chain_assignments (
+      userId INTEGER NOT NULL,
+      chainName TEXT NOT NULL COLLATE NOCASE,
+      assignedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (userId, chainName),
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_upuse_user_chain_assignments_user
+      ON upuse_user_chain_assignments(userId);
+  `);
+
   if (!settingsColumns.some((column) => column.name === "chainNamesJson")) {
     db.exec("ALTER TABLE settings ADD COLUMN chainNamesJson TEXT NOT NULL DEFAULT '[]'");
   }

@@ -233,13 +233,24 @@ export function buildSharedSchemaSql() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
-      role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
+      role TEXT NOT NULL CHECK (role IN ('admin', 'user', 'tracker')),
       passwordHash TEXT NOT NULL,
       active INTEGER NOT NULL DEFAULT 1,
       createdAt TEXT NOT NULL,
       upuseAccess INTEGER NOT NULL DEFAULT 1,
       isPrimaryAdmin INTEGER NOT NULL DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS upuse_user_chain_assignments (
+      userId INTEGER NOT NULL,
+      chainName TEXT NOT NULL COLLATE NOCASE,
+      assignedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (userId, chainName),
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_upuse_user_chain_assignments_user
+      ON upuse_user_chain_assignments(userId);
 
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,

@@ -2,11 +2,11 @@ import AccountTreeRoundedIcon from "@mui/icons-material/AccountTreeRounded";
 import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
 import { Alert, Box, Button, Card, CardContent, Container, Divider, Snackbar, Stack, Tab, Tabs, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { api, describeApiError } from "../../../api/client";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useMonitorStatus } from "../../../app/providers/MonitorStatusProvider";
-import type { SettingsMasked, SettingsTokenTestSnapshot } from "../../../api/types";
+import type { MonitorSourceError, SettingsMasked, SettingsTokenTestSnapshot } from "../../../api/types";
 import { opsTelemetry } from "../../../../ops/telemetry/opsTelemetryClient";
 import { TopBar } from "../../../widgets/top-bar/ui/TopBar";
 import {
@@ -19,15 +19,21 @@ import { TokenTestResults } from "./TokenTestResults";
 
 type SettingsFormState = Pick<
   SettingsMasked,
-  "tempCloseMinutes" | "graceMinutes" | "ordersRefreshSeconds" | "availabilityRefreshSeconds" | "maxVendorsPerOrdersRequest"
+  "tempCloseMinutes" | "graceMinutes" | "ordersRefreshSeconds" | "maxVendorsPerOrdersRequest"
 > & {
   ordersToken: string;
   availabilityToken: string;
 };
 
+function isTokenMonitorIssue(error: MonitorSourceError | undefined): error is MonitorSourceError {
+  if (!error) return false;
+  return error.category === "token_missing" || error.category === "auth";
+}
+
 export function SettingsPage() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const location = useLocation();
   const navigate = useNavigate();
   const { hasSystemCapability } = useAuth();
   const canManageMonitor = hasSystemCapability("upuse", UPUSE_MONITOR_MANAGE_CAPABILITY);
@@ -45,6 +51,10 @@ export function SettingsPage() {
   const canSave = canManageSettings || canManageTokens;
   const canAccessTokenSection = canManageTokens || canTestTokens;
   const testPollTimerRef = useRef<number | null>(null);
+  const monitorTokenIssues = [
+    monitoring.ordersSync?.error,
+    monitoring.availabilitySync?.error,
+  ].filter(isTokenMonitorIssue);
 
   const clearTestPollTimer = () => {
     if (testPollTimerRef.current != null) {
@@ -59,7 +69,6 @@ export function SettingsPage() {
       tempCloseMinutes: settings.tempCloseMinutes,
       graceMinutes: settings.graceMinutes,
       ordersRefreshSeconds: settings.ordersRefreshSeconds,
-      availabilityRefreshSeconds: settings.availabilityRefreshSeconds,
       maxVendorsPerOrdersRequest: settings.maxVendorsPerOrdersRequest,
       ordersToken: "",
       availabilityToken: "",
@@ -90,6 +99,28 @@ export function SettingsPage() {
       clearTestPollTimer();
     };
   }, []);
+
+  useEffect(() => {
+    if (location.hash !== "#tokens" || !canAccessTokenSection) return;
+    setMobileSection("tokens");
+
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("settings-tokens")?.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [canAccessTokenSection, location.hash]);
+
+  const openTokensSection = () => {
+    if (!canAccessTokenSection) return;
+    setMobileSection("tokens");
+    navigate("/settings#tokens");
+    window.requestAnimationFrame(() => {
+      document.getElementById("settings-tokens")?.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+  };
 
   const onStart = async () => {
     if (!canManageMonitor) {
@@ -128,7 +159,6 @@ export function SettingsPage() {
           tempCloseMinutes: form.tempCloseMinutes,
           graceMinutes: form.graceMinutes,
           ordersRefreshSeconds: form.ordersRefreshSeconds,
-          availabilityRefreshSeconds: form.availabilityRefreshSeconds,
           maxVendorsPerOrdersRequest: form.maxVendorsPerOrdersRequest,
         }
         : {};
@@ -274,6 +304,16 @@ export function SettingsPage() {
               </Stack>
             </Stack>
 
+            {monitorTokenIssues.length > 0 ? (
+              <Alert
+                severity="warning"
+                variant="outlined"
+                action={canAccessTokenSection ? <Button onClick={openTokensSection}>Open token tests</Button> : undefined}
+              >
+                {monitorTokenIssues.map((issue) => issue.message).join(" ")}
+              </Alert>
+            ) : null}
+
             {isMobile ? (
               <Box
                 sx={{
@@ -320,14 +360,6 @@ export function SettingsPage() {
                   fullWidth
                 />
                 <TextField
-                  label="Availability Refresh (seconds)"
-                  type="number"
-                  value={form.availabilityRefreshSeconds ?? ""}
-                  onChange={(e) => setForm((p) => ({ ...p, availabilityRefreshSeconds: Number(e.target.value) }))}
-                  disabled={!canManageSettings}
-                  fullWidth
-                />
-                <TextField
                   label="Max Vendors / Orders Request"
                   type="number"
                   value={form.maxVendorsPerOrdersRequest ?? ""}
@@ -337,13 +369,17 @@ export function SettingsPage() {
                 />
               </Stack>
 
+              <Alert severity="info" variant="outlined" sx={{ mt: 1.5 }}>
+                VSS availability refresh is fixed at 15s on the server and cannot be edited here.
+              </Alert>
+
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2} sx={{ mt: 1.5 }}>
                 {canManageSettings ? <Button variant="contained" onClick={save}>Save</Button> : null}
               </Stack>
             </Box>
 
             {canAccessTokenSection ? (
-              <Box sx={{ display: { xs: !isMobile || mobileSection === "tokens" ? "block" : "none", sm: "block" } }}>
+              <Box id="settings-tokens" sx={{ display: { xs: !isMobile || mobileSection === "tokens" ? "block" : "none", sm: "block" } }}>
                 <Divider sx={{ display: { xs: isMobile ? "none" : "block", sm: "block" }, mb: { xs: 0, sm: 0 } }} />
 
                 <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 1.5, display: { xs: "none", sm: "block" } }}>

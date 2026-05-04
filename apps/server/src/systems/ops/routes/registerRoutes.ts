@@ -5,6 +5,7 @@ import {
   createOpsErrorsRoute,
   createOpsEventsRoute,
   createOpsHeartbeatRoute,
+  createOpsHistoryRoute,
   createOpsIngestRoute,
   createOpsSessionsRoute,
   createOpsSummaryRoute,
@@ -28,6 +29,7 @@ export function registerOpsRoutes({ app, engine }: ServerSystemDependencies) {
   app.post("/api/ops/presence/heartbeat", requireOpsTelemetryWriteAccess(), createOpsHeartbeatRoute());
   app.post("/api/ops/presence/end", requireOpsTelemetryWriteAccess(), createOpsEndRoute());
   app.get("/api/ops/summary", requireOpsAccess(), createOpsSummaryRoute(engine));
+  app.get("/api/ops/history", requireOpsAccess(), createOpsHistoryRoute());
   app.get("/api/ops/sessions", requireOpsAccess(), createOpsSessionsRoute());
   app.get("/api/ops/events", requireOpsAccess(), createOpsEventsRoute());
   app.get("/api/ops/errors", requireOpsAccess(), createOpsErrorsRoute());

@@ -47,9 +47,9 @@ If you want one Windows command that loads `.env`, builds, and starts production
 - In development only, if `UPUSE_SECRET` is missing, the server creates and reuses `apps/server/data/.dev-secret` with a loud warning so localhost stays usable.
 - In production, `UPUSE_SECRET` is mandatory and the server refuses to start without it.
 - The server supports one-way secret rotation through `UPUSE_SECRET_PREVIOUS`: old secrets can still decrypt stored tokens, and the current `UPUSE_SECRET` is used to re-encrypt them during startup.
-- Web access is authenticated with email/password sessions and role-based authorization (`admin` / `user`).
+- Web access is authenticated with email/password sessions and role-based authorization (`admin` / `user` / `tracker`).
 - Session tokens are delivered only through `HttpOnly` same-site cookies. The raw token is never exposed to frontend JavaScript, and the persisted session token is hashed before it is stored in SQLite.
-- UPuse live websocket feeds (`/api/ws/dashboard`, `/api/ws/performance`) now enforce the same `upuseAccess` check as the protected HTTP dashboard and performance routes.
+- UPuse live dashboard feeds (`/api/ws/dashboard` and `/api/stream`) enforce `upuseAccess`, filter tracker users to their assigned chains, and re-read session access while streaming. Performance feeds remain full-UPuse-workspace only.
 - Updating a user's password now revokes that user's active browser sessions, and user-management password create/update flows require a minimum length of 12 characters to match the bootstrap-admin policy.
 - Scano runner bearer tokens are short-lived, returned only to the caller that bootstraps the runner, and hashed before they are persisted in SQLite.
 - In production, new sessions are issued under a host-only `__Host-` cookie name for stronger cookie scoping. The server still accepts the legacy cookie name during the transition.
@@ -63,6 +63,12 @@ If you want one Windows command that loads `.env`, builds, and starts production
 - The Ops summary includes a 100-point quality score, active admin alerts, and subsystem health for UPuse Dashboard, UPuse Performance, and Ops telemetry freshness.
 - Ops Center also includes primary-admin-only token management for the existing UPuse Orders, UPuse Availability, and Scano Catalog token stores. Saved tokens are shown only as masks, replacements reuse the existing encrypted storage, and test telemetry records only status/boolean metadata.
 - Ops telemetry sessions are ownership-bound to the authenticated user. Reusing another user's telemetry `sessionId` cannot rewrite or end that session; the server rotates writes to a fresh owned session id, and the browser adopts the returned replacement id.
+- UPuse availability sync now preserves the raw VSS source subtypes `shortClosures`, `issues`, `inactive`, `highDemand`, and `offHours` throughout the snapshot and UI instead of flattening everything into one temporary-close label.
+- Availability countdowns are shown only when there is a real timer target:
+  - a UPuse-owned tracked close window
+  - or `shortClosures.nextOpeningAt` from VSS
+- VSS availability refresh is fixed at `15s` on the server. The Settings page keeps orders cadence editable, but availability cadence is read-only.
+- `/api/health`, `/api/ready`, dashboard monitoring state, and monitor banners now expose structured sync metadata and actionable upstream error categories (`token_missing`, `auth`, `conflict`, `tunnel`, `timeout`, `network`, `malformed_response`, `upstream`) for both orders and availability.
 
 ## Workspaces and access model
 - The product now has three workspaces:
@@ -73,7 +79,8 @@ If you want one Windows command that loads `.env`, builds, and starts production
   - `upuseAccess` controls whether the user can open UPuse routes
   - `scanoRole` controls whether the user can open Scano (`team_lead` or `scanner`)
   - `Ops Center` access is implicit from `isPrimaryAdmin` only
-- `role` remains the UPuse role only: `admin` or `user`
+- `role` remains the UPuse role only: `admin`, `user`, or `tracker`
+- `admin` and `user` keep full UPuse workspace access. `tracker` users can open only the UPuse Dashboard and read branch detail/log data for their assigned UPuse chains.
 - One `primary admin` is maintained in the database. That user always keeps:
   - `UPuse admin`
   - implicit `Scano admin` capabilities
@@ -92,6 +99,7 @@ If you want one Windows command that loads `.env`, builds, and starts production
   - `Scano-only team_lead` users are redirected to `/scano/assign-task`
   - `Scano-only scanner` users are redirected to `/scano/my-tasks`
   - `UPuse-only` users are redirected to `/`
+  - `UPuse tracker` users opening full-workspace routes such as `/performance`, `/branches`, `/thresholds`, or `/settings` are redirected to `/`
   - non-primary users opening `/ops` are redirected to their first accessible workspace
 - The last active system is remembered only for users who can access multiple workspaces
 
@@ -103,7 +111,8 @@ If you want one Windows command that loads `.env`, builds, and starts production
   - `UPuse only`
   - `Scano only`
   - `Both`
-- `UPuse access` reveals the UPuse role selector: `admin` / `user`
+- `UPuse access` reveals the UPuse role selector: `admin` / `user` / `tracker`
+- Choosing `tracker` reveals an assigned-chain picker sourced from the current UPuse chain list. A tracker with no assigned chains can still be saved and will see an empty Dashboard.
 - `Scano access` reveals the Scano role selector: `team_lead` / `scanner`
 - `Ops Center` is not editable in User Management and is available only to the primary admin
 - Saving a user without UPuse or Scano access is blocked because Ops is not assignable from this wizard
@@ -228,11 +237,27 @@ If you want one Windows command that loads `.env`, builds, and starts production
   - repair sweep every `UPUSE_ORDERS_REPAIR_SWEEP_SECONDS`
 - Source-wide degraded Orders state is now hysteresis-based. A single transient Orders API failure no longer forces the whole dashboard into a hard error state if the cached mirror is still fresh enough to serve operators.
 
+## Availability sync model
+- Availability reads come from VSS and refresh on a fixed server-managed `15s` cadence.
+- Branch snapshots keep both coarse status compatibility and the richer VSS-aware fields:
+  - `availabilityKind`
+  - `vssBucket`
+  - `vssGroup`
+  - `vssNextOpeningAt`
+  - `vssEndTime`
+  - `vssClosedReason`
+  - `vssChangeable`
+- `closedUntil` is now a countdown target only. It is present only for:
+  - UPuse-owned tracked temporary closes
+  - source `shortClosures` with `nextOpeningAt`
+- Source-controlled states such as `issues`, `inactive`, and `offHours` override stale UPuse close presentation in the snapshot and UI.
+
 ## Token testing
 - `POST /api/settings/test` now starts an async token validation job and returns `202 Accepted` with a `jobId`.
 - `GET /api/settings/test/:jobId` returns the progressive snapshot for that job.
 - Primary admins can also use `/ops` to review masked token state, save replacement tokens, and run the existing token tests through primary-admin-only `/api/ops/tokens*` APIs.
 - Orders token validation now treats `HTTP 200` with an empty orders list as a valid probe result. Recent order presence is no longer required for a branch to pass.
+- Dashboard and Settings monitor issue banners now link auth/token-related availability or orders failures directly to `Settings > Tokens` so operators can test the affected token in place.
 
 ## Auth bootstrap
 - The old hardcoded default admin seed has been removed.

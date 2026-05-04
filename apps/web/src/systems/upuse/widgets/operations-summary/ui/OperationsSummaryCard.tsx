@@ -21,6 +21,7 @@ export function OperationsSummaryCard(props: {
   updatedAt?: string;
   connectionState: DashboardLiveConnectionState;
   canRefreshNow?: boolean;
+  canOpenReport?: boolean;
   syncGuard: {
     stale: boolean;
     recovering: boolean;
@@ -31,6 +32,7 @@ export function OperationsSummaryCard(props: {
   onOpenReport: () => void;
 }) {
   const canRefreshNow = props.canRefreshNow ?? true;
+  const canOpenReport = props.canOpenReport ?? true;
   const metrics: Array<{
     label: string;
     value: number;
@@ -108,27 +110,29 @@ export function OperationsSummaryCard(props: {
           alignItems="center"
           sx={{ width: "auto", alignSelf: { xs: "flex-end", md: "auto" } }}
         >
-          <Tooltip title="Download report">
-            <IconButton
-              onClick={props.onOpenReport}
-              aria-label="Download report"
-              sx={{
-                width: 40,
-                height: 40,
-                border: "1px solid rgba(37,99,235,0.22)",
-                color: "#1d4ed8",
-                bgcolor: "rgba(37,99,235,0.04)",
-                boxShadow: "0 8px 18px rgba(15,23,42,0.05)",
-                "&:hover": {
-                  borderColor: "rgba(37,99,235,0.32)",
-                  bgcolor: "rgba(37,99,235,0.08)",
-                  boxShadow: "0 10px 20px rgba(15,23,42,0.08)",
-                },
-              }}
-            >
-              <AssessmentRoundedIcon />
-            </IconButton>
-          </Tooltip>
+          {canOpenReport ? (
+            <Tooltip title="Download report">
+              <IconButton
+                onClick={props.onOpenReport}
+                aria-label="Download report"
+                sx={{
+                  width: 40,
+                  height: 40,
+                  border: "1px solid rgba(37,99,235,0.22)",
+                  color: "#1d4ed8",
+                  bgcolor: "rgba(37,99,235,0.04)",
+                  boxShadow: "0 8px 18px rgba(15,23,42,0.05)",
+                  "&:hover": {
+                    borderColor: "rgba(37,99,235,0.32)",
+                    bgcolor: "rgba(37,99,235,0.08)",
+                    boxShadow: "0 10px 20px rgba(15,23,42,0.08)",
+                  },
+                }}
+              >
+                <AssessmentRoundedIcon />
+              </IconButton>
+            </Tooltip>
+          ) : null}
         </Stack>
       </Stack>
 

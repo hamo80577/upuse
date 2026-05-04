@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-05-04
+
+- Added the UPuse `tracker` role with assigned-chain visibility:
+  - `admin` and `user` keep full UPuse workspace access
+  - `tracker` can open the Dashboard only and sees only assigned UPuse chains
+  - branch detail, pickers, and logs are readable for assigned chains only
+- Added persisted UPuse tracker assignments in `upuse_user_chain_assignments` and migrated the users role constraint to accept `tracker`.
+- Updated User Management so admins can create or edit tracker users and choose assigned UPuse chains from the current chain list.
+- Filtered `/api/dashboard`, `/api/stream`, and `/api/ws/dashboard` snapshots for tracker users, including recomputed dashboard totals.
+- Kept settings, performance, branch management, reports, monitor controls, clear logs, and other full-workspace APIs unavailable to tracker users.
+- Updated UPuse routing/navigation so trackers see Dashboard only and direct full-workspace URLs redirect to `/`.
+
 ## 2026-04-16
 
 - Added the standalone `Ops Center` workspace foundation:
@@ -25,6 +37,18 @@
   - added masked inventory, replacement saves, and token-test controls for the existing UPuse Orders, UPuse Availability, and Scano Catalog token stores
   - reused the existing encrypted token storage and existing UPuse/Scano token test services without adding a new secret store
   - kept raw saved tokens out of Ops responses and telemetry metadata while allowing typed draft values only in protected save/test requests
+
+## 2026-04-13
+
+- Refreshed UPuse availability monitoring around the full VSS response model instead of collapsing source states into only `OPEN` / `TEMP_CLOSE` / `CLOSED`.
+- Added VSS-aware branch snapshot fields and derived availability kinds so the web now renders:
+  - `UPuse` timer-backed closes with the active trigger badge
+  - raw source subtypes `shortClosures`, `issues`, `inactive`, `highDemand`, and `offHours`
+  - countdowns only when a real timer exists (`UPuse` tracked window or `shortClosures.nextOpeningAt`)
+- Fixed stale close ownership presentation so old UPuse trigger badges no longer survive when VSS moves a branch into authoritative source-controlled states like `issues` or `inactive`.
+- Fixed VSS availability sync cadence at `15s` on the server, removed the editable availability refresh control from Settings, and kept orders cadence settings-driven.
+- Added structured monitoring sync/error metadata for availability and orders across dashboard snapshots and health/readiness payloads, including actionable categories such as `token_missing`, `auth`, `conflict`, `tunnel`, `timeout`, `network`, `malformed_response`, and `upstream`.
+- Updated the dashboard, branch detail, top-bar ticker, and settings workflow so auth/token monitor failures point users directly to token testing instead of generic degraded-only messaging.
 
 ## 2026-04-12
 

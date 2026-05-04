@@ -26,6 +26,7 @@ export type OpsEventSeverity = typeof OPS_EVENT_SEVERITIES[number];
 export type OpsEventSource = typeof OPS_EVENT_SOURCES[number];
 export type OpsMetadataValue = string | number | boolean | null;
 export type OpsMetadata = Record<string, OpsMetadataValue>;
+export type OpsUsageSatisfactionStatus = "positive" | "mixed" | "friction";
 
 export interface OpsSessionInput {
   sessionId?: string;
@@ -141,3 +142,58 @@ export interface OpsPaginationMeta {
   totalPages: number;
 }
 
+export interface OpsUsageSatisfactionSignal {
+  score: number;
+  status: OpsUsageSatisfactionStatus;
+  note: string;
+}
+
+export interface OpsUsageDaySatisfactionSummary extends OpsUsageSatisfactionSignal {
+  positiveUsers: number;
+  mixedUsers: number;
+  frictionUsers: number;
+}
+
+export interface OpsUsageHistoryUserReport {
+  userId: number | null;
+  userEmail: string | null;
+  userName: string | null;
+  systems: OpsSystemId[];
+  sessionCount: number;
+  pageViews: number;
+  totalDurationMs: number;
+  averageSessionDurationMs: number;
+  topPage: string | null;
+  topPageViews: number;
+  errorCount: number;
+  satisfaction: OpsUsageSatisfactionSignal;
+}
+
+export interface OpsUsageHistoryDaySummary {
+  dayKey: string;
+  label: string;
+  startUtcIso: string;
+  endUtcExclusiveIso: string;
+  uniqueUsers: number;
+  sessionCount: number;
+  pageViews: number;
+  totalDurationMs: number;
+  averageSessionDurationMs: number;
+  topPage: string | null;
+  topPageViews: number;
+  usersWithErrors: number;
+  satisfaction: OpsUsageDaySatisfactionSummary;
+}
+
+export interface OpsUsageHistoryDayDetail extends OpsUsageHistoryDaySummary {
+  users: OpsUsageHistoryUserReport[];
+}
+
+export interface OpsUsageHistoryResponse {
+  ok: true;
+  generatedAt: string;
+  timezone: string;
+  selectedDayKey: string | null;
+  days: OpsUsageHistoryDaySummary[];
+  selectedDay: OpsUsageHistoryDayDetail | null;
+}

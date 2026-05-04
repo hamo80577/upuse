@@ -25,6 +25,13 @@ import {
   type OpsSystemId,
   type OpsTelemetryErrorInput,
   type OpsTelemetryEventInput,
+  type OpsUsageDaySatisfactionSummary,
+  type OpsUsageHistoryDayDetail,
+  type OpsUsageHistoryDaySummary,
+  type OpsUsageHistoryResponse,
+  type OpsUsageHistoryUserReport,
+  type OpsUsageSatisfactionSignal,
+  type OpsUsageSatisfactionStatus,
 } from "../types/telemetry.js";
 
 const MAX_METADATA_KEYS = 20;
@@ -162,6 +169,60 @@ interface OpsQualityAlert {
   value: number | null;
   threshold: number | null;
   createdAt: string;
+}
+
+interface OpsUsageHistoryWindow {
+  dayKey: string;
+  label: string;
+  startUtcIso: string;
+  endUtcExclusiveIso: string;
+}
+
+interface ParsedOpsUsageSession {
+  id: string;
+  userId: number | null;
+  userEmail: string | null;
+  userName: string | null;
+  currentSystem: OpsSystemId;
+  startMs: number;
+  endMs: number;
+}
+
+interface ParsedOpsUsagePageEvent {
+  sessionId: string | null;
+  userId: number | null;
+  system: OpsSystemId;
+  page: string;
+  occurredAtMs: number;
+}
+
+interface ParsedOpsUsageErrorEvent {
+  sessionId: string | null;
+  userId: number | null;
+  occurredAtMs: number;
+}
+
+interface UsageUserAggregate {
+  userId: number | null;
+  userEmail: string | null;
+  userName: string | null;
+  systems: Set<OpsSystemId>;
+  sessionCount: number;
+  pageViews: number;
+  totalDurationMs: number;
+  errorCount: number;
+  pageCounts: Map<string, number>;
+}
+
+interface UsageUserAggregateSeed {
+  userId?: number | null;
+  userEmail?: string | null;
+  userName?: string | null;
+  systems?: Iterable<OpsSystemId>;
+  sessionCount?: number;
+  pageViews?: number;
+  totalDurationMs?: number;
+  errorCount?: number;
 }
 
 export interface OpsSessionListFilters {
@@ -1218,6 +1279,405 @@ function performanceHealth(window: { startUtcIso: string; endUtcIso: string }) {
     apiFailureCount,
     websocketFailureCount,
     p95LatencyMs,
+  };
+}
+
+function buildOpsUsageHistoryWindows(days: number, now = DateTime.utc()): OpsUsageHistoryWindow[] {
+  const today = now.setZone(TZ).startOf("day");
+
+  return Array.from({ length: days }, (_, index) => {
+    const day = today.minus({ days: index });
+    return {
+      dayKey: day.toFormat("yyyy-MM-dd"),
+      label: index === 0 ? "Today" : index === 1 ? "Yesterday" : day.toFormat("ccc dd LLL"),
+      startUtcIso: day.toUTC().toISO({ suppressMilliseconds: false })!,
+      endUtcExclusiveIso: day.plus({ days: 1 }).toUTC().toISO({ suppressMilliseconds: false })!,
+    };
+  });
+}
+
+function overlapDurationMs(params: {
+  startMs: number;
+  endMs: number;
+  windowStartMs: number;
+  windowEndMs: number;
+}) {
+  if (!Number.isFinite(params.startMs) || !Number.isFinite(params.endMs)) return 0;
+  return Math.max(0, Math.min(params.endMs, params.windowEndMs) - Math.max(params.startMs, params.windowStartMs));
+}
+
+function usageSatisfactionStatus(score: number): OpsUsageSatisfactionStatus {
+  if (score >= 70) return "positive";
+  if (score >= 45) return "mixed";
+  return "friction";
+}
+
+function buildUsageSatisfactionSignal(params: {
+  sessionCount: number;
+  pageViews: number;
+  totalDurationMs: number;
+  errorCount: number;
+}): OpsUsageSatisfactionSignal {
+  let score = 55;
+
+  if (params.totalDurationMs >= 15 * 60_000) score += 20;
+  else if (params.totalDurationMs >= 5 * 60_000) score += 10;
+
+  if (params.pageViews >= 6) score += 15;
+  else if (params.pageViews >= 3) score += 8;
+
+  if (params.sessionCount >= 2) score += 5;
+  if (params.errorCount > 0) score -= Math.min(30, params.errorCount * 15);
+  if (params.pageViews <= 1) score -= 10;
+  if (params.totalDurationMs < 2 * 60_000) score -= 10;
+
+  const normalizedScore = clampScore(score);
+  const status = usageSatisfactionStatus(normalizedScore);
+
+  if (params.errorCount > 0) {
+    return {
+      score: normalizedScore,
+      status,
+      note: "Errors interrupted this user's journey.",
+    };
+  }
+
+  if (params.pageViews <= 1 && params.totalDurationMs < 2 * 60_000) {
+    return {
+      score: normalizedScore,
+      status,
+      note: "Short visit with very little navigation.",
+    };
+  }
+
+  if (params.pageViews >= 6 || params.totalDurationMs >= 15 * 60_000) {
+    return {
+      score: normalizedScore,
+      status,
+      note: "Longer engaged visit with repeated navigation.",
+    };
+  }
+
+  return {
+    score: normalizedScore,
+    status,
+    note: "Moderate engagement without a strong friction signal.",
+  };
+}
+
+function buildUsageDaySatisfactionSummary(users: OpsUsageHistoryUserReport[]): OpsUsageDaySatisfactionSummary {
+  if (!users.length) {
+    return {
+      score: 0,
+      status: "mixed",
+      note: "No authenticated usage was captured for this day.",
+      positiveUsers: 0,
+      mixedUsers: 0,
+      frictionUsers: 0,
+    };
+  }
+
+  const positiveUsers = users.filter((user) => user.satisfaction.status === "positive").length;
+  const mixedUsers = users.filter((user) => user.satisfaction.status === "mixed").length;
+  const frictionUsers = users.filter((user) => user.satisfaction.status === "friction").length;
+  const score = clampScore(
+    Math.round(users.reduce((total, user) => total + user.satisfaction.score, 0) / users.length),
+  );
+  const status = usageSatisfactionStatus(score);
+
+  let note = "User behavior was mixed across the day.";
+  if (frictionUsers > positiveUsers) {
+    note = "Short visits or repeated errors suggest user friction.";
+  } else if (positiveUsers > 0 && frictionUsers === 0) {
+    note = "Longer sessions and repeat navigation suggest healthy engagement.";
+  } else if (positiveUsers > frictionUsers) {
+    note = "Most users completed longer flows without visible friction.";
+  }
+
+  return {
+    score,
+    status,
+    note,
+    positiveUsers,
+    mixedUsers,
+    frictionUsers,
+  };
+}
+
+function buildOpsUsageHistoryDayDetail(params: {
+  window: OpsUsageHistoryWindow;
+  sessions: ParsedOpsUsageSession[];
+  pageEvents: ParsedOpsUsagePageEvent[];
+  errorEvents: ParsedOpsUsageErrorEvent[];
+}): OpsUsageHistoryDayDetail {
+  const windowStartMs = Date.parse(params.window.startUtcIso);
+  const windowEndMs = Date.parse(params.window.endUtcExclusiveIso);
+  const sessionUserKeys = new Map<string, string>();
+  const users = new Map<string, UsageUserAggregate>();
+  const overallPageCounts = new Map<string, number>();
+
+  const ensureUser = (key: string, seed?: UsageUserAggregateSeed) => {
+    const existing = users.get(key);
+    if (existing) {
+      if (seed?.userEmail && !existing.userEmail) existing.userEmail = seed.userEmail;
+      if (seed?.userName && !existing.userName) existing.userName = seed.userName;
+      for (const system of seed?.systems ?? []) {
+        existing.systems.add(system);
+      }
+      return existing;
+    }
+
+    const created: UsageUserAggregate = {
+      userId: seed?.userId ?? null,
+      userEmail: seed?.userEmail ?? null,
+      userName: seed?.userName ?? null,
+      systems: new Set(seed?.systems ?? []),
+      sessionCount: seed?.sessionCount ?? 0,
+      pageViews: seed?.pageViews ?? 0,
+      totalDurationMs: seed?.totalDurationMs ?? 0,
+      errorCount: seed?.errorCount ?? 0,
+      pageCounts: new Map<string, number>(),
+    };
+    users.set(key, created);
+    return created;
+  };
+
+  const daySessions = params.sessions.filter((session) => session.startMs < windowEndMs && session.endMs > windowStartMs);
+  let totalDurationMs = 0;
+
+  for (const session of daySessions) {
+    const key = session.userId != null ? `user:${session.userId}` : `session:${session.id}`;
+    const overlapMs = overlapDurationMs({
+      startMs: session.startMs,
+      endMs: session.endMs,
+      windowStartMs,
+      windowEndMs,
+    });
+    const user = ensureUser(key, {
+      userId: session.userId,
+      userEmail: session.userEmail,
+      userName: session.userName,
+      systems: [session.currentSystem],
+    });
+    user.sessionCount += 1;
+    user.totalDurationMs += overlapMs;
+    user.systems.add(session.currentSystem);
+    totalDurationMs += overlapMs;
+    sessionUserKeys.set(session.id, key);
+  }
+
+  const dayPageEvents = params.pageEvents.filter((event) => event.occurredAtMs >= windowStartMs && event.occurredAtMs < windowEndMs);
+  for (const event of dayPageEvents) {
+    const key = event.userId != null
+      ? `user:${event.userId}`
+      : event.sessionId && sessionUserKeys.has(event.sessionId)
+        ? sessionUserKeys.get(event.sessionId)!
+        : event.sessionId
+          ? `session:${event.sessionId}`
+          : `unknown:${event.page}`;
+    const user = ensureUser(key, {
+      userId: event.userId,
+      systems: [event.system],
+    });
+    user.pageViews += 1;
+    user.systems.add(event.system);
+    user.pageCounts.set(event.page, (user.pageCounts.get(event.page) ?? 0) + 1);
+    overallPageCounts.set(event.page, (overallPageCounts.get(event.page) ?? 0) + 1);
+  }
+
+  const dayErrorEvents = params.errorEvents.filter((event) => event.occurredAtMs >= windowStartMs && event.occurredAtMs < windowEndMs);
+  for (const event of dayErrorEvents) {
+    const key = event.userId != null
+      ? `user:${event.userId}`
+      : event.sessionId && sessionUserKeys.has(event.sessionId)
+        ? sessionUserKeys.get(event.sessionId)!
+        : event.sessionId
+          ? `session:${event.sessionId}`
+          : "unknown:error";
+    ensureUser(key, {
+      userId: event.userId,
+    }).errorCount += 1;
+  }
+
+  const usersList: OpsUsageHistoryUserReport[] = Array.from(users.values())
+    .map((user) => {
+      const topPageEntry = Array.from(user.pageCounts.entries())
+        .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0];
+      const averageSessionDurationMs = user.sessionCount > 0
+        ? Math.round(user.totalDurationMs / user.sessionCount)
+        : 0;
+
+      return {
+        userId: user.userId,
+        userEmail: user.userEmail,
+        userName: user.userName,
+        systems: Array.from(user.systems).sort(),
+        sessionCount: user.sessionCount,
+        pageViews: user.pageViews,
+        totalDurationMs: user.totalDurationMs,
+        averageSessionDurationMs,
+        topPage: topPageEntry?.[0] ?? null,
+        topPageViews: topPageEntry?.[1] ?? 0,
+        errorCount: user.errorCount,
+        satisfaction: buildUsageSatisfactionSignal({
+          sessionCount: user.sessionCount,
+          pageViews: user.pageViews,
+          totalDurationMs: user.totalDurationMs,
+          errorCount: user.errorCount,
+        }),
+      };
+    })
+    .sort((left, right) =>
+      right.totalDurationMs - left.totalDurationMs
+      || right.pageViews - left.pageViews
+      || (left.userName ?? left.userEmail ?? "").localeCompare(right.userName ?? right.userEmail ?? ""),
+    );
+
+  const topPageEntry = Array.from(overallPageCounts.entries())
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0];
+  const usersWithErrors = usersList.filter((user) => user.errorCount > 0).length;
+
+  return {
+    dayKey: params.window.dayKey,
+    label: params.window.label,
+    startUtcIso: params.window.startUtcIso,
+    endUtcExclusiveIso: params.window.endUtcExclusiveIso,
+    uniqueUsers: usersList.length,
+    sessionCount: daySessions.length,
+    pageViews: dayPageEvents.length,
+    totalDurationMs,
+    averageSessionDurationMs: daySessions.length > 0 ? Math.round(totalDurationMs / daySessions.length) : 0,
+    topPage: topPageEntry?.[0] ?? null,
+    topPageViews: topPageEntry?.[1] ?? 0,
+    usersWithErrors,
+    satisfaction: buildUsageDaySatisfactionSummary(usersList),
+    users: usersList,
+  };
+}
+
+export function getOpsUsageHistory(params: {
+  days?: number;
+  dayKey?: string;
+} = {}): OpsUsageHistoryResponse {
+  const days = Math.min(Math.max(Math.trunc(params.days ?? 7), 1), 30);
+  const generatedAt = nowIso();
+  const windows = buildOpsUsageHistoryWindows(days);
+
+  if (!windows.length) {
+    return {
+      ok: true,
+      generatedAt,
+      timezone: TZ,
+      selectedDayKey: null,
+      days: [],
+      selectedDay: null,
+    };
+  }
+
+  const rangeStartIso = windows[windows.length - 1]!.startUtcIso;
+  const rangeEndIso = windows[0]!.endUtcExclusiveIso;
+
+  const sessions = queryRows<{
+    id: string;
+    userId: number | null;
+    userEmail: string | null;
+    userName: string | null;
+    currentSystem: OpsSystemId;
+    firstSeenAt: string;
+    lastSeenAt: string;
+    endedAt: string | null;
+  }>(`
+    SELECT id, userId, userEmail, userName, currentSystem, firstSeenAt, lastSeenAt, endedAt
+    FROM ops_sessions
+    WHERE firstSeenAt < ?
+      AND COALESCE(endedAt, lastSeenAt, firstSeenAt) >= ?
+    ORDER BY datetime(firstSeenAt) ASC, id ASC
+  `, [rangeEndIso, rangeStartIso])
+    .map((row) => ({
+      id: row.id,
+      userId: row.userId,
+      userEmail: row.userEmail,
+      userName: row.userName,
+      currentSystem: row.currentSystem,
+      startMs: Date.parse(row.firstSeenAt),
+      endMs: Date.parse(row.endedAt ?? row.lastSeenAt ?? row.firstSeenAt),
+    }))
+    .filter((row) => Number.isFinite(row.startMs) && Number.isFinite(row.endMs));
+
+  const pageEvents = queryRows<{
+    sessionId: string | null;
+    userId: number | null;
+    system: OpsSystemId;
+    page: string | null;
+    occurredAt: string;
+  }>(`
+    SELECT sessionId, userId, system, COALESCE(path, routePattern, pageTitle, 'Unknown page') AS page, occurredAt
+    FROM ops_events
+    WHERE eventType = 'page_view'
+      AND occurredAt >= ?
+      AND occurredAt < ?
+    ORDER BY datetime(occurredAt) ASC, id ASC
+  `, [rangeStartIso, rangeEndIso])
+    .map((row) => ({
+      sessionId: row.sessionId,
+      userId: row.userId,
+      system: row.system,
+      page: row.page ?? "Unknown page",
+      occurredAtMs: Date.parse(row.occurredAt),
+    }))
+    .filter((row) => Number.isFinite(row.occurredAtMs));
+
+  const errorEvents = queryRows<{
+    sessionId: string | null;
+    userId: number | null;
+    occurredAt: string;
+  }>(`
+    SELECT sessionId, userId, occurredAt
+    FROM ops_events
+    WHERE eventType IN ('api_error', 'js_error', 'unhandled_rejection')
+      AND occurredAt >= ?
+      AND occurredAt < ?
+    ORDER BY datetime(occurredAt) ASC, id ASC
+  `, [rangeStartIso, rangeEndIso])
+    .map((row) => ({
+      sessionId: row.sessionId,
+      userId: row.userId,
+      occurredAtMs: Date.parse(row.occurredAt),
+    }))
+    .filter((row) => Number.isFinite(row.occurredAtMs));
+
+  const dayDetails = windows.map((window) => buildOpsUsageHistoryDayDetail({
+    window,
+    sessions,
+    pageEvents,
+    errorEvents,
+  }));
+  const selectedDayKey = dayDetails.some((day) => day.dayKey === params.dayKey)
+    ? params.dayKey!
+    : dayDetails[0]?.dayKey ?? null;
+  const selectedDay = dayDetails.find((day) => day.dayKey === selectedDayKey) ?? null;
+
+  return {
+    ok: true,
+    generatedAt,
+    timezone: TZ,
+    selectedDayKey,
+    days: dayDetails.map<OpsUsageHistoryDaySummary>((day) => ({
+      dayKey: day.dayKey,
+      label: day.label,
+      startUtcIso: day.startUtcIso,
+      endUtcExclusiveIso: day.endUtcExclusiveIso,
+      uniqueUsers: day.uniqueUsers,
+      sessionCount: day.sessionCount,
+      pageViews: day.pageViews,
+      totalDurationMs: day.totalDurationMs,
+      averageSessionDurationMs: day.averageSessionDurationMs,
+      topPage: day.topPage,
+      topPageViews: day.topPageViews,
+      usersWithErrors: day.usersWithErrors,
+      satisfaction: day.satisfaction,
+    })),
+    selectedDay,
   };
 }
 

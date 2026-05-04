@@ -44,16 +44,18 @@ export function BranchLogPanel(props: {
             </Typography>
           </Box>
 
-          <Button
-            size="small"
-            color="error"
-            variant="text"
-            disabled={!canClear || !loadedLogCount || props.clearingLog}
-            onClick={props.onClear}
-            sx={{ minWidth: 0, fontWeight: 800 }}
-          >
-            {!canClear ? "No Access" : props.clearingLog ? "Clearing..." : "Clear Log"}
-          </Button>
+          {canClear ? (
+            <Button
+              size="small"
+              color="error"
+              variant="text"
+              disabled={!loadedLogCount || props.clearingLog}
+              onClick={props.onClear}
+              sx={{ minWidth: 0, fontWeight: 800 }}
+            >
+              {props.clearingLog ? "Clearing..." : "Clear Log"}
+            </Button>
+          ) : null}
         </Stack>
       </Box>
       <Divider />

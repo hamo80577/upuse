@@ -38,12 +38,17 @@ export function migrateLegacyUserRoles(db: Database.Database) {
 
   if (!usersTable) return;
 
+  const userColumns = db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>;
+  const hasColumn = (name: string) => userColumns.some((column) => column.name === name);
+  const upuseAccessExpr = hasColumn("upuseAccess") ? "COALESCE(upuseAccess, 1)" : "1";
+  const isPrimaryAdminExpr = hasColumn("isPrimaryAdmin") ? "COALESCE(isPrimaryAdmin, 0)" : "0";
   const hasLegacyConstraint = typeof usersTable.sql === "string" && usersTable.sql.includes("'viewer'");
+  const hasTrackerConstraint = typeof usersTable.sql === "string" && usersTable.sql.includes("'tracker'");
   const hasUnsupportedRoles = Boolean(
-    db.prepare("SELECT 1 FROM users WHERE LOWER(TRIM(role)) NOT IN ('admin', 'user') LIMIT 1").get(),
+    db.prepare("SELECT 1 FROM users WHERE LOWER(TRIM(role)) NOT IN ('admin', 'user', 'tracker') LIMIT 1").get(),
   );
 
-  if (!hasLegacyConstraint && !hasUnsupportedRoles) return;
+  if (hasTrackerConstraint && !hasLegacyConstraint && !hasUnsupportedRoles) return;
 
   const runMigration = db.transaction(() => {
     db.exec(`
@@ -53,7 +58,7 @@ export function migrateLegacyUserRoles(db: Database.Database) {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         email TEXT NOT NULL UNIQUE,
         name TEXT NOT NULL,
-        role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
+        role TEXT NOT NULL CHECK (role IN ('admin', 'user', 'tracker')),
         passwordHash TEXT NOT NULL,
         active INTEGER NOT NULL DEFAULT 1,
         createdAt TEXT NOT NULL,
@@ -68,13 +73,14 @@ export function migrateLegacyUserRoles(db: Database.Database) {
         name,
         CASE
           WHEN LOWER(TRIM(role)) = 'admin' THEN 'admin'
+          WHEN LOWER(TRIM(role)) = 'tracker' THEN 'tracker'
           ELSE 'user'
         END,
         passwordHash,
         active,
         createdAt,
-        1,
-        0
+        ${upuseAccessExpr},
+        ${isPrimaryAdminExpr}
       FROM users;
 
       DROP TABLE users;

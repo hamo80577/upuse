@@ -48,9 +48,11 @@ import type {
   OpsSummaryResponse,
   OpsSystemId,
   OpsTelemetryEventType,
+  OpsUsageHistoryResponse,
 } from "../../../api/types";
 import { formatOpsDateTime, formatOpsNumber, formatOpsRate, formatOpsRelativeTime, healthStatusColor, healthStatusLabel, stateLabel, systemLabel } from "../lib/opsFormat";
 import { OpsErrorCharts, OpsTrafficCharts } from "./OpsDashboardCharts";
+import { OpsDailyUsageHistoryPanel } from "./OpsDailyUsageHistoryPanel";
 import { OpsErrorIntelligence, OpsLiveSessionsTable, OpsRecentEventsTable, OpsSearchControl } from "./OpsDashboardTables";
 import { OpsQualityPanel } from "./OpsQualityPanel";
 import { OpsTokenManagementPanel } from "./OpsTokenManagementPanel";
@@ -378,24 +380,30 @@ const opsPageMeta: Record<OpsDashboardPageKey, { label: string; subtitle: string
 
 function OpsDashboardPage(props: { page: OpsDashboardPageKey }) {
   const needsDashboardData = props.page !== "tokens";
+  const isActivityPage = props.page === "activity";
   const currentPage = opsPageMeta[props.page];
   const [windowMinutes, setWindowMinutes] = useState(60);
   const [summary, setSummary] = useState<OpsSummaryResponse | null>(null);
   const [sessions, setSessions] = useState<OpsSessionItem[]>([]);
   const [events, setEvents] = useState<OpsEventItem[]>([]);
   const [errors, setErrors] = useState<OpsErrorItem[]>([]);
+  const [history, setHistory] = useState<OpsUsageHistoryResponse | null>(null);
   const [loading, setLoading] = useState(needsDashboardData);
+  const [historyLoading, setHistoryLoading] = useState(isActivityPage);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [historyErrorMessage, setHistoryErrorMessage] = useState<string | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [systemFilter, setSystemFilter] = useState<"all" | OpsSystemId>("all");
   const [stateFilter, setStateFilter] = useState<"all" | OpsSessionState>("all");
   const [severityFilter, setSeverityFilter] = useState<"all" | OpsEventSeverity>("all");
   const [eventTypeFilter, setEventTypeFilter] = useState<"all" | OpsTelemetryEventType>("all");
+  const [selectedHistoryDayKey, setSelectedHistoryDayKey] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const requestIdRef = useRef(0);
+  const historyRequestIdRef = useRef(0);
 
   const loadDashboard = useCallback(async (options: { background?: boolean } = {}) => {
     if (!needsDashboardData) {
@@ -412,10 +420,19 @@ function OpsDashboardPage(props: { page: OpsDashboardPageKey }) {
     } else {
       setLoading(true);
     }
+    if (isActivityPage && (!options.background || !history)) {
+      setHistoryLoading(true);
+    }
     setErrorMessage(null);
+    if (isActivityPage) {
+      setHistoryErrorMessage(null);
+    }
 
     try {
       const nextSummary = await api.opsSummary({ windowMinutes });
+      const historyRequestId = historyRequestIdRef.current + 1;
+      historyRequestIdRef.current = historyRequestId;
+
       const [nextSessions, nextEvents, nextErrors] = await Promise.all([
         api.opsSessions({
           page: 1,
@@ -436,6 +453,18 @@ function OpsDashboardPage(props: { page: OpsDashboardPageKey }) {
           to: nextSummary.windows.current.endUtcIso,
         }),
       ]);
+      let nextHistory: OpsUsageHistoryResponse | null = null;
+      let nextHistoryError: string | null = null;
+      if (isActivityPage) {
+        try {
+          nextHistory = await api.opsHistory({
+            days: 7,
+            dayKey: selectedHistoryDayKey ?? undefined,
+          });
+        } catch (error) {
+          nextHistoryError = describeApiError(error, "Unable to load daily usage history.");
+        }
+      }
 
       if (requestIdRef.current !== requestId) return;
 
@@ -443,25 +472,78 @@ function OpsDashboardPage(props: { page: OpsDashboardPageKey }) {
       setSessions(nextSessions.items);
       setEvents(nextEvents.items);
       setErrors(nextErrors.items);
+      if (isActivityPage && historyRequestIdRef.current === historyRequestId) {
+        if (nextHistory) {
+          setHistory(nextHistory);
+          if (!selectedHistoryDayKey && nextHistory.selectedDayKey) {
+            setSelectedHistoryDayKey(nextHistory.selectedDayKey);
+          }
+        }
+        setHistoryLoading(false);
+        setHistoryErrorMessage(nextHistoryError);
+      }
+      if (!isActivityPage) {
+        setHistory(null);
+        setHistoryLoading(false);
+        setHistoryErrorMessage(null);
+        setSelectedHistoryDayKey(null);
+      }
       setLastLoadedAt(new Date());
       setNow(Date.now());
     } catch (error) {
       if (requestIdRef.current !== requestId) return;
       setErrorMessage(describeApiError(error, "Unable to load Ops Center."));
+      if (isActivityPage) {
+        setHistoryErrorMessage(describeApiError(error, "Unable to load daily usage history."));
+      }
     } finally {
       if (requestIdRef.current === requestId) {
         setLoading(false);
         setRefreshing(false);
+        if (isActivityPage) {
+          setHistoryLoading(false);
+        }
       }
     }
-  }, [needsDashboardData, windowMinutes]);
+  }, [history, isActivityPage, needsDashboardData, selectedHistoryDayKey, windowMinutes]);
+
+  const loadHistory = useCallback(async (dayKey: string) => {
+    if (!isActivityPage) return;
+
+    const requestId = historyRequestIdRef.current + 1;
+    historyRequestIdRef.current = requestId;
+    setHistoryLoading(true);
+    setHistoryErrorMessage(null);
+
+    try {
+      const nextHistory = await api.opsHistory({
+        days: 7,
+        dayKey,
+      });
+      if (historyRequestIdRef.current !== requestId) return;
+      setHistory(nextHistory);
+      setSelectedHistoryDayKey(nextHistory.selectedDayKey);
+    } catch (error) {
+      if (historyRequestIdRef.current !== requestId) return;
+      setHistoryErrorMessage(describeApiError(error, "Unable to load daily usage history."));
+    } finally {
+      if (historyRequestIdRef.current === requestId) {
+        setHistoryLoading(false);
+      }
+    }
+  }, [isActivityPage]);
 
   useEffect(() => {
     if (!needsDashboardData) {
       requestIdRef.current += 1;
+      historyRequestIdRef.current += 1;
       setLoading(false);
       setRefreshing(false);
       setErrorMessage(null);
+      setHistoryLoading(false);
+      setHistoryErrorMessage(null);
+      setHistory(null);
+      setSelectedHistoryDayKey(null);
       return;
     }
 
@@ -804,6 +886,21 @@ function OpsDashboardPage(props: { page: OpsDashboardPageKey }) {
                     )}
                   />
                   <OpsTrafficCharts summary={summary} events={events} />
+
+                  <Divider sx={{ borderColor: "rgba(148,163,184,0.18)" }} />
+
+                  <SectionTitle
+                    title="Daily Usage History"
+                    subtitle="Day-by-day report for unique users, site time, top pages, and inferred satisfaction."
+                  />
+                  <OpsDailyUsageHistoryPanel
+                    history={history}
+                    loading={historyLoading}
+                    errorMessage={historyErrorMessage}
+                    onSelectDay={(dayKey) => {
+                      void loadHistory(dayKey);
+                    }}
+                  />
 
                   <Divider sx={{ borderColor: "rgba(148,163,184,0.18)" }} />
 

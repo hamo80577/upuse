@@ -1,9 +1,13 @@
 import type { AppUser, AppUserRole } from "../../../types/models.js";
 import { applySystemUserProjections } from "../../../core/systems/auth/registry/index.js";
+import { getAssignedChainsForUser } from "../../../systems/upuse/services/trackerAssignments.js";
 import type { UserRow } from "./rows.js";
 
 export function normalizeUserRole(role: string): AppUserRole {
-  return role.trim().toLowerCase() === "admin" ? "admin" : "user";
+  const normalized = role.trim().toLowerCase();
+  if (normalized === "admin") return "admin";
+  if (normalized === "tracker") return "tracker";
+  return "user";
 }
 
 export function normalizeScanoRole(role: string | null | undefined) {
@@ -27,6 +31,7 @@ export function toAppUser(row: Pick<UserRow, "id" | "email" | "name" | "role" | 
     createdAt: row.createdAt,
     upuseAccess: normalizeBooleanFlag((row as UserRow).upuseAccess, true),
     isPrimaryAdmin: normalizeBooleanFlag((row as UserRow).isPrimaryAdmin, false),
+    assignedChains: getAssignedChainsForUser(row.id),
   };
 
   return applySystemUserProjections(user);

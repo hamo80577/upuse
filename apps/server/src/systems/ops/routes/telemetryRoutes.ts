@@ -10,6 +10,7 @@ import {
 } from "../types/telemetry.js";
 import {
   endOpsSession,
+  getOpsUsageHistory,
   getOpsSummary,
   ingestOpsTelemetry,
   listOpsErrors,
@@ -127,6 +128,11 @@ const SummaryQuerySchema = z.object({
   windowMinutes: z.coerce.number().int().positive().max(1440).optional().default(60),
 }).strict();
 
+const HistoryQuerySchema = z.object({
+  days: z.coerce.number().int().positive().max(30).optional().default(7),
+  dayKey: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+}).strict();
+
 function getAuthenticatedUser(req: Request): AppUser {
   if (!req.authUser) {
     throw Object.assign(new Error("Unauthorized"), {
@@ -187,6 +193,20 @@ export function createOpsSummaryRoute(engine?: MonitorEngine) {
       res.json(getOpsSummary({
         windowMinutes: query.windowMinutes,
         engine,
+      }));
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+export function createOpsHistoryRoute() {
+  return (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const query = HistoryQuerySchema.parse(req.query);
+      res.json(getOpsUsageHistory({
+        days: query.days,
+        dayKey: query.dayKey,
       }));
     } catch (error) {
       next(error);

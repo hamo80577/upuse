@@ -22,6 +22,7 @@ const mockAuthState = vi.hoisted(() => ({
       createdAt: "2026-03-14T10:00:00.000Z",
       upuseAccess: true,
       isPrimaryAdmin: true,
+      assignedChains: [],
       scanoRole: "team_lead" as const,
     },
     logout: vi.fn(),
@@ -80,6 +81,7 @@ describe("UsersPage", () => {
     mockApi.updateUser.mockResolvedValue({ ok: true });
     mockApi.deleteUser.mockResolvedValue({ ok: true });
     mockApi.listUsers.mockResolvedValue({
+      chainOptions: ["Chain A", "Chain B"],
       items: [
         {
           id: 1,
@@ -90,6 +92,7 @@ describe("UsersPage", () => {
           createdAt: "2026-03-14T10:00:00.000Z",
           upuseAccess: true,
           isPrimaryAdmin: true,
+          assignedChains: [],
           scanoRole: "team_lead",
         },
         {
@@ -101,6 +104,7 @@ describe("UsersPage", () => {
           createdAt: "2026-03-14T10:10:00.000Z",
           upuseAccess: true,
           isPrimaryAdmin: false,
+          assignedChains: [],
           scanoRole: undefined,
         },
         {
@@ -112,7 +116,20 @@ describe("UsersPage", () => {
           createdAt: "2026-03-14T10:20:00.000Z",
           upuseAccess: false,
           isPrimaryAdmin: false,
+          assignedChains: [],
           scanoRole: "scanner",
+        },
+        {
+          id: 4,
+          email: "tracker@example.com",
+          name: "Tracker Four",
+          role: "tracker",
+          active: true,
+          createdAt: "2026-03-14T10:30:00.000Z",
+          upuseAccess: true,
+          isPrimaryAdmin: false,
+          assignedChains: ["Chain A"],
+          scanoRole: undefined,
         },
       ],
     });
@@ -151,6 +168,41 @@ describe("UsersPage", () => {
     expect(screen.getByLabelText("Scano access")).not.toBeChecked();
     expect(screen.getByDisplayValue("user")).toBeInTheDocument();
     expect(mockApi.updateUser).not.toHaveBeenCalled();
+  }, 10000);
+
+  it("edits tracker users with assigned UPuse chains", async () => {
+    render(
+      <MemoryRouter>
+        <UsersPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(mockApi.listUsers).toHaveBeenCalled();
+    });
+
+    expect(screen.getByText("UPuse Tracker")).toBeInTheDocument();
+    expect(screen.getByText("Chain A")).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[3]);
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(screen.getByDisplayValue("tracker")).toBeInTheDocument();
+    expect(screen.getByLabelText("Chain A")).toBeChecked();
+    expect(screen.getByLabelText("Chain B")).not.toBeChecked();
+
+    fireEvent.click(screen.getByLabelText("Chain B"));
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+
+    await waitFor(() => {
+      expect(mockApi.updateUser).toHaveBeenCalledWith(4, {
+        email: "tracker@example.com",
+        name: "Tracker Four",
+        upuseAccess: true,
+        upuseRole: "tracker",
+        assignedChains: ["Chain A", "Chain B"],
+      });
+    });
   }, 10000);
 
   it("creates a Scano-only user from the wizard", async () => {

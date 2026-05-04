@@ -82,9 +82,53 @@ afterEach(() => {
 });
 
 describe("db Scano task migration", () => {
+  it("migrates the UPuse users role constraint to accept tracker and preserves existing users", async () => {
+    const { db, migrate } = await loadDbModule();
+
+    db.exec(`
+      CREATE TABLE users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
+        passwordHash TEXT NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1,
+        createdAt TEXT NOT NULL
+      );
+
+      INSERT INTO users (id, email, name, role, passwordHash, active, createdAt)
+      VALUES
+        (1, 'admin@example.com', 'Admin', 'admin', 'hash-admin', 1, '2026-04-08T08:00:00.000Z'),
+        (2, 'user@example.com', 'User', 'user', 'hash-user', 1, '2026-04-08T08:05:00.000Z');
+    `);
+
+    await migrate();
+
+    const userSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").get() as { sql: string };
+    const existingUsers = db.prepare("SELECT id, email, role, upuseAccess, isPrimaryAdmin FROM users ORDER BY id ASC").all();
+    const assignmentTable = db.prepare(`
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'table'
+        AND name = 'upuse_user_chain_assignments'
+    `).get() as { name: string } | undefined;
+
+    db.prepare(`
+      INSERT INTO users (email, name, role, passwordHash, active, createdAt, upuseAccess, isPrimaryAdmin)
+      VALUES ('tracker@example.com', 'Tracker', 'tracker', 'hash-tracker', 1, '2026-04-08T08:10:00.000Z', 1, 0)
+    `).run();
+
+    expect(userSql.sql).toContain("'tracker'");
+    expect(existingUsers).toEqual([
+      { id: 1, email: "admin@example.com", role: "admin", upuseAccess: 1, isPrimaryAdmin: 1 },
+      { id: 2, email: "user@example.com", role: "user", upuseAccess: 1, isPrimaryAdmin: 0 },
+    ]);
+    expect(assignmentTable?.name).toBe("upuse_user_chain_assignments");
+  });
+
   it("hard-resets only incompatible legacy task schemas while preserving team, settings, and master products", { timeout: 15_000 }, async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const { db, migrate } = await loadDbModule();
+    const { db, migrate, cryptoBox } = await loadDbModule();
 
     createCurrentUsersTable(db);
     db.exec(`
@@ -162,9 +206,6 @@ describe("db Scano task migration", () => {
       INSERT INTO scano_team_members (id, name, linkedUserId, role, active, createdAt, updatedAt)
       VALUES (11, 'Scanner User', 2, 'scanner', 1, '2026-04-08T08:05:00.000Z', '2026-04-08T08:05:00.000Z');
 
-      INSERT INTO scano_settings (id, catalogBaseUrl, catalogTokenEnc, updatedAt)
-      VALUES (1, 'https://catalog.example.com', 'enc-token', '2026-04-08T08:10:00.000Z');
-
       INSERT INTO scano_master_products (chainId, chainName, mappingJson, productCount, updatedAt, updatedByUserId, createdAt)
       VALUES (1037, 'Carrefour', '{"sku":"item number"}', 1, '2026-04-08T08:20:00.000Z', 1, '2026-04-08T08:15:00.000Z');
 
@@ -177,6 +218,16 @@ describe("db Scano task migration", () => {
       INSERT INTO scano_task_assignees (taskId, teamMemberId)
       VALUES (1, 11);
     `);
+
+    db.prepare(`
+      INSERT INTO scano_settings (id, catalogBaseUrl, catalogTokenEnc, updatedAt)
+      VALUES (?, ?, ?, ?)
+    `).run(
+      1,
+      "https://catalog.example.com",
+      cryptoBox.encrypt("catalog-token"),
+      "2026-04-08T08:10:00.000Z",
+    );
 
     await migrate();
 

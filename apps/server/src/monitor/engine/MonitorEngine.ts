@@ -10,6 +10,7 @@ import type {
   ResolvedBranchMapping,
   Settings,
 } from "../../types/models.js";
+import { FIXED_AVAILABILITY_REFRESH_SECONDS } from "../../config/monitoring.js";
 import { getSettings } from "../../services/settingsStore.js";
 import { listBranches, listResolvedBranches, getRuntime, setRuntime } from "../../services/branchStore.js";
 import { fetchAvailabilities, setAvailability } from "../../services/availabilityClient.js";
@@ -29,7 +30,7 @@ import { MonitorCycleCoordinator, type CycleOptions, type ScheduledSource } from
 import { closeReasonLogTag, currentPreparation, type OrdersPressureSummary } from "./monitorState.js";
 import { buildMonitorSnapshot } from "./snapshotBuilder.js";
 import { MonitorRuntimeTracker, type RuntimeRow } from "./runtimeTracking.js";
-import { getMonitorErrorDetail } from "./upstreamErrorSummary.js";
+import { buildMonitorSourceError, getMonitorErrorDetail } from "./upstreamErrorSummary.js";
 
 export class MonitorEngine {
   private ordersByVendor = new Map<number, OrdersMetrics>();
@@ -45,11 +46,14 @@ export class MonitorEngine {
   private errors: { orders?: MonitorSourceError; availability?: MonitorSourceError } = {};
 
   private lastOrdersFetchAt: string | undefined;
+  private lastAvailabilityAttemptAt: string | undefined;
   private lastAvailabilityFetchAt: string | undefined;
   private lastHealthyAt: string | undefined;
   private ordersLastSuccessfulSyncAt: string | undefined;
+  private availabilityLastSuccessfulSyncAt: string | undefined;
   private staleOrdersBranchCount = 0;
   private consecutiveOrdersSourceFailures = 0;
+  private consecutiveAvailabilitySourceFailures = 0;
   private lifecycleId = 0;
   private manualOrdersRefreshPromise: Promise<void> | null = null;
 
@@ -122,7 +126,7 @@ export class MonitorEngine {
     const settings = getSettings();
     return source === "orders"
       ? settings.ordersRefreshSeconds * 1000
-      : settings.availabilityRefreshSeconds * 1000;
+      : FIXED_AVAILABILITY_REFRESH_SECONDS * 1000;
   }
 
   private getAvailabilityOffsetMs() {
@@ -216,19 +220,14 @@ export class MonitorEngine {
     return getMonitorErrorDetail(error);
   }
 
-  private setSourceError(source: MonitorIssueSource, context: string, error: unknown) {
-    const { statusCode, detail } = this.getErrorDetail(error);
-    const base = statusCode ? `${context} (HTTP ${statusCode})` : context;
-    const message = detail && detail !== base ? `${base}: ${detail}` : base;
+  private buildSourceError(source: MonitorIssueSource, error: unknown) {
+    return buildMonitorSourceError(source, error, nowUtcIso());
+  }
 
-    this.errors[source] = {
-      source,
-      message,
-      at: nowUtcIso(),
-      statusCode,
-    };
+  private setSourceError(source: MonitorIssueSource, error: unknown) {
+    this.errors[source] = this.buildSourceError(source, error);
     this.syncDegraded();
-    log(null, "ERROR", message);
+    log(null, "ERROR", this.errors[source]?.message ?? `${source} sync failed`);
   }
 
   private currentPreparation(
@@ -375,11 +374,14 @@ export class MonitorEngine {
       degraded: this.degraded,
       errors: this.errors,
       lastOrdersFetchAt: this.lastOrdersFetchAt,
+      lastAvailabilityAttemptAt: this.lastAvailabilityAttemptAt,
       lastAvailabilityFetchAt: this.lastAvailabilityFetchAt,
       lastHealthyAt: this.lastHealthyAt,
       ordersLastSuccessfulSyncAt: this.ordersLastSuccessfulSyncAt,
+      availabilityLastSuccessfulSyncAt: this.availabilityLastSuccessfulSyncAt,
       staleOrdersBranchCount: this.staleOrdersBranchCount,
       consecutiveOrdersSourceFailures: this.consecutiveOrdersSourceFailures,
+      consecutiveAvailabilitySourceFailures: this.consecutiveAvailabilitySourceFailures,
       ordersByVendor: this.ordersByVendor,
       availabilityByVendor: this.availabilityByVendor,
       preparationByVendor: this.preparationByVendor,
@@ -412,13 +414,16 @@ export class MonitorEngine {
     this.currentHourPlacedByVendor.clear();
     this.availabilityByVendor.clear();
     this.lastOrdersFetchAt = undefined;
+    this.lastAvailabilityAttemptAt = undefined;
     this.lastAvailabilityFetchAt = undefined;
     this.lastHealthyAt = undefined;
     this.ordersDataStateByVendor.clear();
     this.ordersLastSyncedAtByVendor.clear();
     this.ordersLastSuccessfulSyncAt = undefined;
+    this.availabilityLastSuccessfulSyncAt = undefined;
     this.staleOrdersBranchCount = 0;
     this.consecutiveOrdersSourceFailures = 0;
+    this.consecutiveAvailabilitySourceFailures = 0;
     this.syncDegraded();
     this.clearScheduleHandles();
     log(null, "INFO", "Monitoring stopped");
@@ -531,16 +536,23 @@ export class MonitorEngine {
 
         if (shouldExposeOrdersError) {
           const primaryError = summary.errors[0];
-          this.errors.orders = {
-            source: "orders",
-            message: primaryError
-              ? primaryError.statusCode
-                ? `Orders API request failed (HTTP ${primaryError.statusCode}): ${primaryError.message}`
-                : `Orders API request failed: ${primaryError.message}`
-              : "Orders data is stale across multiple branches.",
-            at: nowUtcIso(),
-            statusCode: primaryError?.statusCode,
-          };
+          this.errors.orders = primaryError
+            ? this.buildSourceError("orders", {
+                response: primaryError.statusCode ? { status: primaryError.statusCode } : undefined,
+                message: primaryError.message,
+              })
+            : {
+                source: "orders",
+                category: "upstream",
+                summary: "Orders sync is stale",
+                message:
+                  this.staleOrdersBranchCount === 1
+                    ? "1 branch is serving cached orders because the live Orders sync has not recovered yet."
+                    : `${this.staleOrdersBranchCount} branches are serving cached orders because the live Orders sync has not recovered yet.`,
+                actionHint: "The local orders mirror is still serving the latest healthy data where available while the monitor retries.",
+                at: nowUtcIso(),
+                retryable: true,
+              };
           this.syncDegraded();
         } else {
           this.clearSourceError("orders");
@@ -552,7 +564,7 @@ export class MonitorEngine {
         if (!this.isLifecycleCurrent(expectedLifecycleId)) return;
         this.ordersFresh = false;
         this.consecutiveOrdersSourceFailures += 1;
-        this.setSourceError("orders", "Orders API request failed", error);
+        this.setSourceError("orders", error);
       } finally {
         if (!options?.suppressPublish && this.isLifecycleCurrent(expectedLifecycleId)) {
           this.publish();
@@ -567,20 +579,39 @@ export class MonitorEngine {
     await this.jobMutex.runExclusive(async () => {
       if (!this.isLifecycleActive(expectedLifecycleId)) return;
       const settings = getSettings();
+      this.lastAvailabilityAttemptAt = nowUtcIso();
+
+      if (!settings.availabilityToken.trim().length) {
+        if (!this.isLifecycleCurrent(expectedLifecycleId)) return;
+        this.consecutiveAvailabilitySourceFailures += 1;
+        this.setSourceError("availability", {
+          code: "UPUSE_AVAILABILITY_TOKEN_MISSING",
+          message: "Availability token is not configured.",
+        });
+        if (!options?.suppressPublish && this.isLifecycleCurrent(expectedLifecycleId)) {
+          this.publish();
+        }
+        return;
+      }
+
       try {
         const rows = await fetchAvailabilities(settings.availabilityToken, {
           expectedVendorIds: this.getExpectedAvailabilityVendorIds(),
         });
         if (!this.isLifecycleActive(expectedLifecycleId)) return;
+        const fetchedAt = nowUtcIso();
         this.availabilityByVendor = new Map(rows.map((r) => [r.platformRestaurantId, r]));
-        this.syncExternalClosureState(nowUtcIso());
+        this.syncExternalClosureState(fetchedAt);
         this.clearSourceError("availability");
-        this.lastAvailabilityFetchAt = nowUtcIso();
+        this.consecutiveAvailabilitySourceFailures = 0;
+        this.lastAvailabilityFetchAt = fetchedAt;
+        this.availabilityLastSuccessfulSyncAt = fetchedAt;
         this.markHealthy();
         await this.reconcile("availability", expectedLifecycleId);
       } catch (error: unknown) {
         if (!this.isLifecycleCurrent(expectedLifecycleId)) return;
-        this.setSourceError("availability", "Availability API request failed", error);
+        this.consecutiveAvailabilitySourceFailures += 1;
+        this.setSourceError("availability", error);
       } finally {
         if (!options?.suppressPublish && this.isLifecycleCurrent(expectedLifecycleId)) {
           this.publish();
@@ -905,6 +936,7 @@ export class MonitorEngine {
     }
 
     const settings = getSettings();
+    this.lastAvailabilityAttemptAt = nowUtcIso();
     const rows = await fetchAvailabilities(settings.availabilityToken, {
       expectedVendorIds: this.getExpectedAvailabilityVendorIds(),
     });
@@ -914,7 +946,13 @@ export class MonitorEngine {
     const map = new Map(rows.map((r) => [r.platformRestaurantId, r]));
     // Update cache too
     this.availabilityByVendor = map;
-    this.lastAvailabilityFetchAt = nowUtcIso();
+    const fetchedAt = nowUtcIso();
+    this.syncExternalClosureState(fetchedAt);
+    this.consecutiveAvailabilitySourceFailures = 0;
+    this.lastAvailabilityFetchAt = fetchedAt;
+    this.availabilityLastSuccessfulSyncAt = fetchedAt;
+    this.clearSourceError("availability");
+    this.markHealthy();
     if (this.isLifecycleCurrent(expectedLifecycleId)) {
       this.publish();
     }

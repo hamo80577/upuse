@@ -33,6 +33,7 @@ const roleCapabilities: Record<AppUserRole, ReadonlySet<AppCapability>> = {
     "manage_settings_tokens",
     "test_settings_tokens",
   ]),
+  tracker: new Set<AppCapability>(),
 };
 
 export function hasCapability(role: AppUserRole | undefined, capability: AppCapability, upuseAccess = true) {

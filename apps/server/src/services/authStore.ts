@@ -13,6 +13,8 @@ import {
   pruneExpiredSessions,
 } from "../shared/persistence/auth/sessionStore.js";
 import { assertUserAccessRevocationAllowed, syncUserAccess } from "../shared/persistence/auth/userAccessService.js";
+import { setAssignedChainsForUser } from "../systems/upuse/services/trackerAssignments.js";
+import { normalizeAssignedChains } from "../systems/upuse/services/trackerAccess.js";
 
 export { AuthStoreError, createAuthSession, deleteAuthSession, getSessionUserByToken, pruneExpiredSessions };
 
@@ -84,6 +86,7 @@ export function createUser(input: {
   name: string;
   upuseAccess: boolean;
   upuseRole?: AppUserRole;
+  assignedChains?: string[];
   scanoAccessRole?: ScanoRole;
   password: string;
 }) {
@@ -95,6 +98,7 @@ async function createUserAsync(input: {
   name: string;
   upuseAccess: boolean;
   upuseRole?: AppUserRole;
+  assignedChains?: string[];
   scanoAccessRole?: ScanoRole;
   password: string;
 }) {
@@ -102,6 +106,7 @@ async function createUserAsync(input: {
   const createdAt = nowIso();
   const trimmedName = input.name.trim();
   const nextRole = input.upuseAccess ? (input.upuseRole ?? "user") : "user";
+  const assignedChains = nextRole === "tracker" ? normalizeAssignedChains(input.assignedChains) : [];
   const passwordHash = await hashPassword(input.password);
 
   const createdUserId = db.transaction(() => {
@@ -118,6 +123,7 @@ async function createUserAsync(input: {
       upuseRole: nextRole,
       scanoAccessRole: input.scanoAccessRole,
     });
+    setAssignedChainsForUser(userId, assignedChains);
 
     return userId;
   })();
@@ -136,6 +142,7 @@ export function updateUser(input: {
   name: string;
   upuseAccess: boolean;
   upuseRole?: AppUserRole;
+  assignedChains?: string[];
   scanoAccessRole?: ScanoRole;
   password?: string;
   actorUserId?: number | null;
@@ -149,6 +156,7 @@ async function updateUserAsync(input: {
   name: string;
   upuseAccess: boolean;
   upuseRole?: AppUserRole;
+  assignedChains?: string[];
   scanoAccessRole?: ScanoRole;
   password?: string;
   actorUserId?: number | null;
@@ -168,6 +176,7 @@ async function updateUserAsync(input: {
   const nextRole: AppUserRole = input.upuseAccess
     ? (input.upuseRole ?? existingUser.role)
     : (existing.isPrimaryAdmin ? "admin" : "user");
+  const assignedChains = nextRole === "tracker" ? normalizeAssignedChains(input.assignedChains) : [];
   const passwordHash = trimmedPassword ? await hashPassword(trimmedPassword) : null;
 
   if (existing.isPrimaryAdmin && (!input.upuseAccess || nextRole !== "admin")) {
@@ -215,6 +224,7 @@ async function updateUserAsync(input: {
       upuseRole: nextRole,
       scanoAccessRole: input.scanoAccessRole,
     });
+    setAssignedChainsForUser(input.id, assignedChains);
   })();
 
   const updated = getUserById(input.id);
@@ -277,6 +287,7 @@ export function deleteUserById(input: { id: number; actorUserId?: number | null 
       upuseRole: existingUser.role,
       scanoAccessRole: undefined,
     });
+    setAssignedChainsForUser(input.id, []);
 
     deleteAuthSessionsForUser(input.id);
     return updated.changes > 0;

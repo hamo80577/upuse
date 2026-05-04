@@ -1,4 +1,5 @@
 import type { DashboardSnapshot } from "../../../api/types";
+import { resolveAvailabilitySubtypeLabel } from "../../../shared/lib/branch/availabilityMeta";
 
 export type SortMode = "total" | "late" | "unassigned";
 export type StatusFilter = "all" | "open" | "tempClose" | "closed" | "unknown";
@@ -16,6 +17,12 @@ export interface GroupTotals {
   tempClose: number;
   closed: number;
   unknown: number;
+  upuse: number;
+  shortClosures: number;
+  issues: number;
+  inactive: number;
+  offHours: number;
+  highDemand: number;
 }
 
 export interface BranchGroup {
@@ -67,7 +74,18 @@ export function matchesSearchQuery(branch: DashboardBranch, query: string) {
 }
 
 function emptyGroupTotals(): GroupTotals {
-  return { open: 0, tempClose: 0, closed: 0, unknown: 0 };
+  return {
+    open: 0,
+    tempClose: 0,
+    closed: 0,
+    unknown: 0,
+    upuse: 0,
+    shortClosures: 0,
+    issues: 0,
+    inactive: 0,
+    offHours: 0,
+    highDemand: 0,
+  };
 }
 
 export function buildGroupTotals(branches: DashboardBranch[]) {
@@ -78,6 +96,14 @@ export function buildGroupTotals(branches: DashboardBranch[]) {
     else if (branch.status === "TEMP_CLOSE") totals.tempClose += 1;
     else if (branch.status === "CLOSED") totals.closed += 1;
     else totals.unknown += 1;
+
+    const subtype = resolveAvailabilitySubtypeLabel(branch);
+    if (subtype === "UPuse") totals.upuse += 1;
+    else if (subtype === "shortClosures") totals.shortClosures += 1;
+    else if (subtype === "issues") totals.issues += 1;
+    else if (subtype === "inactive") totals.inactive += 1;
+    else if (subtype === "offHours") totals.offHours += 1;
+    else if (subtype === "highDemand") totals.highDemand += 1;
   });
 
   return totals;

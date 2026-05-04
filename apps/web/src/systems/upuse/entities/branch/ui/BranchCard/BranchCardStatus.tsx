@@ -6,6 +6,13 @@ import ScheduleRoundedIcon from "@mui/icons-material/ScheduleRounded";
 import { Box, Chip, LinearProgress, Stack, Typography } from "@mui/material";
 import { memo } from "react";
 import type { BranchSnapshot } from "../../../../api/types";
+import {
+  availabilitySubtypeChip,
+  formatHighDemandMeta,
+  hasTimerBackedAvailability,
+  resolveAvailabilityKind,
+  resolveSourceClosedReason,
+} from "../../../../shared/lib/branch/availabilityMeta";
 import { fmtCountdown, fmtTimeCairo } from "../../../../utils/format";
 import { statusMeta } from "./branchCardViewModel";
 
@@ -66,9 +73,14 @@ function BranchCardStatusBase(props: {
   timerReached: boolean;
 }) {
   const meta = statusMeta(props.branch);
-  const trigger = props.branch.status !== "OPEN" ? triggerMeta(props.branch.closeReason) : null;
+  const kind = resolveAvailabilityKind(props.branch);
+  const subtype = availabilitySubtypeChip(props.branch);
+  const sourceClosedReason = resolveSourceClosedReason(props.branch);
+  const highDemandMeta = formatHighDemandMeta(props.branch);
+  const trigger = kind === "upuseTempClose" ? triggerMeta(props.branch.closeReason) : null;
   const reopenAtLabel = `${props.timerReached ? "Window reached at" : "Reopens at"} ${fmtTimeCairo(props.branch.closedUntil)}`;
   const progressLabel = `Duration progress ${Math.round(props.progressValue)}%`;
+  const showTimer = hasTimerBackedAvailability(props.branch);
 
   return (
     <Box
@@ -110,6 +122,17 @@ function BranchCardStatusBase(props: {
               ...meta.chipSx,
             }}
           />
+          {subtype ? (
+            <Chip
+              label={subtype.label}
+              size="small"
+              sx={{
+                border: "1px solid",
+                fontWeight: 900,
+                ...subtype.sx,
+              }}
+            />
+          ) : null}
           {trigger ? (
             <Box
               aria-label={trigger.label}
@@ -157,7 +180,7 @@ function BranchCardStatusBase(props: {
         </Box>
       </Stack>
 
-      {props.branch.status === "TEMP_CLOSE" && props.branch.closedUntil ? (
+      {showTimer && props.branch.closedUntil ? (
         <Stack spacing={0.7}>
           <Typography
             variant="h6"
@@ -216,6 +239,14 @@ function BranchCardStatusBase(props: {
             </Typography>
           ) : null}
         </Stack>
+      ) : kind === "sourceIssue" && sourceClosedReason ? (
+        <Typography variant="body2" sx={{ color: "#7f1d1d", lineHeight: 1.55, textAlign: "center", display: { xs: "none", sm: "block" }, fontWeight: 700 }}>
+          {sourceClosedReason}
+        </Typography>
+      ) : kind === "highDemand" && highDemandMeta ? (
+        <Typography variant="body2" sx={{ color: "text.secondary", lineHeight: 1.55, textAlign: "center", display: { xs: "none", sm: "block" } }}>
+          {highDemandMeta}
+        </Typography>
       ) : meta.note ? (
         <Typography variant="body2" sx={{ color: "text.secondary", lineHeight: 1.55, textAlign: "center", display: { xs: "none", sm: "block" } }}>
           {meta.note}

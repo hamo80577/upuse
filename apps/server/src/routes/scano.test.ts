@@ -302,6 +302,7 @@ function resetDb() {
     DROP TABLE IF EXISTS scano_task_participants;
     DROP TABLE IF EXISTS scano_task_assignees;
     DROP TABLE IF EXISTS scano_tasks;
+    DROP TABLE IF EXISTS scano_master_product_enrichment_candidates;
     DROP TABLE IF EXISTS scano_master_product_enrichment_barcodes;
     DROP TABLE IF EXISTS scano_master_product_enrichment_entries;
     DROP TABLE IF EXISTS scano_master_product_rows;

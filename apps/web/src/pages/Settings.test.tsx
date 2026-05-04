@@ -126,7 +126,7 @@ describe("SettingsPage", () => {
       tempCloseMinutes: 30,
       graceMinutes: 5,
       ordersRefreshSeconds: 30,
-      availabilityRefreshSeconds: 30,
+      availabilityRefreshSeconds: 15,
       maxVendorsPerOrdersRequest: 50,
     });
     mockApi.listBranches.mockResolvedValue({ items: [] });
@@ -172,6 +172,8 @@ describe("SettingsPage", () => {
     expect(mockApi.dashboard).not.toHaveBeenCalled();
     expect(mockApi.listBranches).not.toHaveBeenCalled();
     expect(mockOpsTrack).toHaveBeenCalledWith("settings_opened");
+    expect(screen.queryByLabelText("Availability Refresh (seconds)")).not.toBeInTheDocument();
+    expect(screen.getByText("VSS availability refresh is fixed at 15s on the server and cannot be edited here.")).toBeInTheDocument();
   });
 
   it("exposes token actions to non-admin roles that have token capabilities", async () => {

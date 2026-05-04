@@ -6,6 +6,12 @@ import SettingsSuggestRoundedIcon from "@mui/icons-material/SettingsSuggestRound
 import StorefrontRoundedIcon from "@mui/icons-material/StorefrontRounded";
 import { Box, Chip, Divider, LinearProgress, Stack, Typography } from "@mui/material";
 import type { BranchSnapshot } from "../../../api/types";
+import {
+  availabilitySubtypeChip,
+  hasTimerBackedAvailability,
+  resolveAvailabilityKind,
+  resolveSourceClosedReason,
+} from "../../../shared/lib/branch/availabilityMeta";
 import { closureProgress, hasDeadlinePassed } from "../../../shared/lib/progress/closureProgress";
 import { fmtCountdown, fmtTimeCairo } from "../../../utils/format";
 import { closeReasonMeta, statusChip, statusPanelMeta } from "../lib/statusMeta";
@@ -13,7 +19,7 @@ import { closeReasonMeta, statusChip, statusPanelMeta } from "../lib/statusMeta"
 function sourceWindowMeta(branch: BranchSnapshot, sourceLabel: string | null) {
   if (!sourceLabel) return null;
 
-  if (branch.closureSource === "UPUSE" || branch.closedByUpuse) {
+  if (sourceLabel === "UPuse" || branch.closureSource === "UPUSE" || branch.closedByUpuse) {
     return {
       label: sourceLabel,
       title: "Control Source",
@@ -26,7 +32,7 @@ function sourceWindowMeta(branch: BranchSnapshot, sourceLabel: string | null) {
 
   return {
     label: sourceLabel,
-    title: branch.status === "CLOSED" ? "Current State" : "Source State",
+    title: "VSS subtype",
     tone: "#334155",
     background: "rgba(248,250,252,0.98)",
     border: "rgba(148,163,184,0.16)",
@@ -45,16 +51,16 @@ function triggerIcon(reason?: BranchSnapshot["closeReason"]) {
 export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number }) {
   const chip = statusChip(props.branch);
   const panel = statusPanelMeta(props.branch);
+  const availabilityChip = availabilitySubtypeChip(props.branch);
   const source = sourceWindowMeta(props.branch, panel.sourceLabel);
-  const reason = closeReasonMeta(props.branch.closeReason);
-  const reasonIcon = triggerIcon(props.branch.closeReason);
+  const kind = resolveAvailabilityKind(props.branch);
+  const reason = kind === "upuseTempClose" ? closeReasonMeta(props.branch.closeReason) : null;
+  const reasonIcon = kind === "upuseTempClose" ? triggerIcon(props.branch.closeReason) : null;
+  const sourceClosedReason = resolveSourceClosedReason(props.branch);
   const progressValue = closureProgress(props.branch.closeStartedAt, props.branch.closedUntil, props.nowMs);
-  const canTrackProgress = Boolean(
-    props.branch.status === "TEMP_CLOSE" &&
-      props.branch.closedUntil &&
-      props.branch.closeStartedAt,
-  );
+  const canTrackProgress = Boolean(hasTimerBackedAvailability(props.branch) && props.branch.closeStartedAt);
   const timerReached = hasDeadlinePassed(props.branch.closedUntil, props.nowMs);
+  const showTimer = panel.showTimer && hasTimerBackedAvailability(props.branch) && Boolean(props.branch.closedUntil);
 
   return (
     <Box
@@ -88,6 +94,20 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
           }}
         />
       </Stack>
+
+      {availabilityChip ? (
+        <Stack direction="row" spacing={0.7} sx={{ mt: 0.9, flexWrap: "wrap", rowGap: 0.7 }}>
+          <Chip
+            size="small"
+            label={availabilityChip.label}
+            sx={{
+              fontWeight: 900,
+              border: "1px solid",
+              ...availabilityChip.sx,
+            }}
+          />
+        </Stack>
+      ) : null}
 
       <Typography variant="body2" sx={{ mt: 0.75, color: "text.secondary", lineHeight: 1.5, fontSize: { xs: 13, sm: 13.5 } }}>
         {panel.caption}
@@ -184,9 +204,29 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
         </Stack>
       ) : null}
 
+      {kind === "sourceIssue" && sourceClosedReason ? (
+        <Box
+          sx={{
+            mt: 0.95,
+            borderRadius: 1.9,
+            px: 0.9,
+            py: 0.78,
+            bgcolor: "rgba(254,242,242,0.8)",
+            border: "1px solid rgba(248,113,113,0.18)",
+          }}
+        >
+          <Typography variant="caption" sx={{ color: "#991b1b", fontWeight: 800, lineHeight: 1.1 }}>
+            closedReason
+          </Typography>
+          <Typography sx={{ mt: 0.18, fontWeight: 800, color: "#7f1d1d", lineHeight: 1.3, fontSize: 13 }}>
+            {sourceClosedReason}
+          </Typography>
+        </Box>
+      ) : null}
+
       <Divider sx={{ my: 1 }} />
 
-      {panel.showTimer && props.branch.status === "TEMP_CLOSE" && props.branch.closedUntil ? (
+      {showTimer ? (
         <Stack spacing={0.9} sx={{ mt: 1.2 }}>
           <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" gap={0.95} alignItems={{ xs: "flex-start", sm: "flex-end" }}>
             <Box>
@@ -225,7 +265,7 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
             {timerReached
               ? "The timer reached its end. Waiting for the next availability update to confirm the final state."
               : canTrackProgress
-                ? props.branch.closureSource === "EXTERNAL"
+                ? kind === "sourceShortClosure"
                   ? `Observed progress ${Math.round(progressValue)}% from first detected close until reopen time.`
                   : `Duration progress ${Math.round(progressValue)}% from close start until reopen time.`
                 : "Waiting for the close start timestamp to render duration progress."}
@@ -243,12 +283,16 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
         >
           <Typography variant="caption" sx={{ color: "text.secondary", lineHeight: 1.5 }}>
             {props.branch.status === "OPEN"
-              ? "No closure timer is active right now."
+              ? kind === "highDemand"
+                ? "The branch stays open while VSS reports highDemand."
+                : "No closure timer is active right now."
               : props.branch.status === "CLOSED"
-                ? "The branch is closed from source with no reopen timer."
+                ? panel.footerCaption
+                  ? panel.footerCaption
+                  : "The branch is closed from source with no reopen timer."
                 : panel.footerCaption
                   ? panel.footerCaption
-                : !props.branch.monitorEnabled
+                  : !props.branch.monitorEnabled
                   ? "This branch is paused from monitor cycles."
                   : "Waiting for the next live availability update."}
           </Typography>

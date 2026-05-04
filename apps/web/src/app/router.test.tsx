@@ -53,6 +53,7 @@ function createAuthState(overrides: Partial<RouterAuthMock> = {}): RouterAuthMoc
       role: state.isAdmin ? "admin" : "user",
       roleLabel: state.isAdmin ? "Admin" : "User",
       capabilities: [
+        ...(state.canAccessUpuse ? ["workspace.full"] : []),
         ...(state.isAdmin ? ["users.manage"] : []),
       ],
     },
@@ -395,6 +396,54 @@ describe("AppRouter", () => {
       expect(screen.getByText("dashboard-route")).toBeInTheDocument();
     });
     expect(screen.queryByText("users-route")).not.toBeInTheDocument();
+  });
+
+  it("redirects tracker users away from full UPuse workspace routes", async () => {
+    mockUseAuth.mockReturnValue(createAuthState({
+      canAccessUpuse: true,
+      systems: {
+        upuse: {
+          enabled: true,
+          role: "tracker",
+          roleLabel: "Tracker",
+          capabilities: [],
+        },
+        scano: {
+          enabled: false,
+          role: null,
+          roleLabel: null,
+          capabilities: [],
+        },
+        ops: {
+          enabled: false,
+          role: null,
+          roleLabel: null,
+          capabilities: [],
+        },
+      },
+    }));
+
+    const renderAt = (path: string) => render(
+      <MemoryRouter initialEntries={[path]}>
+        <AppRouter />
+      </MemoryRouter>,
+    );
+
+    const performanceView = renderAt("/performance");
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-route")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("performance-route")).not.toBeInTheDocument();
+
+    performanceView.unmount();
+
+    renderAt("/settings");
+
+    await waitFor(() => {
+      expect(screen.getByText("dashboard-route")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("settings-route")).not.toBeInTheDocument();
   });
 
   it("preserves the requested users route when redirecting unauthenticated visitors to login", async () => {

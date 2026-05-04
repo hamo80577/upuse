@@ -41,6 +41,7 @@ interface UserWizardState {
   password: string;
   upuseAccess: boolean;
   upuseRole: AppUserRole;
+  assignedChains: string[];
   scanoAccess: boolean;
   scanoRole: ScanoRole;
 }
@@ -52,6 +53,7 @@ function emptyWizardState(): UserWizardState {
     password: "",
     upuseAccess: true,
     upuseRole: "user",
+    assignedChains: [],
     scanoAccess: false,
     scanoRole: "scanner",
   };
@@ -62,13 +64,46 @@ function hasAnyWorkspaceAccess(state: UserWizardState) {
 }
 
 function buildUserPayload(state: UserWizardState) {
+  const assignedChains = state.upuseAccess && state.upuseRole === "tracker"
+    ? state.assignedChains
+    : [];
+
   return {
     email: state.email.trim(),
     name: state.name.trim(),
     upuseAccess: state.upuseAccess,
-    ...(state.upuseAccess ? { upuseRole: state.upuseRole } : {}),
+    ...(state.upuseAccess ? { upuseRole: state.upuseRole, assignedChains } : {}),
     ...(state.scanoAccess ? { scanoAccessRole: state.scanoRole } : {}),
   };
+}
+
+function normalizeChainSelection(values: string[]) {
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  for (const value of values) {
+    const chainName = value.trim();
+    if (!chainName) continue;
+    const key = chainName.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(chainName);
+  }
+
+  return out;
+}
+
+function getUpuseRoleChipLabel(item: AppUser) {
+  if (item.role === "admin") return "UPuse Admin";
+  if (item.role === "tracker") return "UPuse Tracker";
+  return "UPuse User";
+}
+
+function getAssignedChainsLabel(chains: string[]) {
+  if (!chains.length) return "No assigned chains";
+  if (chains.length === 1) return chains[0];
+  if (chains.length === 2) return chains.join(", ");
+  return `${chains.length} assigned chains`;
 }
 
 export function UsersPage() {
@@ -76,6 +111,7 @@ export function UsersPage() {
   const { monitoring, startMonitoring, stopMonitoring } = useMonitorStatus();
   const [items, setItems] = useState<AppUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [chainOptions, setChainOptions] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [toast, setToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
@@ -91,6 +127,7 @@ export function UsersPage() {
       setError("");
       const response = await api.listUsers();
       setItems(response.items);
+      setChainOptions(response.chainOptions ?? []);
     } catch (loadError) {
       setError(describeApiError(loadError, "Failed to load users"));
     } finally {
@@ -166,6 +203,7 @@ export function UsersPage() {
       password: "",
       upuseAccess: item.upuseAccess,
       upuseRole: item.role,
+      assignedChains: normalizeChainSelection(item.assignedChains ?? []),
       scanoAccess: !!item.scanoRole,
       scanoRole: item.scanoRole ?? "scanner",
     });
@@ -181,6 +219,24 @@ export function UsersPage() {
     setForm(emptyWizardState());
     setActiveStep(0);
     setShowPassword(false);
+  }
+
+  const trackerChainOptions = useMemo(
+    () => normalizeChainSelection([...chainOptions, ...form.assignedChains]),
+    [chainOptions, form.assignedChains],
+  );
+
+  function toggleAssignedChain(chainName: string, checked: boolean) {
+    setForm((current) => {
+      const nextAssignedChains = checked
+        ? normalizeChainSelection([...current.assignedChains, chainName])
+        : current.assignedChains.filter((item) => item.toLowerCase() !== chainName.toLowerCase());
+
+      return {
+        ...current,
+        assignedChains: nextAssignedChains,
+      };
+    });
   }
 
   async function handleSubmit() {
@@ -312,13 +368,21 @@ export function UsersPage() {
                         {item.upuseAccess ? (
                           <Chip
                             size="small"
-                            label={item.role === "admin" ? "UPuse Admin" : "UPuse User"}
+                            label={getUpuseRoleChipLabel(item)}
                             color={item.role === "admin" ? "primary" : "default"}
                             variant={item.role === "admin" ? "filled" : "outlined"}
                           />
                         ) : (
                           <Chip size="small" label="No UPuse" variant="outlined" />
                         )}
+                        {item.upuseAccess && item.role === "tracker" ? (
+                          <Chip
+                            size="small"
+                            label={getAssignedChainsLabel(item.assignedChains ?? [])}
+                            variant="outlined"
+                            sx={{ fontWeight: 800 }}
+                          />
+                        ) : null}
                         {item.isPrimaryAdmin ? (
                           <Chip size="small" label="Primary Admin" color="warning" variant="outlined" />
                         ) : item.scanoRole ? (
@@ -427,6 +491,7 @@ export function UsersPage() {
                             ...current,
                             upuseAccess: event.target.checked,
                             upuseRole: current.upuseRole || "user",
+                            assignedChains: event.target.checked && current.upuseRole === "tracker" ? current.assignedChains : [],
                           }))}
                         />
                       )}
@@ -437,12 +502,77 @@ export function UsersPage() {
                         select
                         label="UPuse Role"
                         value={form.upuseRole}
-                        onChange={(event) => setForm((current) => ({ ...current, upuseRole: event.target.value as AppUserRole }))}
+                        onChange={(event) => {
+                          const nextRole = event.target.value as AppUserRole;
+                          setForm((current) => ({
+                            ...current,
+                            upuseRole: nextRole,
+                            assignedChains: nextRole === "tracker" ? current.assignedChains : [],
+                          }));
+                        }}
                         fullWidth
                       >
                         <MenuItem value="user">User</MenuItem>
+                        <MenuItem value="tracker">Tracker</MenuItem>
                         <MenuItem value="admin">Admin</MenuItem>
                       </TextField>
+                    ) : null}
+
+                    {form.upuseAccess && form.upuseRole === "tracker" ? (
+                      <Box
+                        sx={{
+                          border: "1px solid rgba(148,163,184,0.18)",
+                          borderRadius: 2,
+                          p: 1.25,
+                          bgcolor: "rgba(248,250,252,0.75)",
+                        }}
+                      >
+                        <Stack spacing={0.75}>
+                          <Box>
+                            <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>
+                              Assigned Chains
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                              Tracker users only see dashboard data for selected chains.
+                            </Typography>
+                          </Box>
+
+                          {trackerChainOptions.length ? (
+                            <Stack direction="row" spacing={0.8} flexWrap="wrap" useFlexGap>
+                              {trackerChainOptions.map((chainName) => (
+                                <FormControlLabel
+                                  key={chainName}
+                                  control={(
+                                    <Checkbox
+                                      checked={form.assignedChains.some((item) => item.toLowerCase() === chainName.toLowerCase())}
+                                      onChange={(event) => toggleAssignedChain(chainName, event.target.checked)}
+                                    />
+                                  )}
+                                  label={chainName}
+                                  sx={{
+                                    m: 0,
+                                    px: 0.8,
+                                    py: 0.2,
+                                    borderRadius: 1.5,
+                                    border: "1px solid rgba(148,163,184,0.14)",
+                                    bgcolor: "rgba(255,255,255,0.9)",
+                                  }}
+                                />
+                              ))}
+                            </Stack>
+                          ) : (
+                            <Alert severity="info" variant="outlined">
+                              No UPuse chains are available yet. This tracker will see an empty dashboard until chains are added.
+                            </Alert>
+                          )}
+
+                          {!form.assignedChains.length ? (
+                            <Alert severity="warning" variant="outlined">
+                              No chains are assigned. This tracker can sign in, but the dashboard will be empty.
+                            </Alert>
+                          ) : null}
+                        </Stack>
+                      </Box>
                     ) : null}
 
                     <FormControlLabel

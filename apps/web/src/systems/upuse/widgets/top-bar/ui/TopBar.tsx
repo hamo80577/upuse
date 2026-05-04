@@ -8,7 +8,7 @@ export interface UpuseTopBarProps {
   degraded?: boolean;
   degradedLabel?: string;
   degradedColor?: "warning" | "error";
-  branchSummary?: Array<Pick<BranchSnapshot, "branchId" | "name" | "status">>;
+  branchSummary?: BranchSnapshot[];
   onStart?: () => void;
   onStop?: () => void;
   canControlMonitor?: boolean;

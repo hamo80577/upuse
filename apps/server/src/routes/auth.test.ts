@@ -7,6 +7,7 @@ const {
   mockCreateUser,
   mockDeleteAuthSession,
   mockDeleteUserById,
+  mockListUsers,
   mockUpdateUser,
   mockVerifyUserCredentials,
 } = vi.hoisted(() => {
@@ -15,6 +16,7 @@ const {
     mockCreateUser: vi.fn(),
     mockDeleteAuthSession: vi.fn(),
     mockDeleteUserById: vi.fn(),
+    mockListUsers: vi.fn(() => []),
     mockUpdateUser: vi.fn(),
     mockVerifyUserCredentials: vi.fn(),
   };
@@ -43,13 +45,13 @@ vi.mock("../services/authStore.js", () => ({
   createUser: mockCreateUser,
   deleteAuthSession: mockDeleteAuthSession,
   deleteUserById: mockDeleteUserById,
-  listUsers: vi.fn(() => []),
+  listUsers: mockListUsers,
   updateUser: mockUpdateUser,
   verifyUserCredentials: mockVerifyUserCredentials,
 }));
 
 import { db as authTestDb } from "../config/db.js";
-import { createUserRoute, deleteUserRoute, loginRoute, logoutRoute, meRoute, resetLoginRateLimitStateForTests, updateUserRoute } from "./auth.js";
+import { createUserRoute, deleteUserRoute, listUsersRoute, loginRoute, logoutRoute, meRoute, resetLoginRateLimitStateForTests, updateUserRoute } from "./auth.js";
 
 function createMockResponse() {
   return {
@@ -76,10 +78,13 @@ describe("auth.logoutRoute", () => {
   beforeEach(() => {
     resetLoginRateLimitStateForTests();
     authTestDb.prepare("DELETE FROM login_attempts").run();
+    authTestDb.exec("DROP TABLE IF EXISTS settings; DROP TABLE IF EXISTS branches;");
     mockCreateAuthSession.mockReset();
     mockCreateUser.mockReset();
     mockDeleteAuthSession.mockReset();
     mockDeleteUserById.mockReset();
+    mockListUsers.mockReset();
+    mockListUsers.mockReturnValue([]);
     mockUpdateUser.mockReset();
     mockVerifyUserCredentials.mockReset();
   });
@@ -411,6 +416,7 @@ describe("auth.logoutRoute", () => {
       createdAt: "2026-03-07T10:30:00.000Z",
       upuseAccess: true,
       isPrimaryAdmin: false,
+      assignedChains: [],
     };
     mockCreateUser.mockReturnValue(createdUser);
 
@@ -428,11 +434,92 @@ describe("auth.logoutRoute", () => {
 
     await createUserRoute(req as any, res as any);
 
-    expect(mockCreateUser).toHaveBeenCalledWith(req.body);
+    expect(mockCreateUser).toHaveBeenCalledWith({
+      ...req.body,
+      assignedChains: [],
+    });
     expect(res.statusCode).toBe(201);
     expect(res.payload).toEqual({
       ok: true,
       user: createdUser,
+    });
+  });
+
+  it("creates tracker users with normalized assigned UPuse chains", async () => {
+    const createdUser = {
+      id: 3,
+      email: "tracker@example.com",
+      name: "Tracker",
+      role: "tracker",
+      active: true,
+      createdAt: "2026-03-07T10:35:00.000Z",
+      upuseAccess: true,
+      isPrimaryAdmin: false,
+      assignedChains: ["Chain A", "Chain B"],
+    };
+    mockCreateUser.mockReturnValue(createdUser);
+
+    const req = {
+      body: {
+        email: "tracker@example.com",
+        password: "tracker-pass-123",
+        name: "Tracker",
+        upuseAccess: true,
+        upuseRole: "tracker",
+        assignedChains: [" Chain A ", "chain a", "Chain B"],
+      },
+    };
+    const res = createMockResponse();
+
+    await createUserRoute(req as any, res as any);
+
+    expect(mockCreateUser).toHaveBeenCalledWith({
+      ...req.body,
+      assignedChains: ["Chain A", "Chain B"],
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.payload).toEqual({
+      ok: true,
+      user: createdUser,
+    });
+  });
+
+  it("lists users with UPuse chain options for tracker assignments", () => {
+    const users = [{
+      id: 3,
+      email: "tracker@example.com",
+      name: "Tracker",
+      role: "tracker",
+      active: true,
+      createdAt: "2026-03-07T10:35:00.000Z",
+      upuseAccess: true,
+      isPrimaryAdmin: false,
+      assignedChains: ["Chain A"],
+    }];
+    mockListUsers.mockReturnValue(users);
+    authTestDb.exec(`
+      CREATE TABLE settings (
+        id INTEGER PRIMARY KEY,
+        chainNamesJson TEXT,
+        chainThresholdsJson TEXT
+      );
+      CREATE TABLE branches (
+        chainName TEXT
+      );
+      INSERT INTO settings (id, chainNamesJson, chainThresholdsJson)
+      VALUES (1, '["Legacy Chain"]', '[{"name":"Chain B"}]');
+      INSERT INTO branches (chainName)
+      VALUES ('Chain A'), (' chain a '), ('');
+    `);
+
+    const res = createMockResponse();
+
+    listUsersRoute({} as any, res as any);
+
+    expect(res.payload).toEqual({
+      ok: true,
+      items: users,
+      chainOptions: ["Chain A", "Chain B", "Legacy Chain"],
     });
   });
 
@@ -463,6 +550,7 @@ describe("auth.logoutRoute", () => {
       createdAt: "2026-03-07T10:30:00.000Z",
       upuseAccess: true,
       isPrimaryAdmin: false,
+      assignedChains: [],
     };
     mockUpdateUser.mockReturnValue(updatedUser);
 
@@ -488,6 +576,7 @@ describe("auth.logoutRoute", () => {
       name: "Updated User",
       upuseAccess: true,
       upuseRole: "user",
+      assignedChains: [],
       scanoAccessRole: "team_lead",
       password: undefined,
       actorUserId: 1,
@@ -528,6 +617,7 @@ describe("auth.logoutRoute", () => {
       createdAt: "2026-03-07T10:30:00.000Z",
       upuseAccess: true,
       isPrimaryAdmin: false,
+      assignedChains: [],
     };
     mockUpdateUser.mockReturnValue(updatedUser);
 
@@ -553,6 +643,7 @@ describe("auth.logoutRoute", () => {
       name: "Updated User",
       upuseAccess: true,
       upuseRole: "user",
+      assignedChains: [],
       scanoAccessRole: "team_lead",
       password: "updated-pass1",
       actorUserId: 1,

@@ -17,6 +17,7 @@ import { derivePreparingNow } from "../services/orders/classification.js";
 import { resolveBranchThresholdProfile } from "../services/thresholds.js";
 import { log } from "../services/logger.js";
 import { buildDeleteBranchResponse, parseBranchIdParam } from "./branchRouteHelpers.js";
+import { canUserAccessUpuseBranch } from "../systems/upuse/services/trackerAccess.js";
 import type {
   BranchDetailCacheState,
   BranchDetailFetchFailed,
@@ -146,6 +147,7 @@ function buildUnavailableBranchSnapshot(branch: ResolvedBranchMapping, settings 
     availabilityVendorId: branch.availabilityVendorId,
     status: "UNKNOWN",
     statusColor: "grey",
+    availabilityKind: "unknown",
     thresholds: resolveBranchThresholdProfile(branch, settings),
     metrics: emptyOrdersMetrics(),
     preparingNow: 0,
@@ -280,6 +282,15 @@ function buildMissingCatalogResponse(branch: BranchMapping) {
     branchId: branch.id,
     availabilityVendorId: branch.availabilityVendorId,
     message: "Local vendor catalog data is unavailable for this branch.",
+  };
+}
+
+function buildBranchForbiddenResponse() {
+  return {
+    ok: false,
+    message: "Forbidden",
+    code: "FORBIDDEN",
+    errorOrigin: "authorization",
   };
 }
 
@@ -427,10 +438,17 @@ export function branchDetailRoute(engine: MonitorEngine) {
       return res.json(buildBranchDetailNotFound(id));
     }
     if (resolved.status === "missing_catalog") {
+      if (!canUserAccessUpuseBranch(req.authUser, resolved.savedBranch)) {
+        return res.status(403).json(buildBranchForbiddenResponse());
+      }
       return res.status(409).json(buildMissingCatalogResponse(resolved.savedBranch));
     }
 
     const branch = resolved.branch;
+    if (!canUserAccessUpuseBranch(req.authUser, branch)) {
+      return res.status(403).json(buildBranchForbiddenResponse());
+    }
+
     const settings = getSettings();
     const getSnapshotBranch = () => engine.getSnapshot().branches.find((item) => item.branchId === id);
     const includePickerItems = req.query?.includePickerItems !== "0";
@@ -512,7 +530,13 @@ export function branchPickersRoute() {
       return res.status(404).json({ ok: false, message: "Branch not found" });
     }
     if (resolved.status === "missing_catalog") {
+      if (!canUserAccessUpuseBranch(req.authUser, resolved.savedBranch)) {
+        return res.status(403).json(buildBranchForbiddenResponse());
+      }
       return res.status(409).json(buildMissingCatalogResponse(resolved.savedBranch));
+    }
+    if (!canUserAccessUpuseBranch(req.authUser, resolved.branch)) {
+      return res.status(403).json(buildBranchForbiddenResponse());
     }
 
     const settings = getSettings();

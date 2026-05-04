@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { createConnectionQuota } from "../http/connectionQuota.js";
 import type { MonitorEngine } from "../monitor/engine/MonitorEngine.js";
+import { filterDashboardSnapshotForUser } from "../systems/upuse/services/trackerAccess.js";
 
 interface StreamRouteSecurityOptions {
   maxConnectionsPerUser: number;
@@ -81,7 +82,7 @@ export function streamRoute(engine: MonitorEngine, options: StreamRouteSecurityO
       } catch {}
     };
 
-    const unsubscribe = engine.subscribe((snap) => send("snapshot", snap));
+    const unsubscribe = engine.subscribe((snap) => send("snapshot", filterDashboardSnapshotForUser(snap, req.authUser)));
     const heartbeat = setInterval(() => {
       send("ping", { at: new Date().toISOString() });
     }, 20_000);

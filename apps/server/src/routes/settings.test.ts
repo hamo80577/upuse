@@ -213,7 +213,7 @@ describe("putSettingsRoute", () => {
       tempCloseMinutes: patch.tempCloseMinutes ?? 30,
       graceMinutes: patch.graceMinutes ?? 5,
       ordersRefreshSeconds: patch.ordersRefreshSeconds ?? 30,
-      availabilityRefreshSeconds: patch.availabilityRefreshSeconds ?? 30,
+      availabilityRefreshSeconds: 15,
       maxVendorsPerOrdersRequest: patch.maxVendorsPerOrdersRequest ?? 50,
     }));
   });
@@ -436,6 +436,29 @@ describe("putSettingsRoute", () => {
     expect(res.body).toEqual({
       ok: false,
       message: "Forbidden",
+    });
+  });
+
+  it("returns the fixed availability cadence even when an admin submits a different value", () => {
+    const req: any = {
+      authUser: { role: "admin" },
+      body: {
+        availabilityRefreshSeconds: 45,
+      },
+    };
+    const res = createResponse();
+
+    putSettingsRoute(req, res);
+
+    expect(mockUpdateSettings).toHaveBeenCalledWith({
+      availabilityRefreshSeconds: 45,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      settings: {
+        availabilityRefreshSeconds: 15,
+      },
     });
   });
 });

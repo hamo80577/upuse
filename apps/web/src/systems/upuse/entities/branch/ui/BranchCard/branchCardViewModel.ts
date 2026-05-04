@@ -1,40 +1,33 @@
 import type { BranchSnapshot } from "../../../../api/types";
 import { closureProgress, hasDeadlinePassed } from "../../../../shared/lib/progress/closureProgress";
-import { formatSourceClosedReason, isExternalManualSourceClose } from "../../../../shared/lib/branch/sourceClosedReason";
+import { availabilityNote, availabilityStatusChip, hasTimerBackedAvailability } from "../../../../shared/lib/branch/availabilityMeta";
 
 export function statusMeta(branch: BranchSnapshot) {
-  if (branch.status === "OPEN") {
-    return {
-      label: "Open",
-      chipSx: { bgcolor: "#e7f7ed", color: "#166534", borderColor: "rgba(22, 101, 52, 0.12)" },
-      titleColor: "#166534",
-      note: "",
-    };
-  }
-  if (branch.status === "TEMP_CLOSE") {
-    const sourceReason = formatSourceClosedReason(branch.sourceClosedReason);
-    return {
-      label: "Temporary Close",
-      chipSx: { bgcolor: "#fff1f2", color: "#be123c", borderColor: "rgba(190, 24, 93, 0.14)" },
-      titleColor: "#b45309",
-      note: isExternalManualSourceClose(branch)
-        ? "Colse To The End of slot"
-        : "Temporary closure is active until the timer ends or the trigger returns to zero.",
-    };
-  }
-  if (branch.status === "CLOSED") {
-    return {
-      label: "Closed",
-      chipSx: { bgcolor: "#fff7d6", color: "#92400e", borderColor: "rgba(146, 64, 14, 0.12)" },
-      titleColor: "#92400e",
-      note: "",
-    };
-  }
+  const chip = availabilityStatusChip(branch);
+  const titleColor =
+    branch.status === "OPEN"
+      ? "#166534"
+      : branch.status === "TEMP_CLOSE"
+        ? "#b45309"
+        : branch.status === "CLOSED"
+          ? "#92400e"
+          : "#475569";
+
   return {
-    label: "Unknown",
-    chipSx: { bgcolor: "#f1f5f9", color: "#475569", borderColor: "rgba(71, 85, 105, 0.12)" },
-    titleColor: "#475569",
-    note: "Waiting for the latest API update.",
+    label: chip.label,
+    chipSx: {
+      ...chip.sx,
+      borderColor:
+        branch.status === "OPEN"
+          ? "rgba(22, 101, 52, 0.12)"
+          : branch.status === "TEMP_CLOSE"
+            ? "rgba(190, 24, 93, 0.14)"
+            : branch.status === "CLOSED"
+              ? "rgba(146, 64, 14, 0.12)"
+              : "rgba(71, 85, 105, 0.12)",
+    },
+    titleColor,
+    note: availabilityNote(branch),
   };
 }
 
@@ -72,7 +65,7 @@ export function rankMeta(rank: number) {
 
 export function resolveClosureUiState(branch: BranchSnapshot, nowMs: number) {
   const progressValue = closureProgress(branch.closeStartedAt, branch.closedUntil, nowMs);
-  const canTrackProgress = Boolean(branch.status === "TEMP_CLOSE" && branch.closedUntil && branch.closeStartedAt);
+  const canTrackProgress = Boolean(hasTimerBackedAvailability(branch) && branch.closeStartedAt);
   const timerReached = hasDeadlinePassed(branch.closedUntil, nowMs);
 
   return {

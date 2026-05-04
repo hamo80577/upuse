@@ -83,6 +83,19 @@ function createResponse() {
   return res;
 }
 
+function adminRequest(params: Record<string, string>, extra?: Record<string, unknown>) {
+  return {
+    params,
+    authUser: {
+      id: 1,
+      role: "admin",
+      upuseAccess: true,
+      assignedChains: [],
+    },
+    ...extra,
+  };
+}
+
 function branchMapping(overrides?: Record<string, unknown>) {
   return {
     id: 7,
@@ -389,7 +402,7 @@ describe("branches routes", () => {
     mockGetBranchById.mockReturnValue(null);
     const res = createResponse();
 
-    await branchDetailRoute({ getSnapshot: () => ({ branches: [] }) } as any)({ params: { id: "7" } } as any, res);
+    await branchDetailRoute({ getSnapshot: () => ({ branches: [] }) } as any)(adminRequest({ id: "7" }) as any, res);
 
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
@@ -409,7 +422,7 @@ describe("branches routes", () => {
     mockGetResolvedBranchById.mockReturnValue(null);
     const res = createResponse();
 
-    await branchDetailRoute({ getSnapshot: () => ({ branches: [] }) } as any)({ params: { id: "7" } } as any, res);
+    await branchDetailRoute({ getSnapshot: () => ({ branches: [] }) } as any)(adminRequest({ id: "7" }) as any, res);
 
     expect(res.statusCode).toBe(409);
     expect(res.body).toEqual({
@@ -434,7 +447,7 @@ describe("branches routes", () => {
     });
     const res = createResponse();
 
-    await branchDetailRoute({ getSnapshot: () => ({ branches: [branchSnapshot()] }) } as any)({ params: { id: "7" } } as any, res);
+    await branchDetailRoute({ getSnapshot: () => ({ branches: [branchSnapshot()] }) } as any)(adminRequest({ id: "7" }) as any, res);
 
     expect(mockGetMirrorBranchDetail).toHaveBeenCalledWith({
       globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
@@ -456,6 +469,29 @@ describe("branches routes", () => {
     });
   });
 
+  it("rejects tracker branch detail outside assigned UPuse chains", async () => {
+    mockGetBranchById.mockReturnValue(branchMapping());
+    mockGetResolvedBranchById.mockReturnValue(resolvedBranch());
+    const res = createResponse();
+
+    await branchDetailRoute({ getSnapshot: () => ({ branches: [branchSnapshot()] }) } as any)({
+      params: { id: "7" },
+      authUser: {
+        id: 4,
+        role: "tracker",
+        upuseAccess: true,
+        assignedChains: ["Chain B"],
+      },
+    } as any, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(mockGetMirrorBranchDetail).not.toHaveBeenCalled();
+    expect(res.body).toMatchObject({
+      ok: false,
+      code: "FORBIDDEN",
+    });
+  });
+
   it("returns 409 from branch pickers when catalog data is missing", async () => {
     mockGetBranchById.mockReturnValue(branchMapping({
       name: null,
@@ -466,7 +502,7 @@ describe("branches routes", () => {
     mockGetResolvedBranchById.mockReturnValue(null);
     const res = createResponse();
 
-    await branchPickersRoute()({ params: { id: "7" } } as any, res);
+    await branchPickersRoute()(adminRequest({ id: "7" }) as any, res);
 
     expect(res.statusCode).toBe(409);
     expect(res.body).toEqual({
@@ -496,7 +532,7 @@ describe("branches routes", () => {
     });
     const res = createResponse();
 
-    await branchDetailRoute({ getSnapshot: () => ({ branches: [] }) } as any)({ params: { id: "7" } } as any, res);
+    await branchDetailRoute({ getSnapshot: () => ({ branches: [] }) } as any)(adminRequest({ id: "7" }) as any, res);
 
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatchObject({
@@ -521,7 +557,7 @@ describe("branches routes", () => {
     });
     const res = createResponse();
 
-    await branchPickersRoute()({ params: { id: "7" } } as any, res);
+    await branchPickersRoute()(adminRequest({ id: "7" }) as any, res);
 
     expect(mockGetMirrorBranchPickers).toHaveBeenCalledWith({
       globalEntityId: TEST_GLOBAL_ENTITY_ID_VARIANT,
