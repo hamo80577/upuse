@@ -1,5 +1,4 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { ZodError } from "zod";
 import { AUTH_SESSION_COOKIE_NAME } from "../http/sessionCookie.js";
 
 const {
@@ -536,7 +535,18 @@ describe("auth.logoutRoute", () => {
     };
     const res = createMockResponse();
 
-    await expect(createUserRoute(req as any, res as any)).rejects.toThrow(ZodError);
+    await createUserRoute(req as any, res as any);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.payload).toEqual({
+      ok: false,
+      message: "Password must be at least 12 characters.",
+      code: "VALIDATION_ERROR",
+      issues: [{
+        path: "password",
+        message: "Password must be at least 12 characters.",
+      }],
+    });
     expect(mockCreateUser).not.toHaveBeenCalled();
   });
 
@@ -603,7 +613,18 @@ describe("auth.logoutRoute", () => {
     };
     const res = createMockResponse();
 
-    await expect(updateUserRoute(req as any, res as any)).rejects.toThrow(ZodError);
+    await updateUserRoute(req as any, res as any);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.payload).toEqual({
+      ok: false,
+      message: "Password must be at least 12 characters.",
+      code: "VALIDATION_ERROR",
+      issues: [{
+        path: "password",
+        message: "Password must be at least 12 characters.",
+      }],
+    });
     expect(mockUpdateUser).not.toHaveBeenCalled();
   });
 

@@ -13,6 +13,8 @@ const ScanoRoleSchema = z.enum(["team_lead", "scanner"] satisfies [ScanoRole, Sc
 const MIN_PASSWORD_LENGTH = 12;
 const AssignedChainsSchema = z.array(z.string().trim().min(1).max(120)).max(200).optional();
 
+const passwordLengthMessage = `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
+
 const LoginBody = z.object({
   email: z.string().email(),
   password: z.string().min(1),
@@ -20,7 +22,7 @@ const LoginBody = z.object({
 
 const CreateUserBody = z.object({
   email: z.string().email(),
-  password: z.string().min(MIN_PASSWORD_LENGTH).max(120),
+  password: z.string().min(MIN_PASSWORD_LENGTH, passwordLengthMessage).max(120),
   name: z.string().trim().min(1).max(120),
   upuseAccess: z.boolean(),
   upuseRole: AppUserRoleSchema.optional(),
@@ -54,7 +56,7 @@ const CreateUserBody = z.object({
 
 const UpdateUserBody = z.object({
   email: z.string().email(),
-  password: z.string().min(MIN_PASSWORD_LENGTH).max(120).optional().or(z.literal("")),
+  password: z.string().min(MIN_PASSWORD_LENGTH, passwordLengthMessage).max(120).optional().or(z.literal("")),
   name: z.string().trim().min(1).max(120),
   upuseAccess: z.boolean(),
   upuseRole: AppUserRoleSchema.optional(),
@@ -98,6 +100,19 @@ function isUniqueEmailError(error: unknown) {
   return /unique constraint failed/i.test(message) && message.includes("users.email");
 }
 
+function sendValidationError(res: Response, error: z.ZodError) {
+  const firstIssue = error.issues[0];
+  return res.status(400).json({
+    ok: false,
+    message: firstIssue?.message ?? "Invalid request payload.",
+    code: "VALIDATION_ERROR",
+    issues: error.issues.map((issue) => ({
+      path: issue.path.join("."),
+      message: issue.message,
+    })),
+  });
+}
+
 function getLoginAttemptKey(req: Request, email: string) {
   return `acct:${req.ip || "unknown"}:${normalizeEmail(email)}`;
 }
@@ -117,7 +132,11 @@ export function resetLoginRateLimitStateForTests() {
 }
 
 export async function loginRoute(req: Request, res: Response) {
-  const input = LoginBody.parse(req.body);
+  const parsedInput = LoginBody.safeParse(req.body);
+  if (!parsedInput.success) {
+    return sendValidationError(res, parsedInput.error);
+  }
+  const input = parsedInput.data;
   const attemptKey = getLoginAttemptKey(req, input.email);
   const ipAttemptKey = getLoginIpAttemptKey(req);
   const blockedUntilMs = Math.max(
@@ -199,7 +218,11 @@ export function listUsersRoute(_req: Request, res: Response) {
 }
 
 export async function createUserRoute(req: Request, res: Response) {
-  const input = CreateUserBody.parse(req.body);
+  const parsedInput = CreateUserBody.safeParse(req.body);
+  if (!parsedInput.success) {
+    return sendValidationError(res, parsedInput.error);
+  }
+  const input = parsedInput.data;
 
   try {
     const user = await createUser({
@@ -223,8 +246,16 @@ export async function createUserRoute(req: Request, res: Response) {
 }
 
 export async function updateUserRoute(req: Request, res: Response) {
-  const { id } = UserIdParam.parse(req.params);
-  const input = UpdateUserBody.parse(req.body);
+  const parsedParams = UserIdParam.safeParse(req.params);
+  if (!parsedParams.success) {
+    return sendValidationError(res, parsedParams.error);
+  }
+  const parsedInput = UpdateUserBody.safeParse(req.body);
+  if (!parsedInput.success) {
+    return sendValidationError(res, parsedInput.error);
+  }
+  const { id } = parsedParams.data;
+  const input = parsedInput.data;
 
   try {
     const user = await updateUser({
@@ -255,7 +286,11 @@ export async function updateUserRoute(req: Request, res: Response) {
 }
 
 export function deleteUserRoute(req: Request, res: Response) {
-  const { id } = UserIdParam.parse(req.params);
+  const parsedParams = UserIdParam.safeParse(req.params);
+  if (!parsedParams.success) {
+    return sendValidationError(res, parsedParams.error);
+  }
+  const { id } = parsedParams.data;
 
   deleteUserById({
     id,

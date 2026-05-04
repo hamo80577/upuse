@@ -224,7 +224,7 @@ describe("UsersPage", () => {
 
     fireEvent.change(screen.getByLabelText("Full Name"), { target: { value: "Scanner User" } });
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "scanner@example.com" } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "secret-123" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "secret-pass-123" } });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     fireEvent.click(screen.getByLabelText("UPuse access"));
@@ -235,7 +235,7 @@ describe("UsersPage", () => {
       expect(mockApi.createUser).toHaveBeenCalledWith({
         email: "scanner@example.com",
         name: "Scanner User",
-        password: "secret-123",
+        password: "secret-pass-123",
         upuseAccess: false,
         scanoAccessRole: "scanner",
       });

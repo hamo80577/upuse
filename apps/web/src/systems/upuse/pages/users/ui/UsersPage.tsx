@@ -35,6 +35,7 @@ import type { AppUser, AppUserRole, ScanoRole } from "../../../api/types";
 import { TopBar } from "../../../widgets/top-bar/ui/TopBar";
 
 const USER_WIZARD_STEPS = ["Account Details", "Workspace Access"] as const;
+const MIN_PASSWORD_LENGTH = 12;
 
 interface UserWizardState {
   name: string;
@@ -168,6 +169,9 @@ export function UsersPage() {
       if (!editingUser && !form.password.trim()) {
         return false;
       }
+      if (form.password.trim() && form.password.trim().length < MIN_PASSWORD_LENGTH) {
+        return false;
+      }
       return true;
     }
 
@@ -226,6 +230,7 @@ export function UsersPage() {
     () => normalizeChainSelection([...chainOptions, ...form.assignedChains]),
     [chainOptions, form.assignedChains],
   );
+  const passwordTooShort = form.password.trim().length > 0 && form.password.trim().length < MIN_PASSWORD_LENGTH;
 
   function changeAssignedChains(value: unknown) {
     const nextAssignedChains = Array.isArray(value)
@@ -249,6 +254,10 @@ export function UsersPage() {
     }
     if (!editingUser && !form.password.trim()) {
       setToast({ type: "error", msg: "Enter a password for the new user." });
+      return;
+    }
+    if (passwordTooShort) {
+      setToast({ type: "error", msg: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.` });
       return;
     }
     if (!editingPrimaryAdmin && !hasAnyWorkspaceAccess(form)) {
@@ -460,8 +469,10 @@ export function UsersPage() {
                   type={showPassword ? "text" : "password"}
                   value={form.password}
                   onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
-                  helperText={editingUser ? "Leave blank to keep the current password." : "Required for new users."}
+                  error={passwordTooShort}
+                  helperText={editingUser ? `Leave blank to keep the current password. New passwords need ${MIN_PASSWORD_LENGTH}+ characters.` : `Required for new users. Minimum ${MIN_PASSWORD_LENGTH} characters.`}
                   fullWidth
+                  inputProps={{ minLength: MIN_PASSWORD_LENGTH, maxLength: 120 }}
                   InputProps={{
                     endAdornment: (
                       <Button
