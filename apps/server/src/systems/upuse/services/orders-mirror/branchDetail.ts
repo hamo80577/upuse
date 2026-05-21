@@ -55,6 +55,7 @@ export function getMirrorBranchDetail(params: {
   ordersRefreshSeconds: number;
   includePickerItems?: boolean;
   dayKey?: string;
+  readyMinAgeMinutes?: number;
   resolveEntityStatus: (dayKey: string, globalEntityId: string, ordersRefreshSeconds: number) => OrdersMirrorEntitySyncStatus;
 }): MirrorOrdersDetail {
   const dayKey = params.dayKey ?? getCairoDayKey();
@@ -82,6 +83,7 @@ export function getMirrorBranchDetail(params: {
       isUnassigned,
       placedAt,
       pickupAt,
+      readySinceAt,
       customerFirstName,
       shopperId,
       shopperFirstName,
@@ -108,7 +110,8 @@ export function getMirrorBranchDetail(params: {
       customerFirstName: row.customerFirstName,
       shopperFirstName: row.shopperFirstName,
       placedAt: row.placedAt,
-    }, nowIso);
+      readySinceAt: row.readySinceAt,
+    }, nowIso, { readyMinAgeMinutes: params.readyMinAgeMinutes ?? 0 });
 
     return {
       row,
@@ -144,6 +147,11 @@ export function getMirrorBranchDetail(params: {
 
   const readyToPickupOrders = classifiedRows
     .filter(({ metrics: rowMetrics }) => rowMetrics.isReadyToPickup)
+    .sort((left, right) => toMillis(left.row.pickupAt) - toMillis(right.row.pickupAt))
+    .map(({ liveOrder }) => liveOrder);
+
+  const freshReadyToPickupOrders = classifiedRows
+    .filter(({ metrics: rowMetrics }) => rowMetrics.isFreshReadyToPickup)
     .sort((left, right) => toMillis(left.row.pickupAt) - toMillis(right.row.pickupAt))
     .map(({ liveOrder }) => liveOrder);
 
@@ -230,6 +238,7 @@ export function getMirrorBranchDetail(params: {
     unassignedOrders,
     preparingOrders,
     readyToPickupOrders,
+    freshReadyToPickupOrders,
     pickers: {
       todayCount: pickerSummaries.length,
       activePreparingCount: pickerSummaries.reduce((count, row) => count + (row.activePreparing ? 1 : 0), 0),

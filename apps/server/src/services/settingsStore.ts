@@ -16,6 +16,7 @@ interface SettingsRow {
   unassignedReopenThreshold?: number;
   readyThreshold?: number;
   readyReopenThreshold?: number;
+  readyMinAgeMinutes?: number;
   onHoldThreshold?: number;
   onHoldReopenThreshold?: number;
   tempCloseMinutes: number;
@@ -91,6 +92,7 @@ const SettingsSchema = z.object({
       unassignedReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
       readyThreshold: z.number().int().min(0).max(999).optional().default(0),
       readyReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
+      readyMinAgeMinutes: z.number().int().min(0).max(720).optional().default(0),
       onHoldThreshold: z.number().int().min(0).max(999).optional().default(0),
       onHoldReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
       capacityRuleEnabled: z.boolean().optional().default(true),
@@ -114,6 +116,7 @@ const SettingsSchema = z.object({
   unassignedReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
   readyThreshold: z.number().int().min(0).max(999).optional().default(0),
   readyReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
+  readyMinAgeMinutes: z.number().int().min(0).max(720).optional().default(0),
   onHoldThreshold: z.number().int().min(0).max(999).optional().default(0),
   onHoldReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
 
@@ -167,6 +170,10 @@ function normalizeChainThresholds(values: ChainThreshold[]) {
           ? Math.max(0, Math.round(item.readyThreshold))
           : 0,
       readyReopenThreshold: clampReopenThreshold(item.readyThreshold ?? 0, item.readyReopenThreshold),
+      readyMinAgeMinutes:
+        typeof item.readyMinAgeMinutes === "number"
+          ? Math.max(0, Math.min(720, Math.round(item.readyMinAgeMinutes)))
+          : 0,
       onHoldThreshold:
         typeof item.onHoldThreshold === "number"
           ? Math.max(0, Math.round(item.onHoldThreshold))
@@ -206,6 +213,7 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
         unassignedReopenThreshold: 0,
         readyThreshold: 0,
         readyReopenThreshold: 0,
+        readyMinAgeMinutes: 0,
         onHoldThreshold: 0,
         onHoldReopenThreshold: 0,
         capacityRuleEnabled: true,
@@ -236,6 +244,7 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
           unassignedReopenThreshold: 0,
           readyThreshold: 0,
           readyReopenThreshold: 0,
+          readyMinAgeMinutes: 0,
           onHoldThreshold: 0,
           onHoldReopenThreshold: 0,
           capacityRuleEnabled: true,
@@ -260,6 +269,7 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
                 unassignedReopenThreshold?: number;
                 readyThreshold?: number;
                 readyReopenThreshold?: number;
+                readyMinAgeMinutes?: number;
                 onHoldThreshold?: number;
                 onHoldReopenThreshold?: number;
                 capacityRuleEnabled?: boolean;
@@ -287,6 +297,7 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
             unassignedReopenThreshold?: number;
             readyThreshold?: number;
             readyReopenThreshold?: number;
+            readyMinAgeMinutes?: number;
             onHoldThreshold?: number;
             onHoldReopenThreshold?: number;
             capacityRuleEnabled?: boolean;
@@ -321,6 +332,10 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
             readyReopenThreshold:
               typeof legacyValue.readyReopenThreshold === "number"
                 ? legacyValue.readyReopenThreshold
+                : 0,
+            readyMinAgeMinutes:
+              typeof legacyValue.readyMinAgeMinutes === "number"
+                ? legacyValue.readyMinAgeMinutes
                 : 0,
             onHoldThreshold:
               typeof legacyValue.onHoldThreshold === "number"
@@ -364,6 +379,7 @@ export function getSettings(): Settings {
     unassignedReopenThreshold: clampReopenThreshold(row.unassignedThreshold, row.unassignedReopenThreshold),
     readyThreshold: typeof row.readyThreshold === "number" ? row.readyThreshold : 0,
     readyReopenThreshold: clampReopenThreshold(row.readyThreshold ?? 0, row.readyReopenThreshold),
+    readyMinAgeMinutes: typeof row.readyMinAgeMinutes === "number" ? Math.max(0, Math.round(row.readyMinAgeMinutes)) : 0,
     onHoldThreshold: typeof row.onHoldThreshold === "number" ? row.onHoldThreshold : 0,
     onHoldReopenThreshold: clampReopenThreshold(row.onHoldThreshold ?? 0, row.onHoldReopenThreshold),
     tempCloseMinutes: row.tempCloseMinutes,
@@ -415,6 +431,7 @@ export function updateSettings(patch: Partial<Settings>) {
       unassignedReopenThreshold = ?,
       readyThreshold = ?,
       readyReopenThreshold = ?,
+      readyMinAgeMinutes = ?,
       onHoldThreshold = ?,
       onHoldReopenThreshold = ?,
       tempCloseMinutes = ?,
@@ -435,6 +452,7 @@ export function updateSettings(patch: Partial<Settings>) {
     normalized.unassignedReopenThreshold ?? 0,
     normalized.readyThreshold ?? 0,
     normalized.readyReopenThreshold ?? 0,
+    normalized.readyMinAgeMinutes ?? 0,
     normalized.onHoldThreshold ?? 0,
     normalized.onHoldReopenThreshold ?? 0,
     normalized.tempCloseMinutes,

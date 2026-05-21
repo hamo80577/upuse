@@ -51,6 +51,7 @@ function emptyDefaultThresholdEditor(): DefaultThresholdEditorDraft {
     unassignedReopenThreshold: "0",
     readyThreshold: "0",
     readyReopenThreshold: "0",
+    readyMinAgeMinutes: "0",
     onHoldThreshold: "0",
     onHoldReopenThreshold: "0",
   };
@@ -81,6 +82,7 @@ export function ThresholdsPage() {
     unassignedReopenThreshold: 0,
     readyThreshold: 0,
     readyReopenThreshold: 0,
+    readyMinAgeMinutes: 0,
     onHoldThreshold: 0,
     onHoldReopenThreshold: 0,
   });
@@ -106,6 +108,7 @@ export function ThresholdsPage() {
       unassignedReopenThreshold: settings.unassignedReopenThreshold ?? 0,
       readyThreshold: settings.readyThreshold ?? 0,
       readyReopenThreshold: settings.readyReopenThreshold ?? 0,
+      readyMinAgeMinutes: settings.readyMinAgeMinutes ?? 0,
       onHoldThreshold: settings.onHoldThreshold ?? 0,
       onHoldReopenThreshold: settings.onHoldReopenThreshold ?? 0,
     });
@@ -116,6 +119,7 @@ export function ThresholdsPage() {
       unassignedReopenThreshold: String(settings.unassignedReopenThreshold ?? 0),
       readyThreshold: String(settings.readyThreshold ?? 0),
       readyReopenThreshold: String(settings.readyReopenThreshold ?? 0),
+      readyMinAgeMinutes: String(settings.readyMinAgeMinutes ?? 0),
       onHoldThreshold: String(settings.onHoldThreshold ?? 0),
       onHoldReopenThreshold: String(settings.onHoldReopenThreshold ?? 0),
     });
@@ -139,6 +143,7 @@ export function ThresholdsPage() {
     unassignedReopenThreshold: Number(thresholdForm.unassignedReopenThreshold ?? settings?.unassignedReopenThreshold ?? 0),
     readyThreshold: Number(thresholdForm.readyThreshold ?? settings?.readyThreshold ?? 0),
     readyReopenThreshold: Number(thresholdForm.readyReopenThreshold ?? settings?.readyReopenThreshold ?? 0),
+    readyMinAgeMinutes: Number(thresholdForm.readyMinAgeMinutes ?? settings?.readyMinAgeMinutes ?? 0),
     onHoldThreshold: Number(thresholdForm.onHoldThreshold ?? settings?.onHoldThreshold ?? 0),
     onHoldReopenThreshold: Number(thresholdForm.onHoldReopenThreshold ?? settings?.onHoldReopenThreshold ?? 0),
     capacityRuleEnabled: true,
@@ -204,6 +209,7 @@ export function ThresholdsPage() {
     const unassignedReopenThreshold = Number(chainEditor.unassignedReopenThreshold);
     const readyThreshold = Number(chainEditor.readyThreshold);
     const readyReopenThreshold = Number(chainEditor.readyReopenThreshold);
+    const readyMinAgeMinutes = Number(chainEditor.readyMinAgeMinutes);
     const onHoldThreshold = Number(chainEditor.onHoldThreshold);
     const onHoldReopenThreshold = Number(chainEditor.onHoldReopenThreshold);
     const capacityPerHourLimitRaw = chainEditor.capacityPerHourLimit.trim();
@@ -221,6 +227,7 @@ export function ThresholdsPage() {
       || !Number.isFinite(unassignedReopenThreshold) || unassignedReopenThreshold < 0
       || !Number.isFinite(readyThreshold) || readyThreshold < 0
       || !Number.isFinite(readyReopenThreshold) || readyReopenThreshold < 0
+      || !Number.isFinite(readyMinAgeMinutes) || readyMinAgeMinutes < 0
       || !Number.isFinite(onHoldThreshold) || onHoldThreshold < 0
       || !Number.isFinite(onHoldReopenThreshold) || onHoldReopenThreshold < 0
     ) {
@@ -261,6 +268,7 @@ export function ThresholdsPage() {
       unassignedReopenThreshold: Math.round(unassignedReopenThreshold),
       readyThreshold: Math.round(readyThreshold),
       readyReopenThreshold: Math.round(readyReopenThreshold),
+      readyMinAgeMinutes: Math.round(readyMinAgeMinutes),
       onHoldThreshold: Math.round(onHoldThreshold),
       onHoldReopenThreshold: Math.round(onHoldReopenThreshold),
       capacityRuleEnabled: chainEditor.capacityRuleEnabled,
@@ -279,6 +287,7 @@ export function ThresholdsPage() {
       unassignedReopenThreshold: String(thresholdForm.unassignedReopenThreshold),
       readyThreshold: String(thresholdForm.readyThreshold),
       readyReopenThreshold: String(thresholdForm.readyReopenThreshold),
+      readyMinAgeMinutes: String(thresholdForm.readyMinAgeMinutes),
       onHoldThreshold: String(thresholdForm.onHoldThreshold),
       onHoldReopenThreshold: String(thresholdForm.onHoldReopenThreshold),
     });
@@ -296,6 +305,7 @@ export function ThresholdsPage() {
     const unassignedReopenThreshold = Number(defaultEditor.unassignedReopenThreshold);
     const readyThreshold = Number(defaultEditor.readyThreshold);
     const readyReopenThreshold = Number(defaultEditor.readyReopenThreshold);
+    const readyMinAgeMinutes = Number(defaultEditor.readyMinAgeMinutes);
     const onHoldThreshold = Number(defaultEditor.onHoldThreshold);
     const onHoldReopenThreshold = Number(defaultEditor.onHoldReopenThreshold);
 
@@ -311,6 +321,7 @@ export function ThresholdsPage() {
       || !Number.isFinite(unassignedReopenThreshold) || unassignedReopenThreshold < 0
       || !Number.isFinite(readyThreshold) || readyThreshold < 0
       || !Number.isFinite(readyReopenThreshold) || readyReopenThreshold < 0
+      || !Number.isFinite(readyMinAgeMinutes) || readyMinAgeMinutes < 0
       || !Number.isFinite(onHoldThreshold) || onHoldThreshold < 0
       || !Number.isFinite(onHoldReopenThreshold) || onHoldReopenThreshold < 0
     ) {
@@ -336,6 +347,7 @@ export function ThresholdsPage() {
         unassignedReopenThreshold,
         readyThreshold,
         readyReopenThreshold,
+        readyMinAgeMinutes,
         onHoldThreshold,
         onHoldReopenThreshold,
       );
@@ -347,6 +359,7 @@ export function ThresholdsPage() {
         unassignedReopenThreshold,
         readyThreshold,
         readyReopenThreshold,
+        readyMinAgeMinutes,
         onHoldThreshold,
         onHoldReopenThreshold,
       }));
@@ -367,6 +380,7 @@ export function ThresholdsPage() {
       unassignedReopenThreshold: String(chain.unassignedReopenThreshold ?? 0),
       readyThreshold: String(chain.readyThreshold ?? 0),
       readyReopenThreshold: String(chain.readyReopenThreshold ?? 0),
+      readyMinAgeMinutes: String(chain.readyMinAgeMinutes ?? 0),
       onHoldThreshold: String(chain.onHoldThreshold ?? 0),
       onHoldReopenThreshold: String(chain.onHoldReopenThreshold ?? 0),
       capacityRuleEnabled: chain.capacityRuleEnabled !== false,
@@ -398,6 +412,7 @@ export function ThresholdsPage() {
       unassignedReopenThreshold: branch.unassignedReopenThresholdOverride == null ? "" : String(branch.unassignedReopenThresholdOverride),
       readyThreshold: branch.readyThresholdOverride == null ? "" : String(branch.readyThresholdOverride),
       readyReopenThreshold: branch.readyReopenThresholdOverride == null ? "" : String(branch.readyReopenThresholdOverride),
+      readyMinAgeMinutes: branch.readyMinAgeMinutesOverride == null ? "" : String(branch.readyMinAgeMinutesOverride),
       onHoldThreshold: branch.onHoldThresholdOverride == null ? "" : String(branch.onHoldThresholdOverride),
       onHoldReopenThreshold: branch.onHoldReopenThresholdOverride == null ? "" : String(branch.onHoldReopenThresholdOverride),
       capacityRuleEnabled: branch.capacityRuleEnabledOverride ?? (effective.capacityRuleEnabled !== false),
@@ -424,6 +439,7 @@ export function ThresholdsPage() {
     const unassignedReopenThresholdRaw = branchThresholdEditor.unassignedReopenThreshold.trim();
     const readyThresholdRaw = branchThresholdEditor.readyThreshold.trim();
     const readyReopenThresholdRaw = branchThresholdEditor.readyReopenThreshold.trim();
+    const readyMinAgeMinutesRaw = branchThresholdEditor.readyMinAgeMinutes.trim();
     const onHoldThresholdRaw = branchThresholdEditor.onHoldThreshold.trim();
     const onHoldReopenThresholdRaw = branchThresholdEditor.onHoldReopenThreshold.trim();
     const capacityPerHourLimitRaw = branchThresholdEditor.capacityPerHourLimit.trim();
@@ -433,6 +449,7 @@ export function ThresholdsPage() {
     const hasUnassignedReopenThreshold = unassignedReopenThresholdRaw.length > 0;
     const hasReadyThreshold = readyThresholdRaw.length > 0;
     const hasReadyReopenThreshold = readyReopenThresholdRaw.length > 0;
+    const hasReadyMinAgeMinutes = readyMinAgeMinutesRaw.length > 0;
     const hasOnHoldThreshold = onHoldThresholdRaw.length > 0;
     const hasOnHoldReopenThreshold = onHoldReopenThresholdRaw.length > 0;
     const hasCapacityPerHourLimit = capacityPerHourLimitRaw.length > 0;
@@ -448,6 +465,7 @@ export function ThresholdsPage() {
     const unassignedReopenThreshold = hasUnassignedReopenThreshold ? Number(unassignedReopenThresholdRaw) : null;
     const readyThreshold = hasReadyThreshold ? Number(readyThresholdRaw) : null;
     const readyReopenThreshold = hasReadyReopenThreshold ? Number(readyReopenThresholdRaw) : null;
+    const readyMinAgeMinutes = hasReadyMinAgeMinutes ? Number(readyMinAgeMinutesRaw) : null;
     const onHoldThreshold = hasOnHoldThreshold ? Number(onHoldThresholdRaw) : null;
     const onHoldReopenThreshold = hasOnHoldReopenThreshold ? Number(onHoldReopenThresholdRaw) : null;
     const capacityPerHourLimit = hasCapacityPerHourLimit ? Number(capacityPerHourLimitRaw) : null;
@@ -459,6 +477,7 @@ export function ThresholdsPage() {
       || (unassignedReopenThreshold != null && (!Number.isFinite(unassignedReopenThreshold) || unassignedReopenThreshold < 0))
       || (readyThreshold != null && (!Number.isFinite(readyThreshold) || readyThreshold < 0))
       || (readyReopenThreshold != null && (!Number.isFinite(readyReopenThreshold) || readyReopenThreshold < 0))
+      || (readyMinAgeMinutes != null && (!Number.isFinite(readyMinAgeMinutes) || readyMinAgeMinutes < 0))
       || (onHoldThreshold != null && (!Number.isFinite(onHoldThreshold) || onHoldThreshold < 0))
       || (onHoldReopenThreshold != null && (!Number.isFinite(onHoldReopenThreshold) || onHoldReopenThreshold < 0))
     ) {
@@ -481,6 +500,7 @@ export function ThresholdsPage() {
         unassignedThresholdOverride: null,
         readyThresholdOverride: null,
         readyReopenThresholdOverride: null,
+        readyMinAgeMinutesOverride: null,
         onHoldThresholdOverride: null,
         onHoldReopenThresholdOverride: null,
         lateReopenThresholdOverride: null,
@@ -556,6 +576,7 @@ export function ThresholdsPage() {
         unassignedReopenThreshold == null ? null : Math.round(unassignedReopenThreshold),
         readyThreshold == null ? null : Math.round(readyThreshold),
         readyReopenThreshold == null ? null : Math.round(readyReopenThreshold),
+        readyMinAgeMinutes == null ? null : Math.round(readyMinAgeMinutes),
         onHoldThreshold == null ? null : Math.round(onHoldThreshold),
         onHoldReopenThreshold == null ? null : Math.round(onHoldReopenThreshold),
         capacityRuleEnabledOverride,
@@ -580,7 +601,7 @@ export function ThresholdsPage() {
 
     try {
       setSavingThresholdBranchId(branch.id);
-      await persistBranchThresholdOverride(branch.id, null, null, null, null, null, null, null, null, null, null, null);
+      await persistBranchThresholdOverride(branch.id, null, null, null, null, null, null, null, null, null, null, null, null);
       setEditingThresholdBranchId(null);
       setBranchThresholdEditor(emptyBranchThresholdEditor());
       setToast({ type: "success", msg: "Using inherited thresholds" });

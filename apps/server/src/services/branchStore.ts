@@ -15,6 +15,7 @@ interface BranchRow {
   unassignedReopenThresholdOverride: number | null;
   readyThresholdOverride: number | null;
   readyReopenThresholdOverride: number | null;
+  readyMinAgeMinutesOverride: number | null;
   onHoldThresholdOverride: number | null;
   onHoldReopenThresholdOverride: number | null;
   capacityRuleEnabledOverride: number | null;
@@ -55,6 +56,7 @@ const ThresholdOverrideSchema = z.object({
   unassignedReopenThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
   readyThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
   readyReopenThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
+  readyMinAgeMinutesOverride: z.number().int().min(0).max(720).nullable().optional().default(null),
   onHoldThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
   onHoldReopenThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
   capacityRuleEnabledOverride: z.boolean().nullable().optional().default(null),
@@ -98,6 +100,7 @@ function mapBranchRow(row: JoinedBranchRow): BranchMapping {
     unassignedReopenThresholdOverride: row.unassignedReopenThresholdOverride,
     readyThresholdOverride: row.readyThresholdOverride,
     readyReopenThresholdOverride: row.readyReopenThresholdOverride,
+    readyMinAgeMinutesOverride: row.readyMinAgeMinutesOverride,
     onHoldThresholdOverride: row.onHoldThresholdOverride,
     onHoldReopenThresholdOverride: row.onHoldReopenThresholdOverride,
     capacityRuleEnabledOverride:
@@ -135,6 +138,7 @@ function getJoinedBranchQuery(whereClause = "", orderClause = "ORDER BY LOWER(CO
       branches.unassignedReopenThresholdOverride,
       branches.readyThresholdOverride,
       branches.readyReopenThresholdOverride,
+      branches.readyMinAgeMinutesOverride,
       branches.onHoldThresholdOverride,
       branches.onHoldReopenThresholdOverride,
       branches.capacityRuleEnabledOverride,
@@ -193,13 +197,14 @@ export function addBranch(input: { availabilityVendorId: string; chainName?: str
       unassignedReopenThresholdOverride,
       readyThresholdOverride,
       readyReopenThresholdOverride,
+      readyMinAgeMinutesOverride,
       onHoldThresholdOverride,
       onHoldReopenThresholdOverride,
       capacityRuleEnabledOverride,
       capacityPerHourEnabledOverride,
       capacityPerHourLimitOverride
     )
-    VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+    VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
   `).run(
     catalogItem.availabilityVendorId,
     parsed.chainName,
@@ -231,6 +236,7 @@ export function setBranchThresholdOverrides(
     unassignedReopenThresholdOverride: number | null;
     readyThresholdOverride: number | null;
     readyReopenThresholdOverride: number | null;
+    readyMinAgeMinutesOverride: number | null;
     onHoldThresholdOverride: number | null;
     onHoldReopenThresholdOverride: number | null;
     capacityRuleEnabledOverride: boolean | null;
@@ -248,6 +254,7 @@ export function setBranchThresholdOverrides(
         unassignedReopenThresholdOverride = ?,
         readyThresholdOverride = ?,
         readyReopenThresholdOverride = ?,
+        readyMinAgeMinutesOverride = ?,
         onHoldThresholdOverride = ?,
         onHoldReopenThresholdOverride = ?,
         capacityRuleEnabledOverride = ?,
@@ -261,6 +268,7 @@ export function setBranchThresholdOverrides(
     parsed.unassignedReopenThresholdOverride,
     parsed.readyThresholdOverride,
     parsed.readyReopenThresholdOverride,
+    parsed.readyMinAgeMinutesOverride,
     parsed.onHoldThresholdOverride,
     parsed.onHoldReopenThresholdOverride,
     parsed.capacityRuleEnabledOverride == null ? null : (parsed.capacityRuleEnabledOverride ? 1 : 0),

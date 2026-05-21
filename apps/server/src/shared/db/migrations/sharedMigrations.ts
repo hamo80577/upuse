@@ -45,6 +45,9 @@ export function applySharedSchemaMigrations(db: Database.Database) {
   if (!settingsColumns.some((column) => column.name === "readyReopenThreshold")) {
     db.exec("ALTER TABLE settings ADD COLUMN readyReopenThreshold INTEGER NOT NULL DEFAULT 0");
   }
+  if (!settingsColumns.some((column) => column.name === "readyMinAgeMinutes")) {
+    db.exec("ALTER TABLE settings ADD COLUMN readyMinAgeMinutes INTEGER NOT NULL DEFAULT 0");
+  }
   if (!settingsColumns.some((column) => column.name === "onHoldThreshold")) {
     db.exec("ALTER TABLE settings ADD COLUMN onHoldThreshold INTEGER NOT NULL DEFAULT 0");
   }
@@ -85,6 +88,9 @@ export function applySharedSchemaMigrations(db: Database.Database) {
   if (!branchesColumns.some((column) => column.name === "readyReopenThresholdOverride")) {
     db.exec("ALTER TABLE branches ADD COLUMN readyReopenThresholdOverride INTEGER");
   }
+  if (!branchesColumns.some((column) => column.name === "readyMinAgeMinutesOverride")) {
+    db.exec("ALTER TABLE branches ADD COLUMN readyMinAgeMinutesOverride INTEGER");
+  }
   if (!branchesColumns.some((column) => column.name === "onHoldThresholdOverride")) {
     db.exec("ALTER TABLE branches ADD COLUMN onHoldThresholdOverride INTEGER");
   }
@@ -101,5 +107,10 @@ export function applySharedSchemaMigrations(db: Database.Database) {
   const actionEventColumns = db.prepare("PRAGMA table_info(action_events)").all() as Array<{ name: string }>;
   if (!actionEventColumns.some((column) => column.name === "onHoldNow")) {
     db.exec("ALTER TABLE action_events ADD COLUMN onHoldNow INTEGER NOT NULL DEFAULT 0");
+  }
+
+  const ordersMirrorColumns = db.prepare("PRAGMA table_info(orders_mirror)").all() as Array<{ name: string }>;
+  if (!ordersMirrorColumns.some((column) => column.name === "readySinceAt")) {
+    db.exec("ALTER TABLE orders_mirror ADD COLUMN readySinceAt TEXT");
   }
 }

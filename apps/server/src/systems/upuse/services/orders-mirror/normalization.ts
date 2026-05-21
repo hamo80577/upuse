@@ -96,6 +96,7 @@ export function normalizeMirrorOrder(
     isUnassigned: status === "UNASSIGNED" || order?.shopper == null ? 1 : 0,
     placedAt: toIsoOrNull(order?.placedAt),
     pickupAt: toIsoOrNull(order?.pickupAt),
+    readySinceAt: status === "READY_FOR_PICKUP" ? nowIso : null,
     customerFirstName:
       typeof order?.customerFirstName === "string" && order.customerFirstName.trim().length
         ? order.customerFirstName.trim()

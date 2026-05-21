@@ -53,6 +53,7 @@ const BranchThresholdOverrideBody = z.object({
   unassignedReopenThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
   readyThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
   readyReopenThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
+  readyMinAgeMinutesOverride: z.number().int().min(0).max(720).nullable().optional().default(null),
   onHoldThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
   onHoldReopenThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
   capacityRuleEnabledOverride: z.boolean().nullable().optional().default(null),
@@ -123,6 +124,7 @@ function resolveEffectiveCloseThresholds(
       unassignedReopenThresholdOverride: null,
       readyThresholdOverride: null,
       readyReopenThresholdOverride: null,
+      readyMinAgeMinutesOverride: null,
       onHoldThresholdOverride: null,
       onHoldReopenThresholdOverride: null,
       capacityRuleEnabledOverride: null,
@@ -196,6 +198,7 @@ function buildSnapshotUnavailableDetail(
     staleAgeSeconds?: number | null;
     unassignedOrders?: BranchDetailSnapshotUnavailable["unassignedOrders"];
     onHoldOrders?: BranchDetailSnapshotUnavailable["onHoldOrders"];
+    freshReadyToPickupOrders?: BranchDetailSnapshotUnavailable["freshReadyToPickupOrders"];
     preparingOrders?: BranchDetailSnapshotUnavailable["preparingOrders"];
     readyToPickupOrders?: BranchDetailSnapshotUnavailable["readyToPickupOrders"];
     pickers?: BranchDetailSnapshotUnavailable["pickers"];
@@ -214,6 +217,7 @@ function buildSnapshotUnavailableDetail(
     ...(typeof options?.staleAgeSeconds !== "undefined" ? { staleAgeSeconds: options.staleAgeSeconds } : {}),
     unassignedOrders: options?.unassignedOrders ?? [],
     onHoldOrders: options?.onHoldOrders ?? [],
+    freshReadyToPickupOrders: options?.freshReadyToPickupOrders ?? [],
     preparingOrders: options?.preparingOrders ?? [],
     readyToPickupOrders: options?.readyToPickupOrders ?? [],
     pickers: options?.pickers ?? emptyBranchPickers(),
@@ -237,6 +241,7 @@ function buildDetailFetchFailedDetail(
     cacheState,
     unassignedOrders: [],
     onHoldOrders: [],
+    freshReadyToPickupOrders: [],
     preparingOrders: [],
     readyToPickupOrders: [],
     pickers: emptyBranchPickers(),
@@ -255,6 +260,7 @@ function buildOkBranchDetail(
     staleAgeSeconds?: number | null;
     unassignedOrders: BranchDetailOk["unassignedOrders"];
     onHoldOrders: BranchDetailOk["onHoldOrders"];
+    freshReadyToPickupOrders: BranchDetailOk["freshReadyToPickupOrders"];
     preparingOrders: BranchDetailOk["preparingOrders"];
     readyToPickupOrders: BranchDetailOk["readyToPickupOrders"];
     pickers: BranchDetailOk["pickers"];
@@ -271,6 +277,7 @@ function buildOkBranchDetail(
     ...(typeof detail.staleAgeSeconds !== "undefined" ? { staleAgeSeconds: detail.staleAgeSeconds } : {}),
     unassignedOrders: detail.unassignedOrders,
     onHoldOrders: detail.onHoldOrders,
+    freshReadyToPickupOrders: detail.freshReadyToPickupOrders,
     preparingOrders: detail.preparingOrders,
     readyToPickupOrders: detail.readyToPickupOrders,
     pickers: detail.pickers,
@@ -581,12 +588,14 @@ export function branchDetailRoute(engine: MonitorEngine) {
     }
 
     const settings = getSettings();
+    const thresholds = resolveBranchThresholdProfile(branch, settings);
     const getSnapshotBranch = () => engine.getSnapshot().branches.find((item) => item.branchId === id);
     const includePickerItems = req.query?.includePickerItems !== "0";
     const localDetail = getMirrorBranchDetail({
       globalEntityId: branch.globalEntityId,
       vendorId: branch.ordersVendorId,
       ordersRefreshSeconds: settings.ordersRefreshSeconds,
+      readyMinAgeMinutes: thresholds.readyMinAgeMinutes ?? 0,
       includePickerItems,
     });
 
@@ -599,6 +608,7 @@ export function branchDetailRoute(engine: MonitorEngine) {
         staleAgeSeconds: localDetail.staleAgeSeconds,
         unassignedOrders: localDetail.unassignedOrders,
         onHoldOrders: localDetail.onHoldOrders,
+        freshReadyToPickupOrders: localDetail.freshReadyToPickupOrders,
         preparingOrders: localDetail.preparingOrders,
         readyToPickupOrders: localDetail.readyToPickupOrders,
         pickers: localDetail.pickers,
@@ -633,6 +643,7 @@ export function branchDetailRoute(engine: MonitorEngine) {
         staleAgeSeconds: localDetail.staleAgeSeconds,
         unassignedOrders: localDetail.unassignedOrders,
         onHoldOrders: localDetail.onHoldOrders,
+        freshReadyToPickupOrders: localDetail.freshReadyToPickupOrders,
         preparingOrders: localDetail.preparingOrders,
         readyToPickupOrders: localDetail.readyToPickupOrders,
         pickers: localDetail.pickers,

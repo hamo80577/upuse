@@ -19,6 +19,7 @@ export function resolveBranchThresholdProfile(
     | "unassignedReopenThresholdOverride"
     | "readyThresholdOverride"
     | "readyReopenThresholdOverride"
+    | "readyMinAgeMinutesOverride"
     | "onHoldThresholdOverride"
     | "onHoldReopenThresholdOverride"
     | "capacityRuleEnabledOverride"
@@ -34,6 +35,7 @@ export function resolveBranchThresholdProfile(
     | "unassignedReopenThreshold"
     | "readyThreshold"
     | "readyReopenThreshold"
+    | "readyMinAgeMinutes"
     | "onHoldThreshold"
     | "onHoldReopenThreshold"
   >,
@@ -52,6 +54,7 @@ export function resolveBranchThresholdProfile(
         unassignedReopenThreshold: clampReopenThreshold(chainMatch.unassignedThreshold, chainMatch.unassignedReopenThreshold),
         readyThreshold: chainMatch.readyThreshold ?? 0,
         readyReopenThreshold: clampReopenThreshold(chainMatch.readyThreshold ?? 0, chainMatch.readyReopenThreshold),
+        readyMinAgeMinutes: Math.max(0, Math.round(chainMatch.readyMinAgeMinutes ?? 0)),
         onHoldThreshold: chainMatch.onHoldThreshold ?? 0,
         onHoldReopenThreshold: clampReopenThreshold(chainMatch.onHoldThreshold ?? 0, chainMatch.onHoldReopenThreshold),
         capacityRuleEnabled: chainMatch.capacityRuleEnabled !== false,
@@ -66,6 +69,7 @@ export function resolveBranchThresholdProfile(
         unassignedReopenThreshold: clampReopenThreshold(settings.unassignedThreshold, settings.unassignedReopenThreshold),
         readyThreshold: settings.readyThreshold ?? 0,
         readyReopenThreshold: clampReopenThreshold(settings.readyThreshold ?? 0, settings.readyReopenThreshold),
+        readyMinAgeMinutes: Math.max(0, Math.round(settings.readyMinAgeMinutes ?? 0)),
         onHoldThreshold: settings.onHoldThreshold ?? 0,
         onHoldReopenThreshold: clampReopenThreshold(settings.onHoldThreshold ?? 0, settings.onHoldReopenThreshold),
         capacityRuleEnabled: true,
@@ -81,6 +85,7 @@ export function resolveBranchThresholdProfile(
   const hasBranchUnassignedReopenThresholdOverride = typeof branch.unassignedReopenThresholdOverride === "number";
   const hasBranchReadyThresholdOverride = typeof branch.readyThresholdOverride === "number";
   const hasBranchReadyReopenThresholdOverride = typeof branch.readyReopenThresholdOverride === "number";
+  const hasBranchReadyMinAgeMinutesOverride = typeof branch.readyMinAgeMinutesOverride === "number";
   const hasBranchOnHoldThresholdOverride = typeof branch.onHoldThresholdOverride === "number";
   const hasBranchOnHoldReopenThresholdOverride = typeof branch.onHoldReopenThresholdOverride === "number";
   const hasBranchCapacityOverride = typeof branch.capacityRuleEnabledOverride === "boolean";
@@ -94,6 +99,7 @@ export function resolveBranchThresholdProfile(
     || hasBranchUnassignedReopenThresholdOverride
     || hasBranchReadyThresholdOverride
     || hasBranchReadyReopenThresholdOverride
+    || hasBranchReadyMinAgeMinutesOverride
     || hasBranchOnHoldThresholdOverride
     || hasBranchOnHoldReopenThresholdOverride
     || hasBranchCapacityOverride
@@ -115,6 +121,9 @@ export function resolveBranchThresholdProfile(
         hasBranchReadyThresholdOverride ? branch.readyThresholdOverride as number : inherited.readyThreshold ?? 0,
         hasBranchReadyReopenThresholdOverride ? branch.readyReopenThresholdOverride as number : inherited.readyReopenThreshold,
       ),
+      readyMinAgeMinutes: hasBranchReadyMinAgeMinutesOverride
+        ? Math.max(0, Math.round(branch.readyMinAgeMinutesOverride as number))
+        : inherited.readyMinAgeMinutes ?? 0,
       onHoldThreshold: hasBranchOnHoldThresholdOverride ? branch.onHoldThresholdOverride as number : inherited.onHoldThreshold,
       onHoldReopenThreshold: clampReopenThreshold(
         hasBranchOnHoldThresholdOverride ? branch.onHoldThresholdOverride as number : inherited.onHoldThreshold ?? 0,

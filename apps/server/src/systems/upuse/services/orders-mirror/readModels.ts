@@ -78,6 +78,7 @@ export function getMirrorBranchDetail(params: {
   ordersRefreshSeconds: number;
   includePickerItems?: boolean;
   dayKey?: string;
+  readyMinAgeMinutes?: number;
 }): MirrorOrdersDetail {
   return readMirrorBranchDetail({
     ...params,
@@ -90,6 +91,7 @@ export function getMirrorBranchPickers(params: {
   vendorId: OrdersVendorId;
   ordersRefreshSeconds: number;
   dayKey?: string;
+  readyMinAgeMinutes?: number;
 }) {
   return readMirrorBranchPickers({
     ...params,

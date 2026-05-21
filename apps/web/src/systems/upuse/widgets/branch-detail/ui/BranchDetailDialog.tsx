@@ -75,7 +75,7 @@ function QueueLoadingLayout() {
       sx={{
         display: "grid",
         gap: 1.2,
-        gridTemplateColumns: { xs: "1fr", lg: "repeat(4, minmax(0, 1fr))" },
+        gridTemplateColumns: { xs: "1fr", lg: "repeat(5, minmax(0, 1fr))" },
       }}
     >
       <Skeleton variant="rounded" animation="wave" height={260} />
@@ -349,7 +349,7 @@ export function BranchDetailDialog(props: {
                       sx={{
                         display: "grid",
                         gap: 1.2,
-                        gridTemplateColumns: { xs: "1fr", lg: "repeat(4, minmax(0, 1fr))" },
+                        gridTemplateColumns: { xs: "1fr", lg: "repeat(5, minmax(0, 1fr))" },
                         alignItems: "start",
                       }}
                     >
@@ -379,10 +379,19 @@ export function BranchDetailDialog(props: {
                       />
                       <BranchOrdersSection
                         title="Ready To Pickup"
-                        subtitle="Orders waiting for pickup"
+                        subtitle="Ready orders counted by the hold rule"
                         items={detailWithBranch?.readyToPickupOrders ?? []}
                         emptyText={detailWithBranch?.readyToPickupOrders.length ? "No ready-to-pickup orders right now." : unavailableOrdersText}
                         nowMs={nowMs}
+                        timeDisplayMode="ready_age"
+                      />
+                      <BranchOrdersSection
+                        title="Fresh Ready To Pickup"
+                        subtitle="Ready orders below the minimum age"
+                        items={detailWithBranch?.freshReadyToPickupOrders ?? []}
+                        emptyText={(detailWithBranch?.freshReadyToPickupOrders?.length ?? 0) ? "No fresh ready-to-pickup orders right now." : unavailableOrdersText}
+                        nowMs={nowMs}
+                        timeDisplayMode="ready_age"
                       />
                     </Box>
                   )

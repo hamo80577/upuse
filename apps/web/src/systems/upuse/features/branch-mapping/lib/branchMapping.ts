@@ -42,6 +42,10 @@ export function normalizeChains(chains: ChainThreshold[]) {
           ? Math.max(0, Math.round(chain.readyThreshold))
           : 0,
       readyReopenThreshold: clampReopenThreshold(chain.readyThreshold ?? 0, chain.readyReopenThreshold),
+      readyMinAgeMinutes:
+        typeof chain.readyMinAgeMinutes === "number"
+          ? Math.max(0, Math.round(chain.readyMinAgeMinutes))
+          : 0,
       onHoldThreshold:
         typeof chain.onHoldThreshold === "number"
           ? Math.max(0, Math.round(chain.onHoldThreshold))
@@ -68,6 +72,7 @@ export function emptyChainEditor() {
     unassignedReopenThreshold: "0",
     readyThreshold: "0",
     readyReopenThreshold: "0",
+    readyMinAgeMinutes: "0",
     onHoldThreshold: "0",
     onHoldReopenThreshold: "0",
     capacityRuleEnabled: true,
@@ -84,6 +89,7 @@ export function emptyBranchThresholdEditor() {
     unassignedReopenThreshold: "",
     readyThreshold: "",
     readyReopenThreshold: "",
+    readyMinAgeMinutes: "",
     onHoldThreshold: "",
     onHoldReopenThreshold: "",
     capacityRuleEnabled: true,
@@ -107,6 +113,7 @@ export function resolveEffectiveThresholds(
     | "unassignedReopenThreshold"
     | "readyThreshold"
     | "readyReopenThreshold"
+    | "readyMinAgeMinutes"
     | "onHoldThreshold"
     | "onHoldReopenThreshold"
     | "capacityRuleEnabled"
@@ -123,6 +130,7 @@ export function resolveEffectiveThresholds(
         unassignedReopenThreshold: clampReopenThreshold(chain.unassignedThreshold, chain.unassignedReopenThreshold),
         readyThreshold: chain.readyThreshold ?? 0,
         readyReopenThreshold: clampReopenThreshold(chain.readyThreshold ?? 0, chain.readyReopenThreshold),
+        readyMinAgeMinutes: Math.max(0, Math.round(chain.readyMinAgeMinutes ?? 0)),
         onHoldThreshold: chain.onHoldThreshold ?? 0,
         onHoldReopenThreshold: clampReopenThreshold(chain.onHoldThreshold ?? 0, chain.onHoldReopenThreshold),
         capacityRuleEnabled: chain.capacityRuleEnabled !== false,
@@ -137,6 +145,7 @@ export function resolveEffectiveThresholds(
         unassignedReopenThreshold: clampReopenThreshold(globalThresholds.unassignedThreshold, globalThresholds.unassignedReopenThreshold),
         readyThreshold: globalThresholds.readyThreshold ?? 0,
         readyReopenThreshold: clampReopenThreshold(globalThresholds.readyThreshold ?? 0, globalThresholds.readyReopenThreshold),
+        readyMinAgeMinutes: Math.max(0, Math.round(globalThresholds.readyMinAgeMinutes ?? 0)),
         onHoldThreshold: globalThresholds.onHoldThreshold ?? 0,
         onHoldReopenThreshold: clampReopenThreshold(globalThresholds.onHoldThreshold ?? 0, globalThresholds.onHoldReopenThreshold),
         capacityRuleEnabled: globalThresholds.capacityRuleEnabled !== false,
@@ -152,6 +161,7 @@ export function resolveEffectiveThresholds(
   const hasUnassignedReopenThresholdOverride = typeof branch.unassignedReopenThresholdOverride === "number";
   const hasReadyThresholdOverride = typeof branch.readyThresholdOverride === "number";
   const hasReadyReopenThresholdOverride = typeof branch.readyReopenThresholdOverride === "number";
+  const hasReadyMinAgeMinutesOverride = typeof branch.readyMinAgeMinutesOverride === "number";
   const hasOnHoldThresholdOverride = typeof branch.onHoldThresholdOverride === "number";
   const hasOnHoldReopenThresholdOverride = typeof branch.onHoldReopenThresholdOverride === "number";
   const hasCapacityOverride = typeof branch.capacityRuleEnabledOverride === "boolean";
@@ -165,6 +175,7 @@ export function resolveEffectiveThresholds(
     || hasUnassignedReopenThresholdOverride
     || hasReadyThresholdOverride
     || hasReadyReopenThresholdOverride
+    || hasReadyMinAgeMinutesOverride
     || hasOnHoldThresholdOverride
     || hasOnHoldReopenThresholdOverride
     || hasCapacityOverride
@@ -186,6 +197,9 @@ export function resolveEffectiveThresholds(
         hasReadyThresholdOverride ? branch.readyThresholdOverride as number : inherited.readyThreshold,
         hasReadyReopenThresholdOverride ? branch.readyReopenThresholdOverride : inherited.readyReopenThreshold,
       ),
+      readyMinAgeMinutes: hasReadyMinAgeMinutesOverride
+        ? Math.max(0, Math.round(branch.readyMinAgeMinutesOverride as number))
+        : inherited.readyMinAgeMinutes,
       onHoldThreshold: hasOnHoldThresholdOverride ? branch.onHoldThresholdOverride as number : inherited.onHoldThreshold,
       onHoldReopenThreshold: clampReopenThreshold(
         hasOnHoldThresholdOverride ? branch.onHoldThresholdOverride as number : inherited.onHoldThreshold ?? 0,

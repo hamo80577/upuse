@@ -28,6 +28,7 @@ import type { ChainThreshold } from "../../api/types";
 import {
   buildRuleEditorDraft,
   countProfileRules,
+  formatReadyThresholdPair,
   formatThresholdPair,
   getRuleCatalogEntry,
   thresholdRuleCatalog,
@@ -43,6 +44,7 @@ export interface ChainEditorDraft {
   unassignedReopenThreshold: string;
   readyThreshold: string;
   readyReopenThreshold: string;
+  readyMinAgeMinutes: string;
   onHoldThreshold: string;
   onHoldReopenThreshold: string;
   capacityRuleEnabled: boolean;
@@ -57,6 +59,7 @@ export interface DefaultThresholdEditorDraft {
   unassignedReopenThreshold: string;
   readyThreshold: string;
   readyReopenThreshold: string;
+  readyMinAgeMinutes: string;
   onHoldThreshold: string;
   onHoldReopenThreshold: string;
 }
@@ -89,6 +92,7 @@ function buildChainRuleEditorDraft(chainEditor: ChainEditorDraft): RuleEditorDra
     ready: {
       close: chainEditor.readyThreshold,
       reopen: chainEditor.readyReopenThreshold,
+      minAgeMinutes: chainEditor.readyMinAgeMinutes,
     },
     onHold: {
       close: chainEditor.onHoldThreshold,
@@ -117,6 +121,7 @@ function buildDefaultRuleEditorDraft(defaultEditor: DefaultThresholdEditorDraft)
     ready: {
       close: defaultEditor.readyThreshold,
       reopen: defaultEditor.readyReopenThreshold,
+      minAgeMinutes: defaultEditor.readyMinAgeMinutes,
     },
     onHold: {
       close: defaultEditor.onHoldThreshold,
@@ -138,6 +143,7 @@ function RuleShowcaseCard(props: {
   reopenValue?: number;
   enabled?: boolean;
   limit?: number | null;
+  minAgeMinutes?: number;
   caption: string;
 }) {
   const { entry } = props;
@@ -180,6 +186,13 @@ function RuleShowcaseCard(props: {
               sx={{ fontWeight: 900, bgcolor: "rgba(15,23,42,0.05)", color: "#334155" }}
             />
           ) : null}
+          {entry.id === "ready" ? (
+            <Chip
+              size="small"
+              label={`Age ${props.minAgeMinutes ?? 0}m`}
+              sx={{ fontWeight: 900, bgcolor: "rgba(15,23,42,0.05)", color: "#334155" }}
+            />
+          ) : null}
           {entry.supportsToggle ? (
             <Chip
               size="small"
@@ -215,6 +228,8 @@ function RuleEditorCard(props: {
   onReopenChange?: (value: string) => void;
   onToggleChange?: (value: boolean) => void;
   onLimitChange?: (value: string) => void;
+  minAgeLabel?: string;
+  onMinAgeChange?: (value: string) => void;
 }) {
   const { entry, draft } = props;
   const values = draft[entry.id] as {
@@ -222,6 +237,7 @@ function RuleEditorCard(props: {
     reopen?: string;
     enabled?: boolean;
     limit?: string;
+    minAgeMinutes?: string;
   };
 
   return (
@@ -268,6 +284,18 @@ function RuleEditorCard(props: {
               fullWidth
             />
           </Stack>
+        ) : null}
+
+        {entry.id === "ready" ? (
+          <TextField
+            label={props.minAgeLabel ?? "Ready minimum age minutes"}
+            type="number"
+            value={values.minAgeMinutes ?? "0"}
+            onChange={(event) => props.onMinAgeChange?.(event.target.value)}
+            inputProps={{ min: 0 }}
+            disabled={props.disabled}
+            fullWidth
+          />
         ) : null}
 
         {entry.supportsToggle ? (
@@ -319,6 +347,7 @@ export function ChainThresholdManager(props: {
     unassignedReopenThreshold?: number;
     readyThreshold?: number;
     readyReopenThreshold?: number;
+    readyMinAgeMinutes?: number;
     onHoldThreshold?: number;
     onHoldReopenThreshold?: number;
   };
@@ -496,7 +525,7 @@ export function ChainThresholdManager(props: {
                               Late {formatThresholdPair(chain.lateThreshold, chain.lateReopenThreshold)}
                             </Typography>
                             <Typography variant="caption" sx={{ color: "#64748b", display: "block" }} noWrap>
-                              Ready {formatThresholdPair(chain.readyThreshold ?? 0, chain.readyReopenThreshold)}
+                              Ready {formatReadyThresholdPair(chain.readyThreshold ?? 0, chain.readyReopenThreshold, chain.readyMinAgeMinutes)}
                             </Typography>
                             <Typography variant="caption" sx={{ color: "#64748b", display: "block" }} noWrap>
                               On Hold {formatThresholdPair(chain.onHoldThreshold ?? 0, chain.onHoldReopenThreshold)}
@@ -608,6 +637,7 @@ export function ChainThresholdManager(props: {
                             entry={entry}
                             closeValue={selectedChainEntry.chain.readyThreshold ?? 0}
                             reopenValue={selectedChainEntry.chain.readyReopenThreshold}
+                            minAgeMinutes={selectedChainEntry.chain.readyMinAgeMinutes ?? 0}
                             caption=""
                           />
                         );
@@ -767,7 +797,11 @@ export function ChainThresholdManager(props: {
                 />
                 <Chip
                   size="small"
-                  label={`Ready ${formatThresholdPair(selectedChainEntry.chain.readyThreshold ?? 0, selectedChainEntry.chain.readyReopenThreshold)}`}
+                  label={`Ready ${formatReadyThresholdPair(
+                    selectedChainEntry.chain.readyThreshold ?? 0,
+                    selectedChainEntry.chain.readyReopenThreshold,
+                    selectedChainEntry.chain.readyMinAgeMinutes,
+                  )}`}
                   sx={{ fontWeight: 900, bgcolor: "rgba(59,130,246,0.1)", color: "#1d4ed8" }}
                 />
                 <Chip
@@ -821,6 +855,7 @@ export function ChainThresholdManager(props: {
                         entry={entry}
                         closeValue={selectedChainEntry.chain.readyThreshold ?? 0}
                         reopenValue={selectedChainEntry.chain.readyReopenThreshold}
+                        minAgeMinutes={selectedChainEntry.chain.readyMinAgeMinutes ?? 0}
                         caption="Ready queue thresholds for this chain."
                       />
                     );
@@ -983,6 +1018,7 @@ export function ChainThresholdManager(props: {
                   disabled={readOnly}
                   onCloseChange={(value) => props.onChangeDefaultEditor({ readyThreshold: value })}
                   onReopenChange={(value) => props.onChangeDefaultEditor({ readyReopenThreshold: value })}
+                  onMinAgeChange={(value) => props.onChangeDefaultEditor({ readyMinAgeMinutes: value })}
                 />
               );
             })}
@@ -1106,6 +1142,7 @@ export function ChainThresholdManager(props: {
                     disabled={readOnly}
                     onCloseChange={(value) => props.onChangeEditor({ readyThreshold: value })}
                     onReopenChange={(value) => props.onChangeEditor({ readyReopenThreshold: value })}
+                    onMinAgeChange={(value) => props.onChangeEditor({ readyMinAgeMinutes: value })}
                   />
                 );
               }

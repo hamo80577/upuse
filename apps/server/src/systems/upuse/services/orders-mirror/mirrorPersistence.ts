@@ -20,13 +20,14 @@ function getUpsertMirrorOrderStatement() {
       isUnassigned,
       placedAt,
       pickupAt,
+      readySinceAt,
       customerFirstName,
       shopperId,
       shopperFirstName,
       isActiveNow,
       lastSeenAt,
       lastActiveSeenAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(dayKey, globalEntityId, vendorId, orderId) DO UPDATE SET
       vendorName = COALESCE(excluded.vendorName, orders_mirror.vendorName),
       externalId = excluded.externalId,
@@ -37,6 +38,12 @@ function getUpsertMirrorOrderStatement() {
       isUnassigned = excluded.isUnassigned,
       placedAt = COALESCE(excluded.placedAt, orders_mirror.placedAt),
       pickupAt = COALESCE(excluded.pickupAt, orders_mirror.pickupAt),
+      readySinceAt = CASE
+        WHEN excluded.status = 'READY_FOR_PICKUP' AND orders_mirror.status = 'READY_FOR_PICKUP'
+          THEN COALESCE(orders_mirror.readySinceAt, excluded.readySinceAt)
+        WHEN excluded.status = 'READY_FOR_PICKUP' THEN excluded.readySinceAt
+        ELSE NULL
+      END,
       customerFirstName = COALESCE(excluded.customerFirstName, orders_mirror.customerFirstName),
       shopperId = excluded.shopperId,
       shopperFirstName = COALESCE(excluded.shopperFirstName, orders_mirror.shopperFirstName),
@@ -115,6 +122,7 @@ export function upsertMirrorOrders(rows: NormalizedMirrorOrder[]) {
         row.isUnassigned,
         row.placedAt,
         row.pickupAt,
+        row.readySinceAt,
         row.customerFirstName,
         row.shopperId,
         row.shopperFirstName,

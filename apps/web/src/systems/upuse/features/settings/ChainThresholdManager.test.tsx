@@ -31,6 +31,7 @@ describe("ChainThresholdManager", () => {
           unassignedReopenThreshold: 2,
           readyThreshold: 3,
           readyReopenThreshold: 1,
+          readyMinAgeMinutes: 10,
           onHoldThreshold: 0,
           onHoldReopenThreshold: 0,
           capacityRuleEnabled: true,
@@ -44,6 +45,7 @@ describe("ChainThresholdManager", () => {
           unassignedReopenThreshold: 1,
           readyThreshold: 2,
           readyReopenThreshold: 1,
+          readyMinAgeMinutes: 5,
           onHoldThreshold: 0,
           onHoldReopenThreshold: 0,
         }}
@@ -57,6 +59,7 @@ describe("ChainThresholdManager", () => {
           unassignedReopenThreshold: "2",
           readyThreshold: "3",
           readyReopenThreshold: "1",
+          readyMinAgeMinutes: "10",
           onHoldThreshold: "0",
           onHoldReopenThreshold: "0",
           capacityRuleEnabled: true,
@@ -71,6 +74,7 @@ describe("ChainThresholdManager", () => {
           unassignedReopenThreshold: "1",
           readyThreshold: "2",
           readyReopenThreshold: "1",
+          readyMinAgeMinutes: "5",
           onHoldThreshold: "0",
           onHoldReopenThreshold: "0",
         }}
@@ -119,6 +123,7 @@ describe("ChainThresholdManager", () => {
           unassignedReopenThreshold: 2,
           readyThreshold: 3,
           readyReopenThreshold: 1,
+          readyMinAgeMinutes: 10,
           onHoldThreshold: 0,
           onHoldReopenThreshold: 0,
           capacityRuleEnabled: true,
@@ -132,6 +137,7 @@ describe("ChainThresholdManager", () => {
           unassignedReopenThreshold: 1,
           readyThreshold: 2,
           readyReopenThreshold: 1,
+          readyMinAgeMinutes: 5,
           onHoldThreshold: 0,
           onHoldReopenThreshold: 0,
         }}
@@ -145,6 +151,7 @@ describe("ChainThresholdManager", () => {
           unassignedReopenThreshold: "2",
           readyThreshold: "3",
           readyReopenThreshold: "1",
+          readyMinAgeMinutes: "10",
           onHoldThreshold: "0",
           onHoldReopenThreshold: "0",
           capacityRuleEnabled: true,
@@ -159,6 +166,7 @@ describe("ChainThresholdManager", () => {
           unassignedReopenThreshold: "1",
           readyThreshold: "2",
           readyReopenThreshold: "1",
+          readyMinAgeMinutes: "5",
           onHoldThreshold: "0",
           onHoldReopenThreshold: "0",
         }}
@@ -184,6 +192,79 @@ describe("ChainThresholdManager", () => {
 
     expect(screen.getByLabelText("Chain Name")).toHaveValue("Chain A");
     expect(screen.getByLabelText("Late Reopen Threshold")).toHaveValue(1);
+    expect(screen.getByLabelText("Ready minimum age minutes")).toHaveValue(10);
     expect(screen.getByText("Edit Chain")).toBeInTheDocument();
+  });
+
+  it("shows the ready minimum age field in the defaults editor", async () => {
+    window.matchMedia = desktopMatchMedia as any;
+    const onChangeDefaultEditor = vi.fn();
+
+    render(
+      <ChainThresholdManager
+        chains={[]}
+        globalThresholds={{
+          lateThreshold: 5,
+          lateReopenThreshold: 1,
+          unassignedThreshold: 5,
+          unassignedReopenThreshold: 1,
+          readyThreshold: 2,
+          readyReopenThreshold: 1,
+          readyMinAgeMinutes: 5,
+          onHoldThreshold: 0,
+          onHoldReopenThreshold: 0,
+        }}
+        selectedChainName={null}
+        editingChainIndex={null}
+        chainEditor={{
+          name: "",
+          lateThreshold: "5",
+          lateReopenThreshold: "1",
+          unassignedThreshold: "5",
+          unassignedReopenThreshold: "1",
+          readyThreshold: "2",
+          readyReopenThreshold: "1",
+          readyMinAgeMinutes: "5",
+          onHoldThreshold: "0",
+          onHoldReopenThreshold: "0",
+          capacityRuleEnabled: true,
+          capacityPerHourEnabled: false,
+          capacityPerHourLimit: "",
+        }}
+        chainEditorOpen={false}
+        defaultEditor={{
+          lateThreshold: "5",
+          lateReopenThreshold: "1",
+          unassignedThreshold: "5",
+          unassignedReopenThreshold: "1",
+          readyThreshold: "2",
+          readyReopenThreshold: "1",
+          readyMinAgeMinutes: "5",
+          onHoldThreshold: "0",
+          onHoldReopenThreshold: "0",
+        }}
+        defaultEditorOpen
+        onSelectChain={vi.fn()}
+        onChangeDefaultEditor={onChangeDefaultEditor}
+        onOpenDefaults={vi.fn()}
+        onCloseDefaults={vi.fn()}
+        onSaveDefaults={vi.fn()}
+        onChangeEditor={vi.fn()}
+        onOpenNewChain={vi.fn()}
+        onEditChain={vi.fn()}
+        onRemoveChain={vi.fn()}
+        onSaveChain={vi.fn()}
+        onCancelEdit={vi.fn()}
+        onOpenOverrides={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("default-threshold-sheet")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Ready minimum age minutes"), { target: { value: "12" } });
+
+    expect(onChangeDefaultEditor).toHaveBeenCalledWith({ readyMinAgeMinutes: "12" });
   });
 });

@@ -37,7 +37,7 @@ export interface RuleCatalogEntry {
 export interface RuleEditorDraft {
   late: { close: string; reopen: string };
   unassigned: { close: string; reopen: string };
-  ready: { close: string; reopen: string };
+  ready: { close: string; reopen: string; minAgeMinutes: string };
   onHold: { close: string; reopen: string };
   capacity: { enabled: boolean };
   capacityHour: { enabled: boolean; limit: string };
@@ -156,6 +156,14 @@ export function formatThresholdPair(closeThreshold: number | undefined, reopenTh
   return `${closeThreshold ?? 0} -> ${reopenThreshold ?? 0}`;
 }
 
+export function formatReadyThresholdPair(
+  closeThreshold: number | undefined,
+  reopenThreshold: number | undefined,
+  readyMinAgeMinutes: number | undefined,
+) {
+  return `${formatThresholdPair(closeThreshold, reopenThreshold)} • age ${readyMinAgeMinutes ?? 0}m`;
+}
+
 export function branchHasCustomOverride(branch: Pick<
   BranchMappingItem,
   | "lateThresholdOverride"
@@ -164,6 +172,7 @@ export function branchHasCustomOverride(branch: Pick<
   | "unassignedReopenThresholdOverride"
   | "readyThresholdOverride"
   | "readyReopenThresholdOverride"
+  | "readyMinAgeMinutesOverride"
   | "onHoldThresholdOverride"
   | "onHoldReopenThresholdOverride"
   | "capacityRuleEnabledOverride"
@@ -176,6 +185,7 @@ export function branchHasCustomOverride(branch: Pick<
     || typeof branch.unassignedReopenThresholdOverride === "number"
     || typeof branch.readyThresholdOverride === "number"
     || typeof branch.readyReopenThresholdOverride === "number"
+    || typeof branch.readyMinAgeMinutesOverride === "number"
     || typeof branch.onHoldThresholdOverride === "number"
     || typeof branch.onHoldReopenThresholdOverride === "number"
     || typeof branch.capacityRuleEnabledOverride === "boolean"
@@ -249,6 +259,7 @@ export function buildRuleEditorDraft(profile: Pick<
   | "unassignedReopenThreshold"
   | "readyThreshold"
   | "readyReopenThreshold"
+  | "readyMinAgeMinutes"
   | "onHoldThreshold"
   | "onHoldReopenThreshold"
   | "capacityRuleEnabled"
@@ -267,6 +278,7 @@ export function buildRuleEditorDraft(profile: Pick<
     ready: {
       close: String(profile.readyThreshold ?? 0),
       reopen: String(profile.readyReopenThreshold ?? 0),
+      minAgeMinutes: String(profile.readyMinAgeMinutes ?? 0),
     },
     onHold: {
       close: String(profile.onHoldThreshold ?? 0),

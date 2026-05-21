@@ -38,6 +38,7 @@ function seedSettingsRow() {
       unassignedReopenThreshold INTEGER NOT NULL,
       readyThreshold INTEGER,
       readyReopenThreshold INTEGER,
+      readyMinAgeMinutes INTEGER NOT NULL DEFAULT 0,
       onHoldThreshold INTEGER,
       onHoldReopenThreshold INTEGER,
       tempCloseMinutes INTEGER NOT NULL,
@@ -62,6 +63,7 @@ function seedSettingsRow() {
       unassignedReopenThreshold,
       readyThreshold,
       readyReopenThreshold,
+      readyMinAgeMinutes,
       onHoldThreshold,
       onHoldReopenThreshold,
       tempCloseMinutes,
@@ -70,7 +72,7 @@ function seedSettingsRow() {
       availabilityRefreshSeconds,
       maxVendorsPerOrdersRequest
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     1,
     "enc:orders-token",
@@ -86,6 +88,7 @@ function seedSettingsRow() {
         unassignedReopenThreshold: 1,
         readyThreshold: 3,
         readyReopenThreshold: 1,
+        readyMinAgeMinutes: 0,
         onHoldThreshold: 0,
         onHoldReopenThreshold: 0,
         capacityRuleEnabled: true,
@@ -98,6 +101,7 @@ function seedSettingsRow() {
     5,
     0,
     3,
+    0,
     0,
     0,
     0,
@@ -118,6 +122,7 @@ function createChainPatch(overrides: Record<string, unknown> = {}) {
     unassignedReopenThreshold: 1,
     readyThreshold: 3,
     readyReopenThreshold: 1,
+    readyMinAgeMinutes: 0,
     capacityRuleEnabled: true,
     capacityPerHourEnabled: false,
     capacityPerHourLimit: null,

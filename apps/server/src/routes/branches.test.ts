@@ -543,6 +543,7 @@ describe("branches routes", () => {
       unassignedReopenThresholdOverride: 4,
       readyThresholdOverride: 4,
       readyReopenThresholdOverride: 1,
+      readyMinAgeMinutesOverride: null,
       onHoldThresholdOverride: 3,
       onHoldReopenThresholdOverride: 1,
       capacityRuleEnabledOverride: false,
@@ -558,6 +559,7 @@ describe("branches routes", () => {
         unassignedReopenThresholdOverride: 4,
         readyThresholdOverride: 4,
         readyReopenThresholdOverride: 1,
+        readyMinAgeMinutesOverride: null,
         onHoldThresholdOverride: 3,
         onHoldReopenThresholdOverride: 1,
         capacityRuleEnabledOverride: false,
@@ -576,6 +578,7 @@ describe("branches routes", () => {
       unassignedReopenThresholdOverride: 4,
       readyThresholdOverride: 4,
       readyReopenThresholdOverride: 1,
+      readyMinAgeMinutesOverride: null,
       onHoldThresholdOverride: 3,
       onHoldReopenThresholdOverride: 1,
       capacityRuleEnabledOverride: false,
@@ -591,6 +594,7 @@ describe("branches routes", () => {
         unassignedReopenThresholdOverride: 4,
         readyThresholdOverride: 4,
         readyReopenThresholdOverride: 1,
+        readyMinAgeMinutesOverride: null,
         onHoldThresholdOverride: 3,
         onHoldReopenThresholdOverride: 1,
         capacityRuleEnabledOverride: false,
@@ -702,6 +706,7 @@ describe("branches routes", () => {
       unassignedOrders: [{ id: "1", externalId: "ORD-1", status: "UNASSIGNED", isUnassigned: true, isLate: false }],
       preparingOrders: [{ id: "2", externalId: "ORD-2", status: "PREPARING", isUnassigned: false, isLate: false }],
       readyToPickupOrders: [{ id: "3", externalId: "ORD-3", status: "READY_FOR_PICKUP", isUnassigned: false, isLate: false }],
+      freshReadyToPickupOrders: [],
       pickers: emptyPickers({ todayCount: 2, activePreparingCount: 1, recentActiveCount: 1 }),
       cacheState: "fresh",
     });
@@ -714,6 +719,7 @@ describe("branches routes", () => {
       vendorId: 111,
       ordersRefreshSeconds: 30,
       includePickerItems: true,
+      readyMinAgeMinutes: 0,
     });
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
@@ -725,6 +731,7 @@ describe("branches routes", () => {
       unassignedOrders: [{ id: "1", externalId: "ORD-1", status: "UNASSIGNED", isUnassigned: true, isLate: false }],
       preparingOrders: [{ id: "2", externalId: "ORD-2", status: "PREPARING", isUnassigned: false, isLate: false }],
       readyToPickupOrders: [{ id: "3", externalId: "ORD-3", status: "READY_FOR_PICKUP", isUnassigned: false, isLate: false }],
+      freshReadyToPickupOrders: [],
       pickers: emptyPickers({ todayCount: 2, activePreparingCount: 1, recentActiveCount: 1 }),
     });
   });
@@ -789,6 +796,7 @@ describe("branches routes", () => {
       unassignedOrders: [{ id: "1", externalId: "ORD-1", status: "UNASSIGNED", isUnassigned: true, isLate: false }],
       preparingOrders: [{ id: "2", externalId: "ORD-2", status: "PREPARING", isUnassigned: false, isLate: false }],
       readyToPickupOrders: [{ id: "3", externalId: "ORD-3", status: "READY_FOR_PICKUP", isUnassigned: false, isLate: false }],
+      freshReadyToPickupOrders: [],
       pickers: emptyPickers({ todayCount: 2, activePreparingCount: 1, recentActiveCount: 1 }),
       cacheState: "fresh",
     });
@@ -809,6 +817,7 @@ describe("branches routes", () => {
       }),
       onHoldOrders: [{ id: "4", externalId: "ORD-4", status: "ON_HOLD", isUnassigned: false, isLate: false }],
       readyToPickupOrders: [{ id: "3", externalId: "ORD-3", status: "READY_FOR_PICKUP", isUnassigned: false, isLate: false }],
+      freshReadyToPickupOrders: [],
     });
   });
 

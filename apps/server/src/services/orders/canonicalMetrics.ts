@@ -14,20 +14,47 @@ export interface CanonicalMetricsRowInput {
   customerFirstName?: string | null | undefined;
   shopperFirstName?: string | null | undefined;
   placedAt?: string | null | undefined;
+  readySinceAt?: string | null | undefined;
 }
 
 export interface CanonicalOrderMetrics {
   isCancelled: boolean;
   isOnHold: boolean;
   isUnassigned: boolean;
+  isAnyReadyToPickup: boolean;
   isReadyToPickup: boolean;
+  isFreshReadyToPickup: boolean;
   isInPrep: boolean;
   isActive: boolean;
   isLate: boolean;
+  readySinceAt: string | null;
+  readyAgeMinutes: number | null;
+  readyEligible: boolean;
 }
 
 function isTruthyFlag(value: boolean | number | null | undefined) {
   return value === true || value === 1;
+}
+
+function toTimeMs(iso: string | null | undefined) {
+  if (!iso) return Number.NaN;
+  const value = new Date(iso).getTime();
+  return Number.isFinite(value) ? value : Number.NaN;
+}
+
+function normalizeReadyMinAgeMinutes(value: number | undefined) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.round(value))
+    : 0;
+}
+
+function resolveReadyAgeMinutes(readySinceAt: string | null | undefined, nowIso: string) {
+  const readySinceMs = toTimeMs(readySinceAt);
+  const nowMs = toTimeMs(nowIso);
+  if (!Number.isFinite(readySinceMs) || !Number.isFinite(nowMs) || readySinceMs > nowMs) {
+    return null;
+  }
+  return Math.floor((nowMs - readySinceMs) / 60_000);
 }
 
 export function createEmptyCanonicalOrdersMetrics(): OrdersMetrics {
@@ -44,7 +71,11 @@ export function createEmptyCanonicalOrdersMetrics(): OrdersMetrics {
   };
 }
 
-export function classifyCanonicalOrderMetrics(input: CanonicalMetricsRowInput, nowIso: string): CanonicalOrderMetrics {
+export function classifyCanonicalOrderMetrics(
+  input: CanonicalMetricsRowInput,
+  nowIso: string,
+  options: { readyMinAgeMinutes?: number } = {},
+): CanonicalOrderMetrics {
   const base = classifyOrderState({
     status: input.status,
     isCompleted: input.isCompleted,
@@ -56,24 +87,38 @@ export function classifyCanonicalOrderMetrics(input: CanonicalMetricsRowInput, n
   const isCancelled = isTruthyFlag(input.isCancelled) || input.status === "CANCELLED";
   const isOnHold = !isCancelled && input.status === "ON_HOLD";
   const isUnassigned = !isCancelled && input.status === "UNASSIGNED";
-  const isReadyToPickup = !isCancelled && base.isReadyToPickup;
+  const isAnyReadyToPickup = !isCancelled && base.isReadyToPickup;
+  const readyMinAgeMinutes = normalizeReadyMinAgeMinutes(options.readyMinAgeMinutes);
+  const readyAgeMinutes = isAnyReadyToPickup ? resolveReadyAgeMinutes(input.readySinceAt, nowIso) : null;
+  const readyEligible =
+    isAnyReadyToPickup &&
+    (
+      readyMinAgeMinutes <= 0 ||
+      (readyAgeMinutes != null && readyAgeMinutes >= readyMinAgeMinutes)
+    );
+  const isReadyToPickup = isAnyReadyToPickup && readyEligible;
   const isInPrep =
     !isCancelled &&
     !isOnHold &&
-    !isReadyToPickup &&
+    !isAnyReadyToPickup &&
     !isUnassigned &&
     base.isInPreparation;
-  const isActive = isInPrep || isReadyToPickup;
+  const isActive = isInPrep || isAnyReadyToPickup;
   const isLate = isInPrep && base.isLate;
 
   return {
     isCancelled,
     isOnHold,
     isUnassigned,
+    isAnyReadyToPickup,
     isReadyToPickup,
+    isFreshReadyToPickup: isAnyReadyToPickup && !readyEligible,
     isInPrep,
     isActive,
     isLate,
+    readySinceAt: isAnyReadyToPickup ? input.readySinceAt ?? null : null,
+    readyAgeMinutes,
+    readyEligible,
   };
 }
 
@@ -104,6 +149,9 @@ export function toCanonicalLiveOrder(
     status: row.status,
     placedAt: row.placedAt ?? undefined,
     pickupAt: row.pickupAt ?? undefined,
+    readySinceAt: metrics.readySinceAt ?? undefined,
+    readyAgeMinutes: metrics.readyAgeMinutes ?? undefined,
+    readyEligible: metrics.isAnyReadyToPickup ? metrics.readyEligible : undefined,
     customerFirstName: row.customerFirstName ?? undefined,
     shopperId: row.shopperId ?? undefined,
     shopperFirstName: row.shopperFirstName ?? undefined,

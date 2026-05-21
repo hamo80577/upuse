@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { BranchLiveOrder } from "../../../api/types";
 import { fmtElapsedDuration, fmtSignedPickupDiff, fmtPlacedAt } from "../lib/time";
 
-type TimeDisplayMode = "pickup_delta" | "duration" | "none";
+type TimeDisplayMode = "pickup_delta" | "duration" | "ready_age" | "none";
 
 const timeMetricPanelSx = {
   minWidth: { xs: "auto", sm: 124 },
@@ -18,6 +18,9 @@ const timeMetricPanelSx = {
 function OrderRow(props: { item: BranchLiveOrder; nowMs: number; timeDisplayMode: TimeDisplayMode; durationWarningMs?: number }) {
   const pickupDiff = fmtSignedPickupDiff(props.item.pickupAt, props.nowMs);
   const duration = fmtElapsedDuration(props.item.placedAt, props.nowMs);
+  const readyAge = props.item.readyAgeMinutes == null
+    ? fmtElapsedDuration(props.item.readySinceAt, props.nowMs)
+    : `${Math.max(0, Math.floor(props.item.readyAgeMinutes))}m`;
   const placedAtMs = props.item.placedAt ? new Date(props.item.placedAt).getTime() : Number.NaN;
   const durationElapsedMs = Number.isFinite(placedAtMs) ? Math.max(0, props.nowMs - placedAtMs) : null;
   const durationIsWarning =
@@ -141,6 +144,39 @@ function OrderRow(props: { item: BranchLiveOrder; nowMs: number; timeDisplayMode
               }}
             >
               {duration}
+            </Typography>
+          </Box>
+        ) : null}
+
+        {props.timeDisplayMode === "ready_age" ? (
+          <Box
+            sx={{
+              ...timeMetricPanelSx,
+              bgcolor: props.item.readyEligible === false
+                ? { xs: "transparent", sm: "rgba(239,246,255,0.92)" }
+                : { xs: "transparent", sm: "rgba(240,253,244,0.92)" },
+              borderColor: props.item.readyEligible === false ? "rgba(96,165,250,0.18)" : "rgba(34,197,94,0.18)",
+            }}
+          >
+            <Typography
+              variant="caption"
+              sx={{
+                color: props.item.readyEligible === false ? "#1d4ed8" : "#15803d",
+                display: "block",
+                fontWeight: 900,
+              }}
+            >
+              Ready age
+            </Typography>
+            <Typography
+              sx={{
+                mt: 0.15,
+                fontWeight: 900,
+                fontVariantNumeric: "tabular-nums",
+                color: props.item.readyEligible === false ? "#1d4ed8" : "#15803d",
+              }}
+            >
+              {readyAge}
             </Typography>
           </Box>
         ) : null}

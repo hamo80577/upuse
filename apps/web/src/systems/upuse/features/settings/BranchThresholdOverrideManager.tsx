@@ -29,7 +29,7 @@ import { useDeferredValue, useEffect, useState } from "react";
 import type { BranchMappingItem, ChainThreshold, ThresholdProfile } from "../../api/types";
 import {
   branchHasCustomOverride,
-  getRuleCatalogEntry,
+  formatReadyThresholdPair,
   thresholdRuleCatalog,
   thresholdSourceLabel,
   type RuleCatalogEntry,
@@ -43,6 +43,7 @@ export interface BranchThresholdEditorDraft {
   unassignedReopenThreshold: string;
   readyThreshold: string;
   readyReopenThreshold: string;
+  readyMinAgeMinutes: string;
   onHoldThreshold: string;
   onHoldReopenThreshold: string;
   capacityRuleEnabled: boolean;
@@ -86,6 +87,7 @@ function buildBranchRuleEditorDraft(branchEditor: BranchThresholdEditorDraft): R
     ready: {
       close: branchEditor.readyThreshold,
       reopen: branchEditor.readyReopenThreshold,
+      minAgeMinutes: branchEditor.readyMinAgeMinutes,
     },
     onHold: {
       close: branchEditor.onHoldThreshold,
@@ -111,6 +113,7 @@ function resolveEffectiveThresholdProfile(
     | "unassignedReopenThresholdOverride"
     | "readyThresholdOverride"
     | "readyReopenThresholdOverride"
+    | "readyMinAgeMinutesOverride"
     | "onHoldThresholdOverride"
     | "onHoldReopenThresholdOverride"
     | "capacityRuleEnabledOverride"
@@ -126,6 +129,7 @@ function resolveEffectiveThresholdProfile(
     | "unassignedReopenThreshold"
     | "readyThreshold"
     | "readyReopenThreshold"
+    | "readyMinAgeMinutes"
     | "onHoldThreshold"
     | "onHoldReopenThreshold"
     | "capacityRuleEnabled"
@@ -145,6 +149,7 @@ function resolveEffectiveThresholdProfile(
         unassignedReopenThreshold: chain.unassignedReopenThreshold ?? 0,
         readyThreshold: chain.readyThreshold ?? 0,
         readyReopenThreshold: chain.readyReopenThreshold ?? 0,
+        readyMinAgeMinutes: Math.max(0, Math.round(chain.readyMinAgeMinutes ?? 0)),
         onHoldThreshold: chain.onHoldThreshold ?? 0,
         onHoldReopenThreshold: chain.onHoldReopenThreshold ?? 0,
         capacityRuleEnabled: chain.capacityRuleEnabled !== false,
@@ -159,6 +164,7 @@ function resolveEffectiveThresholdProfile(
         unassignedReopenThreshold: globalThresholds.unassignedReopenThreshold ?? 0,
         readyThreshold: globalThresholds.readyThreshold ?? 0,
         readyReopenThreshold: globalThresholds.readyReopenThreshold ?? 0,
+        readyMinAgeMinutes: Math.max(0, Math.round(globalThresholds.readyMinAgeMinutes ?? 0)),
         onHoldThreshold: globalThresholds.onHoldThreshold ?? 0,
         onHoldReopenThreshold: globalThresholds.onHoldReopenThreshold ?? 0,
         capacityRuleEnabled: globalThresholds.capacityRuleEnabled !== false,
@@ -174,6 +180,7 @@ function resolveEffectiveThresholdProfile(
   const hasUnassignedReopenThresholdOverride = typeof branch.unassignedReopenThresholdOverride === "number";
   const hasReadyThresholdOverride = typeof branch.readyThresholdOverride === "number";
   const hasReadyReopenThresholdOverride = typeof branch.readyReopenThresholdOverride === "number";
+  const hasReadyMinAgeMinutesOverride = typeof branch.readyMinAgeMinutesOverride === "number";
   const hasOnHoldThresholdOverride = typeof branch.onHoldThresholdOverride === "number";
   const hasOnHoldReopenThresholdOverride = typeof branch.onHoldReopenThresholdOverride === "number";
   const hasCapacityOverride = typeof branch.capacityRuleEnabledOverride === "boolean";
@@ -187,6 +194,7 @@ function resolveEffectiveThresholdProfile(
     || hasUnassignedReopenThresholdOverride
     || hasReadyThresholdOverride
     || hasReadyReopenThresholdOverride
+    || hasReadyMinAgeMinutesOverride
     || hasOnHoldThresholdOverride
     || hasOnHoldReopenThresholdOverride
     || hasCapacityOverride
@@ -208,6 +216,9 @@ function resolveEffectiveThresholdProfile(
         hasReadyThresholdOverride ? branch.readyThresholdOverride as number : inherited.readyThreshold,
         hasReadyReopenThresholdOverride ? branch.readyReopenThresholdOverride as number : inherited.readyReopenThreshold,
       ),
+      readyMinAgeMinutes: hasReadyMinAgeMinutesOverride
+        ? Math.max(0, Math.round(branch.readyMinAgeMinutesOverride as number))
+        : inherited.readyMinAgeMinutes,
       onHoldThreshold: hasOnHoldThresholdOverride ? branch.onHoldThresholdOverride as number : inherited.onHoldThreshold,
       onHoldReopenThreshold: clampReopenThreshold(
         hasOnHoldThresholdOverride ? branch.onHoldThresholdOverride as number : inherited.onHoldThreshold ?? 0,
@@ -234,6 +245,7 @@ function stripBranchOverrides(branch: BranchMappingItem): BranchMappingItem {
     unassignedReopenThresholdOverride: null,
     readyThresholdOverride: null,
     readyReopenThresholdOverride: null,
+    readyMinAgeMinutesOverride: null,
     onHoldThresholdOverride: null,
     onHoldReopenThresholdOverride: null,
     capacityRuleEnabledOverride: null,
@@ -261,7 +273,9 @@ function countBranchOverrideRules(branch: BranchMappingItem) {
   return [
     typeof branch.lateThresholdOverride === "number" || typeof branch.lateReopenThresholdOverride === "number",
     typeof branch.unassignedThresholdOverride === "number" || typeof branch.unassignedReopenThresholdOverride === "number",
-    typeof branch.readyThresholdOverride === "number" || typeof branch.readyReopenThresholdOverride === "number",
+    typeof branch.readyThresholdOverride === "number"
+      || typeof branch.readyReopenThresholdOverride === "number"
+      || typeof branch.readyMinAgeMinutesOverride === "number",
     typeof branch.onHoldThresholdOverride === "number" || typeof branch.onHoldReopenThresholdOverride === "number",
     typeof branch.capacityRuleEnabledOverride === "boolean",
     typeof branch.capacityPerHourEnabledOverride === "boolean" && typeof branch.capacityPerHourLimitOverride === "number",
@@ -277,7 +291,9 @@ function hasUnassignedOverride(branch: BranchMappingItem) {
 }
 
 function hasReadyOverride(branch: BranchMappingItem) {
-  return typeof branch.readyThresholdOverride === "number" || typeof branch.readyReopenThresholdOverride === "number";
+  return typeof branch.readyThresholdOverride === "number"
+    || typeof branch.readyReopenThresholdOverride === "number"
+    || typeof branch.readyMinAgeMinutesOverride === "number";
 }
 
 function hasOnHoldOverride(branch: BranchMappingItem) {
@@ -363,11 +379,14 @@ function RuleEditorCard(props: {
   closePlaceholder?: string;
   reopenPlaceholder?: string;
   limitPlaceholder?: string;
+  minAgePlaceholder?: string;
   helperText: string;
   onCloseChange?: (value: string) => void;
   onReopenChange?: (value: string) => void;
   onToggleChange?: (value: boolean) => void;
   onLimitChange?: (value: string) => void;
+  minAgeLabel?: string;
+  onMinAgeChange?: (value: string) => void;
 }) {
   const { entry, draft } = props;
   const values = draft[entry.id] as {
@@ -375,6 +394,7 @@ function RuleEditorCard(props: {
     reopen?: string;
     enabled?: boolean;
     limit?: string;
+    minAgeMinutes?: string;
   };
 
   return (
@@ -423,6 +443,19 @@ function RuleEditorCard(props: {
               fullWidth
             />
           </Stack>
+        ) : null}
+
+        {entry.id === "ready" ? (
+          <TextField
+            label={props.minAgeLabel ?? "Ready minimum age minutes override"}
+            type="number"
+            value={values.minAgeMinutes ?? ""}
+            onChange={(event) => props.onMinAgeChange?.(event.target.value)}
+            placeholder={props.minAgePlaceholder}
+            inputProps={{ min: 0 }}
+            disabled={props.disabled}
+            fullWidth
+          />
         ) : null}
 
         {entry.supportsToggle ? (
@@ -476,6 +509,7 @@ export function BranchThresholdOverrideManager(props: {
     unassignedReopenThreshold?: number;
     readyThreshold?: number;
     readyReopenThreshold?: number;
+    readyMinAgeMinutes?: number;
     onHoldThreshold?: number;
     onHoldReopenThreshold?: number;
     capacityRuleEnabled: boolean;
@@ -734,6 +768,13 @@ export function BranchThresholdOverrideManager(props: {
                               Late {branchEffective.lateThreshold} {"->"} {branchEffective.lateReopenThreshold ?? 0}
                             </Typography>
                             <Typography variant="caption" sx={{ color: "#64748b", display: "block" }} noWrap>
+                              Ready {formatReadyThresholdPair(
+                                branchEffective.readyThreshold ?? 0,
+                                branchEffective.readyReopenThreshold ?? 0,
+                                branchEffective.readyMinAgeMinutes ?? 0,
+                              )}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: "#64748b", display: "block" }} noWrap>
                               On Hold {branchEffective.onHoldThreshold ?? 0} {"->"} {branchEffective.onHoldReopenThreshold ?? 0}
                             </Typography>
                             <Typography variant="caption" sx={{ color: "#64748b", display: "block" }} noWrap>
@@ -872,10 +913,18 @@ export function BranchThresholdOverrideManager(props: {
                             <RuleComparisonCard
                               key={entry.id}
                               entry={entry}
-                              effectiveLabel={`${effective.readyThreshold ?? 0} -> ${effective.readyReopenThreshold ?? 0}`}
+                              effectiveLabel={formatReadyThresholdPair(
+                                effective.readyThreshold ?? 0,
+                                effective.readyReopenThreshold ?? 0,
+                                effective.readyMinAgeMinutes ?? 0,
+                              )}
                               overrideLabel={
                                 hasReadyOverride(selectedBranch)
-                                  ? `${selectedBranch.readyThresholdOverride ?? inherited.readyThreshold ?? 0} -> ${selectedBranch.readyReopenThresholdOverride ?? inherited.readyReopenThreshold ?? 0}`
+                                  ? formatReadyThresholdPair(
+                                    selectedBranch.readyThresholdOverride ?? inherited.readyThreshold ?? 0,
+                                    selectedBranch.readyReopenThresholdOverride ?? inherited.readyReopenThreshold ?? 0,
+                                    selectedBranch.readyMinAgeMinutesOverride ?? inherited.readyMinAgeMinutes ?? 0,
+                                  )
                                   : "Inherited"
                               }
                               statusLabel={hasReadyOverride(selectedBranch) ? "Custom" : thresholdSourceLabel(inherited.source)}
@@ -1115,10 +1164,18 @@ export function BranchThresholdOverrideManager(props: {
                       <RuleComparisonCard
                         key={entry.id}
                         entry={entry}
-                        effectiveLabel={`${effective.readyThreshold ?? 0} -> ${effective.readyReopenThreshold ?? 0}`}
+                        effectiveLabel={formatReadyThresholdPair(
+                          effective.readyThreshold ?? 0,
+                          effective.readyReopenThreshold ?? 0,
+                          effective.readyMinAgeMinutes ?? 0,
+                        )}
                         overrideLabel={
                           hasReadyOverride(selectedBranch)
-                            ? `${selectedBranch.readyThresholdOverride ?? inherited.readyThreshold ?? 0} -> ${selectedBranch.readyReopenThresholdOverride ?? inherited.readyReopenThreshold ?? 0}`
+                            ? formatReadyThresholdPair(
+                              selectedBranch.readyThresholdOverride ?? inherited.readyThreshold ?? 0,
+                              selectedBranch.readyReopenThresholdOverride ?? inherited.readyReopenThreshold ?? 0,
+                              selectedBranch.readyMinAgeMinutesOverride ?? inherited.readyMinAgeMinutes ?? 0,
+                            )
                             : "Inherited"
                         }
                         statusLabel={hasReadyOverride(selectedBranch) ? "Custom override" : thresholdSourceLabel(inherited.source)}
@@ -1279,9 +1336,11 @@ export function BranchThresholdOverrideManager(props: {
                       limitLabel=""
                       closePlaceholder={String(effective.readyThreshold ?? 0)}
                       reopenPlaceholder={String(effective.readyReopenThreshold ?? 0)}
+                      minAgePlaceholder={String(effective.readyMinAgeMinutes ?? 0)}
                       helperText=""
                       onCloseChange={(value) => props.onChangeEditor({ readyThreshold: value })}
                       onReopenChange={(value) => props.onChangeEditor({ readyReopenThreshold: value })}
+                      onMinAgeChange={(value) => props.onChangeEditor({ readyMinAgeMinutes: value })}
                     />
                   );
                 }

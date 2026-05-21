@@ -495,12 +495,14 @@ export class MonitorEngine {
         const mergedLastSyncedAtByVendor = new Map<number, string | undefined>();
 
         for (const branch of branches) {
+          const thresholds = this.runtimeTracker.resolveThresholds(branch, settings);
           const detail = getMirrorBranchDetail({
             globalEntityId: branch.globalEntityId,
             vendorId: branch.ordersVendorId,
             ordersRefreshSeconds: settings.ordersRefreshSeconds,
             includePickerItems: false,
             dayKey: summary.dayKey,
+            readyMinAgeMinutes: thresholds.readyMinAgeMinutes ?? 0,
           });
 
           mergedOrdersByVendor.set(branch.ordersVendorId, detail.metrics);

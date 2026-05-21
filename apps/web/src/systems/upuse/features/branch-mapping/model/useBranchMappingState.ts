@@ -164,6 +164,7 @@ export function useBranchMappingState() {
     unassignedReopenThreshold: number,
     readyThreshold: number,
     readyReopenThreshold: number,
+    readyMinAgeMinutes: number,
     onHoldThreshold: number,
     onHoldReopenThreshold: number,
   ) => {
@@ -174,6 +175,7 @@ export function useBranchMappingState() {
       unassignedReopenThreshold: Math.round(unassignedReopenThreshold),
       readyThreshold: Math.round(readyThreshold),
       readyReopenThreshold: Math.round(readyReopenThreshold),
+      readyMinAgeMinutes: Math.round(readyMinAgeMinutes),
       onHoldThreshold: Math.round(onHoldThreshold),
       onHoldReopenThreshold: Math.round(onHoldReopenThreshold),
     });
@@ -187,6 +189,7 @@ export function useBranchMappingState() {
             unassignedReopenThreshold: Math.round(unassignedReopenThreshold),
             readyThreshold: Math.round(readyThreshold),
             readyReopenThreshold: Math.round(readyReopenThreshold),
+            readyMinAgeMinutes: Math.round(readyMinAgeMinutes),
             onHoldThreshold: Math.round(onHoldThreshold),
             onHoldReopenThreshold: Math.round(onHoldReopenThreshold),
           }
@@ -202,6 +205,7 @@ export function useBranchMappingState() {
     unassignedReopenThresholdOverride: number | null,
     readyThresholdOverride: number | null,
     readyReopenThresholdOverride: number | null,
+    readyMinAgeMinutesOverride: number | null,
     onHoldThresholdOverride: number | null,
     onHoldReopenThresholdOverride: number | null,
     capacityRuleEnabledOverride: boolean | null,
@@ -215,6 +219,7 @@ export function useBranchMappingState() {
       unassignedReopenThresholdOverride,
       readyThresholdOverride,
       readyReopenThresholdOverride,
+      readyMinAgeMinutesOverride,
       onHoldThresholdOverride,
       onHoldReopenThresholdOverride,
       capacityRuleEnabledOverride,

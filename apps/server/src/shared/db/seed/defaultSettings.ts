@@ -30,6 +30,7 @@ export function ensureDefaultSettingsRow(params: {
     unassignedReopenThreshold: 0,
     readyThreshold: 0,
     readyReopenThreshold: 0,
+    readyMinAgeMinutes: 0,
     onHoldThreshold: 0,
     onHoldReopenThreshold: 0,
     tempCloseMinutes: 30,
@@ -43,12 +44,12 @@ export function ensureDefaultSettingsRow(params: {
     INSERT INTO settings (
       id, ordersTokenEnc, availabilityTokenEnc, globalEntityId,
       chainNamesJson, chainThresholdsJson,
-      lateThreshold, lateReopenThreshold, unassignedThreshold, unassignedReopenThreshold, readyThreshold, readyReopenThreshold, onHoldThreshold, onHoldReopenThreshold, tempCloseMinutes, graceMinutes,
+      lateThreshold, lateReopenThreshold, unassignedThreshold, unassignedReopenThreshold, readyThreshold, readyReopenThreshold, readyMinAgeMinutes, onHoldThreshold, onHoldReopenThreshold, tempCloseMinutes, graceMinutes,
       ordersRefreshSeconds, availabilityRefreshSeconds, maxVendorsPerOrdersRequest
     ) VALUES (
       1, @ordersTokenEnc, @availabilityTokenEnc, @globalEntityId,
       @chainNamesJson, @chainThresholdsJson,
-      @lateThreshold, @lateReopenThreshold, @unassignedThreshold, @unassignedReopenThreshold, @readyThreshold, @readyReopenThreshold, @onHoldThreshold, @onHoldReopenThreshold, @tempCloseMinutes, @graceMinutes,
+      @lateThreshold, @lateReopenThreshold, @unassignedThreshold, @unassignedReopenThreshold, @readyThreshold, @readyReopenThreshold, @readyMinAgeMinutes, @onHoldThreshold, @onHoldReopenThreshold, @tempCloseMinutes, @graceMinutes,
       @ordersRefreshSeconds, @availabilityRefreshSeconds, @maxVendorsPerOrdersRequest
     )
   `).run(defaultSettings);
@@ -102,6 +103,7 @@ export function backfillLegacyChainThresholds(db: Database.Database) {
         unassignedReopenThreshold: 0,
         readyThreshold: 0,
         readyReopenThreshold: 0,
+        readyMinAgeMinutes: 0,
         onHoldThreshold: 0,
         onHoldReopenThreshold: 0,
         capacityRuleEnabled: true,

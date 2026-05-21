@@ -141,6 +141,7 @@ describe("BranchDetailDialog", () => {
       unassignedOrders: [],
       preparingOrders: [],
       readyToPickupOrders: [],
+      freshReadyToPickupOrders: [],
       pickers: emptyPickers(),
       message: "Live availability snapshot is currently unavailable. Showing orders detail from the latest Orders API response.",
     }));
@@ -166,6 +167,7 @@ describe("BranchDetailDialog", () => {
       unassignedOrders: [],
       preparingOrders: [],
       readyToPickupOrders: [],
+      freshReadyToPickupOrders: [],
       pickers: emptyPickers(),
       message: "Live orders detail is temporarily unavailable. Orders API request failed",
     }));
@@ -191,6 +193,7 @@ describe("BranchDetailDialog", () => {
       unassignedOrders: [],
       preparingOrders: [],
       readyToPickupOrders: [],
+      freshReadyToPickupOrders: [],
       pickers: {
         todayCount: 4,
         activePreparingCount: 2,
@@ -247,6 +250,7 @@ describe("BranchDetailDialog", () => {
       unassignedOrders: [],
       preparingOrders: [],
       readyToPickupOrders: [],
+      freshReadyToPickupOrders: [],
       pickers: emptyPickers(),
     }));
 
@@ -294,6 +298,7 @@ describe("BranchDetailDialog", () => {
       unassignedOrders: [],
       preparingOrders: [],
       readyToPickupOrders: [],
+      freshReadyToPickupOrders: [],
       pickers: emptyPickers(),
     }));
 
@@ -327,6 +332,7 @@ describe("BranchDetailDialog", () => {
         },
       ],
       readyToPickupOrders: [],
+      freshReadyToPickupOrders: [],
       pickers: {
         todayCount: 4,
         activePreparingCount: 2,
@@ -392,6 +398,7 @@ describe("BranchDetailDialog", () => {
           isLate: false,
         },
       ],
+      freshReadyToPickupOrders: [],
       pickers: {
         todayCount: 4,
         activePreparingCount: 1,
@@ -406,6 +413,62 @@ describe("BranchDetailDialog", () => {
     expect(screen.getByText("Ready To Pickup")).toBeInTheDocument();
     expect(screen.getByText("#READY-7")).toBeInTheDocument();
     expect(screen.getAllByText("#READY-7")).toHaveLength(1);
+  });
+
+  it("separates counted and fresh ready-to-pickup orders", () => {
+    mockUseBranchDetailState.mockReturnValue(buildHookState({
+      kind: "ok",
+      branch: createBranchSnapshot({
+        monitorEnabled: true,
+        status: "OPEN",
+        statusColor: "green",
+        metrics: {
+          ...createBranchSnapshot().metrics,
+          readyNow: 1,
+        },
+      }),
+      totals: {
+        ...createBranchSnapshot().metrics,
+        readyNow: 1,
+      },
+      fetchedAt: "2026-03-08T14:10:00.000Z",
+      cacheState: "fresh",
+      onHoldOrders: [],
+      unassignedOrders: [],
+      preparingOrders: [],
+      readyToPickupOrders: [
+        {
+          id: "ready-counted",
+          externalId: "READY-COUNTED",
+          status: "READY_FOR_PICKUP",
+          readySinceAt: "2026-03-08T14:00:00.000Z",
+          readyAgeMinutes: 20,
+          readyEligible: true,
+          isUnassigned: false,
+          isLate: false,
+        },
+      ],
+      freshReadyToPickupOrders: [
+        {
+          id: "ready-fresh",
+          externalId: "READY-FRESH",
+          status: "READY_FOR_PICKUP",
+          readySinceAt: "2026-03-08T14:16:00.000Z",
+          readyAgeMinutes: 4,
+          readyEligible: false,
+          isUnassigned: false,
+          isLate: false,
+        },
+      ],
+      pickers: emptyPickers(),
+    }));
+
+    render(<BranchDetailDialog open branchId={7} branchSnapshot={createBranchSnapshot()} onClose={() => {}} />);
+
+    expect(screen.getByText("Ready To Pickup")).toBeInTheDocument();
+    expect(screen.getByText("Fresh Ready To Pickup")).toBeInTheDocument();
+    expect(screen.getByText("#READY-COUNTED")).toBeInTheDocument();
+    expect(screen.getByText("#READY-FRESH")).toBeInTheDocument();
   });
 
   it("renders on-hold orders with a placed-at duration warning after two minutes", () => {
@@ -437,6 +500,7 @@ describe("BranchDetailDialog", () => {
       unassignedOrders: [],
       preparingOrders: [],
       readyToPickupOrders: [],
+      freshReadyToPickupOrders: [],
       pickers: emptyPickers(),
     }));
 
@@ -473,6 +537,7 @@ describe("BranchDetailDialog", () => {
       unassignedOrders: [],
       preparingOrders: [],
       readyToPickupOrders: [],
+      freshReadyToPickupOrders: [],
       pickers: emptyPickers(),
     }));
 
@@ -503,6 +568,7 @@ describe("BranchDetailDialog", () => {
       unassignedOrders: [],
       preparingOrders: [],
       readyToPickupOrders: [],
+      freshReadyToPickupOrders: [],
       pickers: emptyPickers(),
     }));
 

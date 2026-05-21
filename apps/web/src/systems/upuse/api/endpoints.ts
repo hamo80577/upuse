@@ -104,6 +104,10 @@ function normalizeBranchItem(item: BranchMappingItem | LegacyBranchMappingItem):
       typeof item.readyReopenThresholdOverride === "number" && Number.isFinite(item.readyReopenThresholdOverride)
         ? Math.max(0, Math.round(item.readyReopenThresholdOverride))
         : null,
+    readyMinAgeMinutesOverride:
+      typeof item.readyMinAgeMinutesOverride === "number" && Number.isFinite(item.readyMinAgeMinutesOverride)
+        ? Math.max(0, Math.round(item.readyMinAgeMinutesOverride))
+        : null,
     onHoldReopenThresholdOverride:
       typeof item.onHoldReopenThresholdOverride === "number" && Number.isFinite(item.onHoldReopenThresholdOverride)
         ? Math.max(0, Math.round(item.onHoldReopenThresholdOverride))
@@ -400,6 +404,7 @@ export const upuseApi = {
       unassignedReopenThresholdOverride: number | null;
       readyThresholdOverride: number | null;
       readyReopenThresholdOverride: number | null;
+      readyMinAgeMinutesOverride: number | null;
       onHoldThresholdOverride: number | null;
       onHoldReopenThresholdOverride: number | null;
       capacityRuleEnabledOverride: boolean | null;

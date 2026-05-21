@@ -31,11 +31,15 @@ describe("threshold rule catalog", () => {
       unassignedReopenThreshold: 0,
       readyThreshold: 0,
       readyReopenThreshold: 0,
+      readyMinAgeMinutes: 10,
       onHoldThreshold: 4,
       onHoldReopenThreshold: 1,
       capacityRuleEnabled: false,
       capacityPerHourEnabled: false,
       capacityPerHourLimit: null,
-    }).onHold).toEqual({ close: "4", reopen: "1" });
+    })).toMatchObject({
+      ready: { close: "0", reopen: "0", minAgeMinutes: "10" },
+      onHold: { close: "4", reopen: "1" },
+    });
   });
 });

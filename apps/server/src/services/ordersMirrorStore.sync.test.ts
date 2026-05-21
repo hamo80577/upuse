@@ -23,6 +23,7 @@ vi.mock("../config/db.js", async () => {
       isUnassigned INTEGER NOT NULL DEFAULT 0,
       placedAt TEXT,
       pickupAt TEXT,
+      readySinceAt TEXT,
       customerFirstName TEXT,
       shopperId INTEGER,
       shopperFirstName TEXT,
@@ -121,6 +122,227 @@ describe("ordersMirrorStore incremental reconciliation", () => {
 
   afterAll(() => {
     testDb.close();
+  });
+
+  function insertFreshEntityState(params: {
+    dayKey?: string;
+    globalEntityId?: string;
+    lastSyncAt?: string;
+  } = {}) {
+    const dayKey = params.dayKey ?? "2026-03-20";
+    const globalEntityId = params.globalEntityId ?? "HF_EG";
+    const lastSyncAt = params.lastSyncAt ?? "2026-03-20T11:59:00.000Z";
+
+    testDb.prepare(`
+      INSERT INTO orders_entity_sync_state (
+        dayKey,
+        globalEntityId,
+        lastBootstrapSyncAt,
+        lastActiveSyncAt,
+        lastHistorySyncAt,
+        lastFullHistorySweepAt,
+        lastSuccessfulSyncAt,
+        lastHistoryCursorAt,
+        consecutiveFailures,
+        lastErrorAt,
+        lastErrorCode,
+        lastErrorMessage,
+        staleSince,
+        bootstrapCompletedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, NULL, ?)
+    `).run(
+      dayKey,
+      globalEntityId,
+      "2026-03-20T11:00:00.000Z",
+      lastSyncAt,
+      lastSyncAt,
+      lastSyncAt,
+      lastSyncAt,
+      lastSyncAt,
+      "2026-03-20T11:00:00.000Z",
+    );
+  }
+
+  function branchFixture() {
+    return {
+      id: 1,
+      name: "Branch 10",
+      chainName: "Carrefour",
+      ordersVendorId: 10,
+      availabilityVendorId: "745260",
+      enabled: true,
+      catalogState: "available" as const,
+      globalEntityId: "HF_EG",
+      lateThresholdOverride: null,
+      lateReopenThresholdOverride: null,
+      unassignedThresholdOverride: null,
+      unassignedReopenThresholdOverride: null,
+      readyThresholdOverride: null,
+      readyReopenThresholdOverride: null,
+      readyMinAgeMinutesOverride: null,
+      onHoldThresholdOverride: null,
+      onHoldReopenThresholdOverride: null,
+      capacityRuleEnabledOverride: null,
+      capacityPerHourEnabledOverride: null,
+      capacityPerHourLimitOverride: null,
+    };
+  }
+
+  it("preserves first ready-to-pickup seen time until the order leaves ready state", async () => {
+    insertFreshEntityState();
+    let nextStatus = "READY_FOR_PICKUP";
+
+    mockGetWithRetry.mockImplementation(async (url: string) => {
+      const parsedUrl = new URL(url);
+      if (parsedUrl.pathname !== "/orders") {
+        throw new Error(`Unexpected URL ${url}`);
+      }
+      return {
+        data: {
+          items: [
+            {
+              id: "ready-1",
+              externalId: "3556732003",
+              status: nextStatus,
+              isCompleted: false,
+              vendor: {
+                id: 10,
+                name: "Branch 10",
+              },
+              shopper: {
+                id: 202,
+                firstName: "Mona",
+              },
+              placedAt: "2026-03-20T08:20:00.000Z",
+              pickupAt: "2026-03-20T08:40:00.000Z",
+            },
+          ],
+        },
+      };
+    });
+
+    await syncOrdersMirror({ token: "token", branches: [branchFixture()], ordersRefreshSeconds: 30 });
+
+    vi.setSystemTime(new Date("2026-03-20T12:01:00.000Z"));
+    await syncOrdersMirror({ token: "token", branches: [branchFixture()], ordersRefreshSeconds: 30 });
+
+    let row = testDb.prepare(`
+      SELECT status, readySinceAt
+      FROM orders_mirror
+      WHERE dayKey = ? AND globalEntityId = ? AND vendorId = ? AND orderId = ?
+    `).get("2026-03-20", "HF_EG", 10, "ready-1") as { status: string; readySinceAt: string | null };
+
+    expect(row).toEqual({
+      status: "READY_FOR_PICKUP",
+      readySinceAt: "2026-03-20T12:00:00.000Z",
+    });
+
+    vi.setSystemTime(new Date("2026-03-20T12:02:00.000Z"));
+    nextStatus = "STARTED";
+    await syncOrdersMirror({ token: "token", branches: [branchFixture()], ordersRefreshSeconds: 30 });
+
+    row = testDb.prepare(`
+      SELECT status, readySinceAt
+      FROM orders_mirror
+      WHERE dayKey = ? AND globalEntityId = ? AND vendorId = ? AND orderId = ?
+    `).get("2026-03-20", "HF_EG", 10, "ready-1") as { status: string; readySinceAt: string | null };
+
+    expect(row).toEqual({
+      status: "STARTED",
+      readySinceAt: null,
+    });
+
+    vi.setSystemTime(new Date("2026-03-20T12:03:00.000Z"));
+    nextStatus = "READY_FOR_PICKUP";
+    await syncOrdersMirror({ token: "token", branches: [branchFixture()], ordersRefreshSeconds: 30 });
+
+    row = testDb.prepare(`
+      SELECT status, readySinceAt
+      FROM orders_mirror
+      WHERE dayKey = ? AND globalEntityId = ? AND vendorId = ? AND orderId = ?
+    `).get("2026-03-20", "HF_EG", 10, "ready-1") as { status: string; readySinceAt: string | null };
+
+    expect(row).toEqual({
+      status: "READY_FOR_PICKUP",
+      readySinceAt: "2026-03-20T12:03:00.000Z",
+    });
+  });
+
+  it("counts only ready-to-pickup orders that reached the configured minimum age", () => {
+    insertFreshEntityState({ lastSyncAt: "2026-03-20T12:00:00.000Z" });
+
+    const insertRow = testDb.prepare(`
+      INSERT INTO orders_mirror (
+        dayKey,
+        globalEntityId,
+        vendorId,
+        vendorName,
+        orderId,
+        externalId,
+        status,
+        transportType,
+        isCompleted,
+        isCancelled,
+        isUnassigned,
+        placedAt,
+        pickupAt,
+        readySinceAt,
+        customerFirstName,
+        shopperId,
+        shopperFirstName,
+        isActiveNow,
+        lastSeenAt,
+        lastActiveSeenAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    insertRow.run(
+      "2026-03-20", "HF_EG", 10, "Branch 10", "ready-old", "3556732003", "READY_FOR_PICKUP", "LOGISTICS_DELIVERY", 0, 0, 0,
+      "2026-03-20T08:20:00.000Z", "2026-03-20T08:40:00.000Z", "2026-03-20T11:45:00.000Z", "Customer C", 202, "Mona", 1,
+      "2026-03-20T12:00:00.000Z", "2026-03-20T12:00:00.000Z",
+    );
+    insertRow.run(
+      "2026-03-20", "HF_EG", 10, "Branch 10", "ready-edge", "3556732004", "READY_FOR_PICKUP", "LOGISTICS_DELIVERY", 0, 0, 0,
+      "2026-03-20T08:21:00.000Z", "2026-03-20T08:41:00.000Z", "2026-03-20T11:50:00.000Z", "Customer D", 203, "Sara", 1,
+      "2026-03-20T12:00:00.000Z", "2026-03-20T12:00:00.000Z",
+    );
+    insertRow.run(
+      "2026-03-20", "HF_EG", 10, "Branch 10", "ready-fresh", "3556732005", "READY_FOR_PICKUP", "LOGISTICS_DELIVERY", 0, 0, 0,
+      "2026-03-20T08:22:00.000Z", "2026-03-20T08:42:00.000Z", "2026-03-20T11:55:00.000Z", "Customer E", 204, "Nour", 1,
+      "2026-03-20T12:00:00.000Z", "2026-03-20T12:00:00.000Z",
+    );
+
+    const detail = getMirrorBranchDetail({
+      dayKey: "2026-03-20",
+      globalEntityId: "HF_EG",
+      vendorId: 10,
+      ordersRefreshSeconds: 30,
+      readyMinAgeMinutes: 10,
+    });
+
+    expect(detail.metrics.activeNow).toBe(3);
+    expect(detail.metrics.readyNow).toBe(2);
+    expect(detail.readyToPickupOrders.map((item) => item.externalId)).toEqual(["3556732003", "3556732004"]);
+    expect(detail.readyToPickupOrders.map((item) => item.readyAgeMinutes)).toEqual([15, 10]);
+    expect(detail.readyToPickupOrders.every((item) => item.readyEligible)).toBe(true);
+    expect(detail.freshReadyToPickupOrders.map((item) => item.externalId)).toEqual(["3556732005"]);
+    expect(detail.freshReadyToPickupOrders[0]).toMatchObject({
+      readySinceAt: "2026-03-20T11:55:00.000Z",
+      readyAgeMinutes: 5,
+      readyEligible: false,
+    });
+
+    const legacyDetail = getMirrorBranchDetail({
+      dayKey: "2026-03-20",
+      globalEntityId: "HF_EG",
+      vendorId: 10,
+      ordersRefreshSeconds: 30,
+      readyMinAgeMinutes: 0,
+    });
+
+    expect(legacyDetail.metrics.readyNow).toBe(3);
+    expect(legacyDetail.readyToPickupOrders.map((item) => item.externalId)).toEqual(["3556732003", "3556732004", "3556732005"]);
+    expect(legacyDetail.freshReadyToPickupOrders).toEqual([]);
   });
 
   it("keeps inactive incomplete mirror rows out of the preparation queue", () => {

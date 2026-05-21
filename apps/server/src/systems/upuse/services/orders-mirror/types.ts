@@ -28,6 +28,7 @@ export interface OrdersMirrorRow {
   isUnassigned: number;
   placedAt: string | null;
   pickupAt: string | null;
+  readySinceAt: string | null;
   customerFirstName: string | null;
   shopperId: number | null;
   shopperFirstName: string | null;
@@ -65,6 +66,7 @@ export interface MirrorOrdersDetail {
   unassignedOrders: BranchLiveOrder[];
   preparingOrders: BranchLiveOrder[];
   readyToPickupOrders: BranchLiveOrder[];
+  freshReadyToPickupOrders: BranchLiveOrder[];
   pickers: BranchPickersSummary;
   cacheState: BranchDetailCacheState;
 }
@@ -83,6 +85,7 @@ export interface NormalizedMirrorOrder {
   isUnassigned: number;
   placedAt: string | null;
   pickupAt: string | null;
+  readySinceAt: string | null;
   customerFirstName: string | null;
   shopperId: number | null;
   shopperFirstName: string | null;

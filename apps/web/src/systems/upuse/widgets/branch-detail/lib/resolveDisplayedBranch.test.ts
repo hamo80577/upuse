@@ -51,6 +51,7 @@ function createDetail(branch: BranchSnapshot): BranchDetailResult {
     unassignedOrders: [],
     preparingOrders: [],
     readyToPickupOrders: [],
+    freshReadyToPickupOrders: [],
     pickers: {
       todayCount: 0,
       activePreparingCount: 0,

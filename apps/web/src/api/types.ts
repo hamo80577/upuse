@@ -33,6 +33,7 @@ export interface ChainThreshold {
   unassignedReopenThreshold?: number;
   readyThreshold?: number;
   readyReopenThreshold?: number;
+  readyMinAgeMinutes?: number;
   onHoldThreshold?: number;
   onHoldReopenThreshold?: number;
   capacityRuleEnabled?: boolean;
@@ -47,6 +48,7 @@ export interface ThresholdProfile {
   unassignedReopenThreshold?: number;
   readyThreshold?: number;
   readyReopenThreshold?: number;
+  readyMinAgeMinutes?: number;
   onHoldThreshold?: number;
   onHoldReopenThreshold?: number;
   capacityRuleEnabled?: boolean;
@@ -94,6 +96,9 @@ export interface BranchLiveOrder {
   shopperFirstName?: string;
   isUnassigned: boolean;
   isLate: boolean;
+  readySinceAt?: string;
+  readyAgeMinutes?: number;
+  readyEligible?: boolean;
 }
 
 export interface BranchPickerSummaryItem {
@@ -167,6 +172,7 @@ export interface BranchMappingItem {
   unassignedReopenThresholdOverride?: number | null;
   readyThresholdOverride?: number | null;
   readyReopenThresholdOverride?: number | null;
+  readyMinAgeMinutesOverride?: number | null;
   onHoldThresholdOverride?: number | null;
   onHoldReopenThresholdOverride?: number | null;
   capacityRuleEnabledOverride?: boolean | null;
@@ -531,6 +537,7 @@ interface BranchDetailBase {
   onHoldOrders: BranchLiveOrder[];
   preparingOrders: BranchLiveOrder[];
   readyToPickupOrders: BranchLiveOrder[];
+  freshReadyToPickupOrders: BranchLiveOrder[];
   pickers: BranchPickersSummary;
 }
 
@@ -577,6 +584,7 @@ export interface SettingsMasked {
   unassignedReopenThreshold?: number;
   readyThreshold?: number;
   readyReopenThreshold?: number;
+  readyMinAgeMinutes?: number;
   onHoldThreshold?: number;
   onHoldReopenThreshold?: number;
 

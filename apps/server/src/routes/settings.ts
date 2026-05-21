@@ -20,6 +20,7 @@ const SettingsPatch = z
         unassignedReopenThreshold: z.number().int().min(0).max(999).optional(),
         readyThreshold: z.number().int().min(0).max(999).optional(),
         readyReopenThreshold: z.number().int().min(0).max(999).optional(),
+        readyMinAgeMinutes: z.number().int().min(0).max(720).optional(),
         onHoldThreshold: z.number().int().min(0).max(999).optional(),
         onHoldReopenThreshold: z.number().int().min(0).max(999).optional(),
         capacityRuleEnabled: z.boolean().optional(),
@@ -40,6 +41,7 @@ const SettingsPatch = z
     unassignedReopenThreshold: z.number().int().min(0).optional(),
     readyThreshold: z.number().int().min(0).optional(),
     readyReopenThreshold: z.number().int().min(0).optional(),
+    readyMinAgeMinutes: z.number().int().min(0).max(720).optional(),
     onHoldThreshold: z.number().int().min(0).optional(),
     onHoldReopenThreshold: z.number().int().min(0).optional(),
     tempCloseMinutes: z.number().int().min(1).optional(),
@@ -83,6 +85,7 @@ export function putSettingsRoute(req: Request, res: Response) {
     || key === "unassignedReopenThreshold"
     || key === "readyThreshold"
     || key === "readyReopenThreshold"
+    || key === "readyMinAgeMinutes"
     || key === "onHoldThreshold"
     || key === "onHoldReopenThreshold"
   );

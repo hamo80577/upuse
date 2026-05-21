@@ -58,6 +58,7 @@ function createDetailResult(overrides: Partial<Extract<BranchDetailResult, { kin
     unassignedOrders: [],
     preparingOrders: [],
     readyToPickupOrders: [],
+    freshReadyToPickupOrders: [],
     pickers: {
       todayCount: 0,
       activePreparingCount: 0,
@@ -334,6 +335,7 @@ describe("useBranchDetailState", () => {
       unassignedOrders: [],
       preparingOrders: [],
       readyToPickupOrders: [],
+      freshReadyToPickupOrders: [],
       pickers: {
         todayCount: 0,
         activePreparingCount: 0,
