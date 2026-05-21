@@ -13,6 +13,8 @@ export function migrateBranchesTableToLocalCatalogShape(db: Database.Database) {
     "unassignedReopenThresholdOverride",
     "readyThresholdOverride",
     "readyReopenThresholdOverride",
+    "onHoldThresholdOverride",
+    "onHoldReopenThresholdOverride",
     "capacityRuleEnabledOverride",
     "capacityPerHourEnabledOverride",
     "capacityPerHourLimitOverride",
@@ -21,6 +23,8 @@ export function migrateBranchesTableToLocalCatalogShape(db: Database.Database) {
   const hasUnassignedReopenThresholdOverride = branchColumns.some((column) => column.name === "unassignedReopenThresholdOverride");
   const hasReadyThresholdOverride = branchColumns.some((column) => column.name === "readyThresholdOverride");
   const hasReadyReopenThresholdOverride = branchColumns.some((column) => column.name === "readyReopenThresholdOverride");
+  const hasOnHoldThresholdOverride = branchColumns.some((column) => column.name === "onHoldThresholdOverride");
+  const hasOnHoldReopenThresholdOverride = branchColumns.some((column) => column.name === "onHoldReopenThresholdOverride");
   const hasCapacityRuleEnabledOverride = branchColumns.some((column) => column.name === "capacityRuleEnabledOverride");
   const hasCapacityPerHourEnabledOverride = branchColumns.some((column) => column.name === "capacityPerHourEnabledOverride");
   const hasCapacityPerHourLimitOverride = branchColumns.some((column) => column.name === "capacityPerHourLimitOverride");
@@ -52,6 +56,8 @@ export function migrateBranchesTableToLocalCatalogShape(db: Database.Database) {
         unassignedReopenThresholdOverride INTEGER,
         readyThresholdOverride INTEGER,
         readyReopenThresholdOverride INTEGER,
+        onHoldThresholdOverride INTEGER,
+        onHoldReopenThresholdOverride INTEGER,
         capacityRuleEnabledOverride INTEGER,
         capacityPerHourEnabledOverride INTEGER,
         capacityPerHourLimitOverride INTEGER
@@ -68,6 +74,8 @@ export function migrateBranchesTableToLocalCatalogShape(db: Database.Database) {
         unassignedReopenThresholdOverride,
         readyThresholdOverride,
         readyReopenThresholdOverride,
+        onHoldThresholdOverride,
+        onHoldReopenThresholdOverride,
         capacityRuleEnabledOverride,
         capacityPerHourEnabledOverride,
         capacityPerHourLimitOverride
@@ -83,6 +91,8 @@ export function migrateBranchesTableToLocalCatalogShape(db: Database.Database) {
         ${hasUnassignedReopenThresholdOverride ? "unassignedReopenThresholdOverride" : "NULL"},
         ${hasReadyThresholdOverride ? "readyThresholdOverride" : "NULL"},
         ${hasReadyReopenThresholdOverride ? "readyReopenThresholdOverride" : "NULL"},
+        ${hasOnHoldThresholdOverride ? "onHoldThresholdOverride" : "NULL"},
+        ${hasOnHoldReopenThresholdOverride ? "onHoldReopenThresholdOverride" : "NULL"},
         ${hasCapacityRuleEnabledOverride ? "capacityRuleEnabledOverride" : "NULL"},
         ${hasCapacityPerHourEnabledOverride ? "capacityPerHourEnabledOverride" : "NULL"},
         ${hasCapacityPerHourLimitOverride ? "capacityPerHourLimitOverride" : "NULL"}

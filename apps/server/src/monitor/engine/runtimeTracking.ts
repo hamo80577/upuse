@@ -55,6 +55,8 @@ export class MonitorRuntimeTracker {
       | "unassignedReopenThresholdOverride"
       | "readyThresholdOverride"
       | "readyReopenThresholdOverride"
+      | "onHoldThresholdOverride"
+      | "onHoldReopenThresholdOverride"
       | "capacityRuleEnabledOverride"
       | "capacityPerHourEnabledOverride"
       | "capacityPerHourLimitOverride"
@@ -77,6 +79,10 @@ export class MonitorRuntimeTracker {
       typeof thresholds.readyThreshold === "number"
         ? thresholds.readyThreshold
         : 0;
+    const onHoldThreshold =
+      typeof thresholds.onHoldThreshold === "number"
+        ? thresholds.onHoldThreshold
+        : 0;
     const normalizedRecentActivePickers = normalizeRecentActivePickers(recentActivePickers);
     const capacityRuleCanApply = thresholds.capacityRuleEnabled !== false
       && recentActiveAvailable
@@ -85,6 +91,7 @@ export class MonitorRuntimeTracker {
     const exceedLate = metrics.lateNow >= thresholds.lateThreshold && thresholds.lateThreshold > 0;
     const exceedUnassigned = metrics.unassignedNow >= thresholds.unassignedThreshold && thresholds.unassignedThreshold > 0;
     const exceedReady = (metrics.readyNow ?? 0) >= readyThreshold && readyThreshold > 0;
+    const exceedOnHold = (metrics.onHoldNow ?? 0) >= onHoldThreshold && onHoldThreshold > 0;
     const exceedCapacity = capacityRuleCanApply
       && capacityLoad > capacityLimit(normalizedRecentActivePickers);
     const exceedCapacityPerHour = thresholds.capacityPerHourEnabled === true
@@ -94,6 +101,7 @@ export class MonitorRuntimeTracker {
     if (exceedLate) return "LATE";
     if (exceedUnassigned) return "UNASSIGNED";
     if (exceedReady) return "READY_TO_PICKUP";
+    if (exceedOnHold) return "ON_HOLD";
     if (exceedCapacity) return "CAPACITY";
     if (exceedCapacityPerHour) return "CAPACITY_HOUR";
     return undefined;
@@ -388,6 +396,7 @@ export class MonitorRuntimeTracker {
         lateNow: 0,
         unassignedNow: 0,
         readyNow: 0,
+        onHoldNow: 0,
       };
       const currentHourPlacedCount = input.currentHourPlacedByVendor.get(branch.ordersVendorId) ?? 0;
       const preparation = currentPreparation(

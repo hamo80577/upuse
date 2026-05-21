@@ -40,6 +40,7 @@ export function createEmptyCanonicalOrdersMetrics(): OrdersMetrics {
     lateNow: 0,
     unassignedNow: 0,
     readyNow: 0,
+    onHoldNow: 0,
   };
 }
 
@@ -89,6 +90,7 @@ export function accumulateCanonicalOrdersMetrics(
   if (metrics.isLate) current.lateNow += 1;
   if (metrics.isUnassigned) current.unassignedNow += 1;
   if (metrics.isReadyToPickup) current.readyNow = (current.readyNow ?? 0) + 1;
+  if (metrics.isOnHold) current.onHoldNow = (current.onHoldNow ?? 0) + 1;
   return current;
 }
 

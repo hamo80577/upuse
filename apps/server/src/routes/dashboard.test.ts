@@ -61,6 +61,7 @@ function createSnapshot(): DashboardSnapshot {
       activeNow: 5,
       lateNow: 2,
       unassignedNow: 2,
+      onHoldNow: 1,
     },
     branches: [
       {
@@ -79,6 +80,7 @@ function createSnapshot(): DashboardSnapshot {
           activeNow: 4,
           lateNow: 1,
           unassignedNow: 1,
+          onHoldNow: 1,
         },
         preparingNow: 3,
         preparingPickersNow: 2,
@@ -100,6 +102,7 @@ function createSnapshot(): DashboardSnapshot {
           activeNow: 1,
           lateNow: 1,
           unassignedNow: 1,
+          onHoldNow: 0,
         },
         preparingNow: 1,
         preparingPickersNow: 1,
@@ -128,6 +131,7 @@ describe("dashboardRoute", () => {
       activeNow: 4,
       lateNow: 1,
       unassignedNow: 1,
+      onHoldNow: 1,
     });
     expect(res.body.monitoring.ordersSync.staleBranchCount).toBe(0);
   });
@@ -150,6 +154,7 @@ describe("dashboardRoute", () => {
       activeNow: 0,
       lateNow: 0,
       unassignedNow: 0,
+      onHoldNow: 0,
     });
   });
 });

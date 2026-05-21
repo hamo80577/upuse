@@ -12,6 +12,17 @@ function normalizeSettings(settings: SettingsMasked): SettingsMasked {
   };
 }
 
+function mergeUniqueSourceItems(existing: LocalVendorCatalogItem[], incoming: LocalVendorCatalogItem[]) {
+  const byAvailabilityVendorId = new Map<string, LocalVendorCatalogItem>();
+  for (const item of existing) {
+    byAvailabilityVendorId.set(item.availabilityVendorId, item);
+  }
+  for (const item of incoming) {
+    byAvailabilityVendorId.set(item.availabilityVendorId, item);
+  }
+  return Array.from(byAvailabilityVendorId.values());
+}
+
 export function useBranchMappingState() {
   const [settings, setSettings] = useState<SettingsMasked | null>(null);
   const [branches, setBranches] = useState<BranchMappingItem[]>([]);
@@ -124,6 +135,13 @@ export function useBranchMappingState() {
     };
   };
 
+  const resolveSourceIds = async (availabilityVendorIds: string[], options?: { signal?: AbortSignal }) => {
+    const response = await api.resolveBranchSourceIds(availabilityVendorIds, options);
+    setSourceItems((current) => mergeUniqueSourceItems(current, response.items));
+
+    return response;
+  };
+
   const saveChains = async (chains: ChainThreshold[]) => {
     const normalizedChains = normalizeChains(chains);
     await api.putSettings({ chains: normalizedChains });
@@ -146,6 +164,8 @@ export function useBranchMappingState() {
     unassignedReopenThreshold: number,
     readyThreshold: number,
     readyReopenThreshold: number,
+    onHoldThreshold: number,
+    onHoldReopenThreshold: number,
   ) => {
     await api.putSettings({
       lateThreshold: Math.round(lateThreshold),
@@ -154,6 +174,8 @@ export function useBranchMappingState() {
       unassignedReopenThreshold: Math.round(unassignedReopenThreshold),
       readyThreshold: Math.round(readyThreshold),
       readyReopenThreshold: Math.round(readyReopenThreshold),
+      onHoldThreshold: Math.round(onHoldThreshold),
+      onHoldReopenThreshold: Math.round(onHoldReopenThreshold),
     });
     setSettings((current) => (
       current
@@ -165,6 +187,8 @@ export function useBranchMappingState() {
             unassignedReopenThreshold: Math.round(unassignedReopenThreshold),
             readyThreshold: Math.round(readyThreshold),
             readyReopenThreshold: Math.round(readyReopenThreshold),
+            onHoldThreshold: Math.round(onHoldThreshold),
+            onHoldReopenThreshold: Math.round(onHoldReopenThreshold),
           }
         : current
     ));
@@ -178,6 +202,8 @@ export function useBranchMappingState() {
     unassignedReopenThresholdOverride: number | null,
     readyThresholdOverride: number | null,
     readyReopenThresholdOverride: number | null,
+    onHoldThresholdOverride: number | null,
+    onHoldReopenThresholdOverride: number | null,
     capacityRuleEnabledOverride: boolean | null,
     capacityPerHourEnabledOverride: boolean | null,
     capacityPerHourLimitOverride: number | null,
@@ -189,6 +215,8 @@ export function useBranchMappingState() {
       unassignedReopenThresholdOverride,
       readyThresholdOverride,
       readyReopenThresholdOverride,
+      onHoldThresholdOverride,
+      onHoldReopenThresholdOverride,
       capacityRuleEnabledOverride,
       capacityPerHourEnabledOverride,
       capacityPerHourLimitOverride,
@@ -208,6 +236,7 @@ export function useBranchMappingState() {
     setChainMonitoringState,
     deleteChainBranches,
     addBranches,
+    resolveSourceIds,
     saveChains,
     saveGlobalThresholds,
     saveBranchThresholdOverride,

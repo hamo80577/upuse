@@ -88,6 +88,10 @@ function normalizeBranchItem(item: BranchMappingItem | LegacyBranchMappingItem):
       typeof item.readyThresholdOverride === "number" && Number.isFinite(item.readyThresholdOverride)
         ? Math.max(0, Math.round(item.readyThresholdOverride))
         : null,
+    onHoldThresholdOverride:
+      typeof item.onHoldThresholdOverride === "number" && Number.isFinite(item.onHoldThresholdOverride)
+        ? Math.max(0, Math.round(item.onHoldThresholdOverride))
+        : null,
     lateReopenThresholdOverride:
       typeof item.lateReopenThresholdOverride === "number" && Number.isFinite(item.lateReopenThresholdOverride)
         ? Math.max(0, Math.round(item.lateReopenThresholdOverride))
@@ -99,6 +103,10 @@ function normalizeBranchItem(item: BranchMappingItem | LegacyBranchMappingItem):
     readyReopenThresholdOverride:
       typeof item.readyReopenThresholdOverride === "number" && Number.isFinite(item.readyReopenThresholdOverride)
         ? Math.max(0, Math.round(item.readyReopenThresholdOverride))
+        : null,
+    onHoldReopenThresholdOverride:
+      typeof item.onHoldReopenThresholdOverride === "number" && Number.isFinite(item.onHoldReopenThresholdOverride)
+        ? Math.max(0, Math.round(item.onHoldReopenThresholdOverride))
         : null,
     capacityPerHourLimitOverride:
       typeof item.capacityPerHourLimitOverride === "number" && Number.isFinite(item.capacityPerHourLimitOverride)
@@ -319,6 +327,18 @@ export const upuseApi = {
       }
     }
   },
+  resolveBranchSourceIds: (availabilityVendorIds: string[], options?: { signal?: AbortSignal }) =>
+    requestJson<{
+      ok: true;
+      items: LocalVendorCatalogItem[];
+      notFoundAvailabilityVendorIds: string[];
+      resolveErrors?: Array<{ availabilityVendorId: string; message: string; status?: number }>;
+    }>("/api/branches/source/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ availabilityVendorIds }),
+      signal: options?.signal,
+    }, { timeoutMs: 25_000 }),
   addBranch: async (payload: {
     availabilityVendorId: string;
     chainName: string;
@@ -380,6 +400,8 @@ export const upuseApi = {
       unassignedReopenThresholdOverride: number | null;
       readyThresholdOverride: number | null;
       readyReopenThresholdOverride: number | null;
+      onHoldThresholdOverride: number | null;
+      onHoldReopenThresholdOverride: number | null;
       capacityRuleEnabledOverride: boolean | null;
       capacityPerHourEnabledOverride: boolean | null;
       capacityPerHourLimitOverride: number | null;

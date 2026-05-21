@@ -64,6 +64,12 @@ export function OperationsSummaryCard(props: {
       bg: props.totals.lateNow === 0 ? "rgba(34,197,94,0.10)" : "rgba(251,146,60,0.12)",
     },
     {
+      label: "On Hold",
+      value: props.totals.onHoldNow ?? 0,
+      color: (props.totals.onHoldNow ?? 0) === 0 ? "#16a34a" : "#b91c1c",
+      bg: (props.totals.onHoldNow ?? 0) === 0 ? "rgba(34,197,94,0.10)" : "rgba(239,68,68,0.10)",
+    },
+    {
       label: "Unassigned",
       value: props.totals.unassignedNow,
       color: props.totals.unassignedNow === 0 ? "#16a34a" : "#b91c1c",
@@ -233,7 +239,7 @@ export function OperationsSummaryCard(props: {
           gridTemplateColumns: {
             xs: "repeat(2, minmax(0, 1fr))",
             md: "repeat(3, minmax(0, 1fr))",
-            xl: "repeat(5, minmax(0, 1fr))",
+            xl: "repeat(6, minmax(0, 1fr))",
           },
         }}
       >

@@ -51,6 +51,8 @@ function emptyDefaultThresholdEditor(): DefaultThresholdEditorDraft {
     unassignedReopenThreshold: "0",
     readyThreshold: "0",
     readyReopenThreshold: "0",
+    onHoldThreshold: "0",
+    onHoldReopenThreshold: "0",
   };
 }
 
@@ -79,6 +81,8 @@ export function ThresholdsPage() {
     unassignedReopenThreshold: 0,
     readyThreshold: 0,
     readyReopenThreshold: 0,
+    onHoldThreshold: 0,
+    onHoldReopenThreshold: 0,
   });
   const [defaultEditor, setDefaultEditor] = useState<DefaultThresholdEditorDraft>(emptyDefaultThresholdEditor());
   const [defaultEditorOpen, setDefaultEditorOpen] = useState(false);
@@ -102,6 +106,8 @@ export function ThresholdsPage() {
       unassignedReopenThreshold: settings.unassignedReopenThreshold ?? 0,
       readyThreshold: settings.readyThreshold ?? 0,
       readyReopenThreshold: settings.readyReopenThreshold ?? 0,
+      onHoldThreshold: settings.onHoldThreshold ?? 0,
+      onHoldReopenThreshold: settings.onHoldReopenThreshold ?? 0,
     });
     setDefaultEditor({
       lateThreshold: String(settings.lateThreshold),
@@ -110,6 +116,8 @@ export function ThresholdsPage() {
       unassignedReopenThreshold: String(settings.unassignedReopenThreshold ?? 0),
       readyThreshold: String(settings.readyThreshold ?? 0),
       readyReopenThreshold: String(settings.readyReopenThreshold ?? 0),
+      onHoldThreshold: String(settings.onHoldThreshold ?? 0),
+      onHoldReopenThreshold: String(settings.onHoldReopenThreshold ?? 0),
     });
   }, [settings]);
 
@@ -131,6 +139,8 @@ export function ThresholdsPage() {
     unassignedReopenThreshold: Number(thresholdForm.unassignedReopenThreshold ?? settings?.unassignedReopenThreshold ?? 0),
     readyThreshold: Number(thresholdForm.readyThreshold ?? settings?.readyThreshold ?? 0),
     readyReopenThreshold: Number(thresholdForm.readyReopenThreshold ?? settings?.readyReopenThreshold ?? 0),
+    onHoldThreshold: Number(thresholdForm.onHoldThreshold ?? settings?.onHoldThreshold ?? 0),
+    onHoldReopenThreshold: Number(thresholdForm.onHoldReopenThreshold ?? settings?.onHoldReopenThreshold ?? 0),
     capacityRuleEnabled: true,
     capacityPerHourEnabled: false,
     capacityPerHourLimit: null,
@@ -194,6 +204,8 @@ export function ThresholdsPage() {
     const unassignedReopenThreshold = Number(chainEditor.unassignedReopenThreshold);
     const readyThreshold = Number(chainEditor.readyThreshold);
     const readyReopenThreshold = Number(chainEditor.readyReopenThreshold);
+    const onHoldThreshold = Number(chainEditor.onHoldThreshold);
+    const onHoldReopenThreshold = Number(chainEditor.onHoldReopenThreshold);
     const capacityPerHourLimitRaw = chainEditor.capacityPerHourLimit.trim();
     const capacityPerHourLimit = capacityPerHourLimitRaw ? Number(capacityPerHourLimitRaw) : null;
 
@@ -209,6 +221,8 @@ export function ThresholdsPage() {
       || !Number.isFinite(unassignedReopenThreshold) || unassignedReopenThreshold < 0
       || !Number.isFinite(readyThreshold) || readyThreshold < 0
       || !Number.isFinite(readyReopenThreshold) || readyReopenThreshold < 0
+      || !Number.isFinite(onHoldThreshold) || onHoldThreshold < 0
+      || !Number.isFinite(onHoldReopenThreshold) || onHoldReopenThreshold < 0
     ) {
       setToast({ type: "error", msg: "Enter valid thresholds" });
       return;
@@ -218,6 +232,7 @@ export function ThresholdsPage() {
       lateReopenThreshold > lateThreshold
       || unassignedReopenThreshold > unassignedThreshold
       || readyReopenThreshold > readyThreshold
+      || onHoldReopenThreshold > onHoldThreshold
     ) {
       setToast({ type: "error", msg: "Reopen thresholds must be less than or equal to close thresholds" });
       return;
@@ -246,6 +261,8 @@ export function ThresholdsPage() {
       unassignedReopenThreshold: Math.round(unassignedReopenThreshold),
       readyThreshold: Math.round(readyThreshold),
       readyReopenThreshold: Math.round(readyReopenThreshold),
+      onHoldThreshold: Math.round(onHoldThreshold),
+      onHoldReopenThreshold: Math.round(onHoldReopenThreshold),
       capacityRuleEnabled: chainEditor.capacityRuleEnabled,
       capacityPerHourEnabled: chainEditor.capacityPerHourEnabled,
       capacityPerHourLimit: capacityPerHourLimit == null ? null : Math.round(capacityPerHourLimit),
@@ -262,6 +279,8 @@ export function ThresholdsPage() {
       unassignedReopenThreshold: String(thresholdForm.unassignedReopenThreshold),
       readyThreshold: String(thresholdForm.readyThreshold),
       readyReopenThreshold: String(thresholdForm.readyReopenThreshold),
+      onHoldThreshold: String(thresholdForm.onHoldThreshold),
+      onHoldReopenThreshold: String(thresholdForm.onHoldReopenThreshold),
     });
     setDefaultEditorOpen(true);
   };
@@ -277,6 +296,8 @@ export function ThresholdsPage() {
     const unassignedReopenThreshold = Number(defaultEditor.unassignedReopenThreshold);
     const readyThreshold = Number(defaultEditor.readyThreshold);
     const readyReopenThreshold = Number(defaultEditor.readyReopenThreshold);
+    const onHoldThreshold = Number(defaultEditor.onHoldThreshold);
+    const onHoldReopenThreshold = Number(defaultEditor.onHoldReopenThreshold);
 
     if (!canManageThresholds) {
       setToast({ type: "info", msg: "No access" });
@@ -290,6 +311,8 @@ export function ThresholdsPage() {
       || !Number.isFinite(unassignedReopenThreshold) || unassignedReopenThreshold < 0
       || !Number.isFinite(readyThreshold) || readyThreshold < 0
       || !Number.isFinite(readyReopenThreshold) || readyReopenThreshold < 0
+      || !Number.isFinite(onHoldThreshold) || onHoldThreshold < 0
+      || !Number.isFinite(onHoldReopenThreshold) || onHoldReopenThreshold < 0
     ) {
       setToast({ type: "error", msg: "Enter valid thresholds" });
       return;
@@ -299,6 +322,7 @@ export function ThresholdsPage() {
       lateReopenThreshold > lateThreshold
       || unassignedReopenThreshold > unassignedThreshold
       || readyReopenThreshold > readyThreshold
+      || onHoldReopenThreshold > onHoldThreshold
     ) {
       setToast({ type: "error", msg: "Reopen thresholds must be less than or equal to close thresholds" });
       return;
@@ -312,6 +336,8 @@ export function ThresholdsPage() {
         unassignedReopenThreshold,
         readyThreshold,
         readyReopenThreshold,
+        onHoldThreshold,
+        onHoldReopenThreshold,
       );
       setThresholdForm((current) => ({
         ...current,
@@ -321,6 +347,8 @@ export function ThresholdsPage() {
         unassignedReopenThreshold,
         readyThreshold,
         readyReopenThreshold,
+        onHoldThreshold,
+        onHoldReopenThreshold,
       }));
       setDefaultEditorOpen(false);
       setToast({ type: "success", msg: "Defaults saved" });
@@ -339,6 +367,8 @@ export function ThresholdsPage() {
       unassignedReopenThreshold: String(chain.unassignedReopenThreshold ?? 0),
       readyThreshold: String(chain.readyThreshold ?? 0),
       readyReopenThreshold: String(chain.readyReopenThreshold ?? 0),
+      onHoldThreshold: String(chain.onHoldThreshold ?? 0),
+      onHoldReopenThreshold: String(chain.onHoldReopenThreshold ?? 0),
       capacityRuleEnabled: chain.capacityRuleEnabled !== false,
       capacityPerHourEnabled: chain.capacityPerHourEnabled === true,
       capacityPerHourLimit: chain.capacityPerHourLimit == null ? "" : String(chain.capacityPerHourLimit),
@@ -368,6 +398,8 @@ export function ThresholdsPage() {
       unassignedReopenThreshold: branch.unassignedReopenThresholdOverride == null ? "" : String(branch.unassignedReopenThresholdOverride),
       readyThreshold: branch.readyThresholdOverride == null ? "" : String(branch.readyThresholdOverride),
       readyReopenThreshold: branch.readyReopenThresholdOverride == null ? "" : String(branch.readyReopenThresholdOverride),
+      onHoldThreshold: branch.onHoldThresholdOverride == null ? "" : String(branch.onHoldThresholdOverride),
+      onHoldReopenThreshold: branch.onHoldReopenThresholdOverride == null ? "" : String(branch.onHoldReopenThresholdOverride),
       capacityRuleEnabled: branch.capacityRuleEnabledOverride ?? (effective.capacityRuleEnabled !== false),
       capacityPerHourEnabled: branch.capacityPerHourEnabledOverride ?? (effective.capacityPerHourEnabled === true),
       capacityPerHourLimit:
@@ -392,6 +424,8 @@ export function ThresholdsPage() {
     const unassignedReopenThresholdRaw = branchThresholdEditor.unassignedReopenThreshold.trim();
     const readyThresholdRaw = branchThresholdEditor.readyThreshold.trim();
     const readyReopenThresholdRaw = branchThresholdEditor.readyReopenThreshold.trim();
+    const onHoldThresholdRaw = branchThresholdEditor.onHoldThreshold.trim();
+    const onHoldReopenThresholdRaw = branchThresholdEditor.onHoldReopenThreshold.trim();
     const capacityPerHourLimitRaw = branchThresholdEditor.capacityPerHourLimit.trim();
     const hasLateThreshold = lateThresholdRaw.length > 0;
     const hasLateReopenThreshold = lateReopenThresholdRaw.length > 0;
@@ -399,6 +433,8 @@ export function ThresholdsPage() {
     const hasUnassignedReopenThreshold = unassignedReopenThresholdRaw.length > 0;
     const hasReadyThreshold = readyThresholdRaw.length > 0;
     const hasReadyReopenThreshold = readyReopenThresholdRaw.length > 0;
+    const hasOnHoldThreshold = onHoldThresholdRaw.length > 0;
+    const hasOnHoldReopenThreshold = onHoldReopenThresholdRaw.length > 0;
     const hasCapacityPerHourLimit = capacityPerHourLimitRaw.length > 0;
 
     if (hasLateThreshold !== hasUnassignedThreshold) {
@@ -412,6 +448,8 @@ export function ThresholdsPage() {
     const unassignedReopenThreshold = hasUnassignedReopenThreshold ? Number(unassignedReopenThresholdRaw) : null;
     const readyThreshold = hasReadyThreshold ? Number(readyThresholdRaw) : null;
     const readyReopenThreshold = hasReadyReopenThreshold ? Number(readyReopenThresholdRaw) : null;
+    const onHoldThreshold = hasOnHoldThreshold ? Number(onHoldThresholdRaw) : null;
+    const onHoldReopenThreshold = hasOnHoldReopenThreshold ? Number(onHoldReopenThresholdRaw) : null;
     const capacityPerHourLimit = hasCapacityPerHourLimit ? Number(capacityPerHourLimitRaw) : null;
 
     if (
@@ -421,6 +459,8 @@ export function ThresholdsPage() {
       || (unassignedReopenThreshold != null && (!Number.isFinite(unassignedReopenThreshold) || unassignedReopenThreshold < 0))
       || (readyThreshold != null && (!Number.isFinite(readyThreshold) || readyThreshold < 0))
       || (readyReopenThreshold != null && (!Number.isFinite(readyReopenThreshold) || readyReopenThreshold < 0))
+      || (onHoldThreshold != null && (!Number.isFinite(onHoldThreshold) || onHoldThreshold < 0))
+      || (onHoldReopenThreshold != null && (!Number.isFinite(onHoldReopenThreshold) || onHoldReopenThreshold < 0))
     ) {
       setToast({ type: "error", msg: "Enter valid branch thresholds" });
       return;
@@ -437,8 +477,12 @@ export function ThresholdsPage() {
     const inherited = resolveEffectiveThresholds(
       {
         ...branch,
+        lateThresholdOverride: null,
+        unassignedThresholdOverride: null,
         readyThresholdOverride: null,
         readyReopenThresholdOverride: null,
+        onHoldThresholdOverride: null,
+        onHoldReopenThresholdOverride: null,
         lateReopenThresholdOverride: null,
         unassignedReopenThresholdOverride: null,
         capacityRuleEnabledOverride: null,
@@ -460,11 +504,17 @@ export function ThresholdsPage() {
       readyReopenThreshold == null
         ? inherited.readyReopenThreshold ?? 0
         : Math.round(readyReopenThreshold);
+    const nextOnHoldThreshold = onHoldThreshold == null ? inherited.onHoldThreshold ?? 0 : Math.round(onHoldThreshold);
+    const nextOnHoldReopenThreshold =
+      onHoldReopenThreshold == null
+        ? inherited.onHoldReopenThreshold ?? 0
+        : Math.round(onHoldReopenThreshold);
 
     if (
       nextLateReopenThreshold > nextLateThreshold
       || nextUnassignedReopenThreshold > nextUnassignedThreshold
       || nextReadyReopenThreshold > nextReadyThreshold
+      || nextOnHoldReopenThreshold > nextOnHoldThreshold
     ) {
       setToast({ type: "error", msg: "Reopen thresholds must be less than or equal to close thresholds" });
       return;
@@ -506,6 +556,8 @@ export function ThresholdsPage() {
         unassignedReopenThreshold == null ? null : Math.round(unassignedReopenThreshold),
         readyThreshold == null ? null : Math.round(readyThreshold),
         readyReopenThreshold == null ? null : Math.round(readyReopenThreshold),
+        onHoldThreshold == null ? null : Math.round(onHoldThreshold),
+        onHoldReopenThreshold == null ? null : Math.round(onHoldReopenThreshold),
         capacityRuleEnabledOverride,
         capacityPerHourEnabledOverride,
         capacityPerHourLimitOverride,
@@ -528,7 +580,7 @@ export function ThresholdsPage() {
 
     try {
       setSavingThresholdBranchId(branch.id);
-      await persistBranchThresholdOverride(branch.id, null, null, null, null, null, null, null, null, null);
+      await persistBranchThresholdOverride(branch.id, null, null, null, null, null, null, null, null, null, null, null);
       setEditingThresholdBranchId(null);
       setBranchThresholdEditor(emptyBranchThresholdEditor());
       setToast({ type: "success", msg: "Using inherited thresholds" });

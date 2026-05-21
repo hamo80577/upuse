@@ -45,6 +45,12 @@ export function applySharedSchemaMigrations(db: Database.Database) {
   if (!settingsColumns.some((column) => column.name === "readyReopenThreshold")) {
     db.exec("ALTER TABLE settings ADD COLUMN readyReopenThreshold INTEGER NOT NULL DEFAULT 0");
   }
+  if (!settingsColumns.some((column) => column.name === "onHoldThreshold")) {
+    db.exec("ALTER TABLE settings ADD COLUMN onHoldThreshold INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!settingsColumns.some((column) => column.name === "onHoldReopenThreshold")) {
+    db.exec("ALTER TABLE settings ADD COLUMN onHoldReopenThreshold INTEGER NOT NULL DEFAULT 0");
+  }
 
   const branchRuntimeColumns = db.prepare("PRAGMA table_info(branch_runtime)").all() as Array<{ name: string }>;
   if (!branchRuntimeColumns.some((column) => column.name === "lastExternalCloseUntil")) {
@@ -79,10 +85,21 @@ export function applySharedSchemaMigrations(db: Database.Database) {
   if (!branchesColumns.some((column) => column.name === "readyReopenThresholdOverride")) {
     db.exec("ALTER TABLE branches ADD COLUMN readyReopenThresholdOverride INTEGER");
   }
+  if (!branchesColumns.some((column) => column.name === "onHoldThresholdOverride")) {
+    db.exec("ALTER TABLE branches ADD COLUMN onHoldThresholdOverride INTEGER");
+  }
+  if (!branchesColumns.some((column) => column.name === "onHoldReopenThresholdOverride")) {
+    db.exec("ALTER TABLE branches ADD COLUMN onHoldReopenThresholdOverride INTEGER");
+  }
   if (!branchesColumns.some((column) => column.name === "capacityPerHourEnabledOverride")) {
     db.exec("ALTER TABLE branches ADD COLUMN capacityPerHourEnabledOverride INTEGER");
   }
   if (!branchesColumns.some((column) => column.name === "capacityPerHourLimitOverride")) {
     db.exec("ALTER TABLE branches ADD COLUMN capacityPerHourLimitOverride INTEGER");
+  }
+
+  const actionEventColumns = db.prepare("PRAGMA table_info(action_events)").all() as Array<{ name: string }>;
+  if (!actionEventColumns.some((column) => column.name === "onHoldNow")) {
+    db.exec("ALTER TABLE action_events ADD COLUMN onHoldNow INTEGER NOT NULL DEFAULT 0");
   }
 }

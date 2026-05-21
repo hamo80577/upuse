@@ -19,6 +19,7 @@ export interface OrdersAggregateResult {
 export interface VendorOrdersDetailResult {
   metrics: OrdersMetrics;
   fetchedAt: string;
+  onHoldOrders: BranchLiveOrder[];
   unassignedOrders: BranchLiveOrder[];
   preparingOrders: BranchLiveOrder[];
   readyToPickupOrders: BranchLiveOrder[];
@@ -42,6 +43,7 @@ export function initMetrics(): OrdersMetrics {
     lateNow: 0,
     unassignedNow: 0,
     readyNow: 0,
+    onHoldNow: 0,
   };
 }
 

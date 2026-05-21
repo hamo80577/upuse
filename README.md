@@ -69,6 +69,7 @@ If you want one Windows command that loads `.env`, builds, and starts production
   - or `shortClosures.nextOpeningAt` from VSS
 - VSS availability refresh is fixed at `15s` on the server. The Settings page keeps orders cadence editable, but availability cadence is read-only.
 - `/api/health`, `/api/ready`, dashboard monitoring state, and monitor banners now expose structured sync metadata and actionable upstream error categories (`token_missing`, `auth`, `conflict`, `tunnel`, `timeout`, `network`, `malformed_response`, `upstream`) for both orders and availability.
+- UPuse monitoring thresholds now include an optional `On Hold` trigger based on orders with status `ON_HOLD`. Global, chain, and branch overrides use `close/reopen` values, with `0/0` meaning disabled.
 
 ## Workspaces and access model
 - The product now has three workspaces:

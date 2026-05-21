@@ -13,6 +13,8 @@ export function buildSharedSchemaSql() {
       unassignedReopenThreshold INTEGER NOT NULL DEFAULT 0,
       readyThreshold INTEGER NOT NULL DEFAULT 0,
       readyReopenThreshold INTEGER NOT NULL DEFAULT 0,
+      onHoldThreshold INTEGER NOT NULL DEFAULT 0,
+      onHoldReopenThreshold INTEGER NOT NULL DEFAULT 0,
       tempCloseMinutes INTEGER NOT NULL,
       graceMinutes INTEGER NOT NULL,
       ordersRefreshSeconds INTEGER NOT NULL,
@@ -31,6 +33,8 @@ export function buildSharedSchemaSql() {
       unassignedReopenThresholdOverride INTEGER,
       readyThresholdOverride INTEGER,
       readyReopenThresholdOverride INTEGER,
+      onHoldThresholdOverride INTEGER,
+      onHoldReopenThresholdOverride INTEGER,
       capacityRuleEnabledOverride INTEGER,
       capacityPerHourEnabledOverride INTEGER,
       capacityPerHourLimitOverride INTEGER
@@ -86,6 +90,7 @@ export function buildSharedSchemaSql() {
       activeNow INTEGER NOT NULL DEFAULT 0,
       lateNow INTEGER NOT NULL DEFAULT 0,
       unassignedNow INTEGER NOT NULL DEFAULT 0,
+      onHoldNow INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY (branchId) REFERENCES branches(id) ON DELETE CASCADE
     );
 

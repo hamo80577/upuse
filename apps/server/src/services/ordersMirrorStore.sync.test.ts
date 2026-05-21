@@ -305,6 +305,8 @@ describe("ordersMirrorStore incremental reconciliation", () => {
         unassignedReopenThresholdOverride: null,
         readyThresholdOverride: null,
         readyReopenThresholdOverride: null,
+        onHoldThresholdOverride: null,
+        onHoldReopenThresholdOverride: null,
         capacityRuleEnabledOverride: null,
         capacityPerHourEnabledOverride: null,
         capacityPerHourLimitOverride: null,
@@ -346,6 +348,8 @@ describe("ordersMirrorStore incremental reconciliation", () => {
     expect(detail.metrics.preparingNow).toBe(1);
     expect(detail.metrics.unassignedNow).toBe(1);
     expect(detail.metrics.readyNow).toBe(1);
+    expect(detail.metrics.onHoldNow).toBe(1);
+    expect(detail.onHoldOrders.map((item) => item.externalId)).toEqual(["3556732002"]);
     expect(dataset.summary.branches[0]).toMatchObject({
       activeOrders: detail.metrics.activeNow,
       preparingNow: detail.metrics.preparingNow,

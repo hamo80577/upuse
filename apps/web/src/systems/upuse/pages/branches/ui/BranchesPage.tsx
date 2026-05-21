@@ -24,7 +24,7 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { useDeferredValue, useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { describeApiError } from "../../../api/client";
 import type { BranchMappingItem } from "../../../api/types";
 import { useAuth } from "../../../app/providers/AuthProvider";
@@ -45,6 +45,26 @@ import {
 import { useBranchMappingState } from "../../../features/branch-mapping/model/useBranchMappingState";
 import { TopBar } from "../../../widgets/top-bar/ui/TopBar";
 
+function parseAvailabilityVendorIdsInput(input: string) {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of input.split(/[\s,;]+/)) {
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function sameChainName(left: string | null | undefined, right: string | null | undefined) {
+  return (left ?? "").trim().toLowerCase() === (right ?? "").trim().toLowerCase();
+}
+
+function chainLabel(chainName: string) {
+  return chainName.trim() || "No Chain";
+}
+
 export function BranchesPage() {
   const { hasSystemCapability } = useAuth();
   const canManageBranches = hasSystemCapability("upuse", UPUSE_BRANCHES_MANAGE_CAPABILITY);
@@ -61,18 +81,38 @@ export function BranchesPage() {
     setChainMonitoringState,
     deleteChainBranches,
     addBranches,
+    resolveSourceIds,
   } = useBranchMappingState();
 
   const [toast, setToast] = useState<{ type: "success" | "error" | "info"; msg: string } | null>(null);
   const [branchQuery, setBranchQuery] = useState("");
   const [sourceQuery, setSourceQuery] = useState("");
+  const [sourceLookupLoading, setSourceLookupLoading] = useState(false);
+  const [sourceLookupError, setSourceLookupError] = useState<string | null>(null);
   const [expandedChainGroups, setExpandedChainGroups] = useState<Record<string, boolean>>({});
   const [selectedAvailabilityVendorIds, setSelectedAvailabilityVendorIds] = useState<string[]>([]);
   const [selectedChainName, setSelectedChainName] = useState("");
+  const [bulkAvailabilityIdsInput, setBulkAvailabilityIdsInput] = useState("");
+  const [bulkChainName, setBulkChainName] = useState("");
+  const [bulkAdding, setBulkAdding] = useState(false);
+  const [bulkResult, setBulkResult] = useState<{
+    addedCount: number;
+    existingInChainCount: number;
+    existingElsewhereCount: number;
+    notFoundCount: number;
+    resolveErrorCount: number;
+    failedCount: number;
+    chainName: string;
+  } | null>(null);
   const [addingBranch, setAddingBranch] = useState(false);
   const [processingChainKey, setProcessingChainKey] = useState<string | null>(null);
   const [savingMonitorBranchId, setSavingMonitorBranchId] = useState<number | null>(null);
   const deferredSourceQuery = useDeferredValue(sourceQuery);
+  const resolveSourceIdsRef = useRef(resolveSourceIds);
+
+  useEffect(() => {
+    resolveSourceIdsRef.current = resolveSourceIds;
+  }, [resolveSourceIds]);
 
   useEffect(() => {
     setSelectedAvailabilityVendorIds((current) => current.filter((availabilityVendorId) => {
@@ -102,13 +142,56 @@ export function BranchesPage() {
   const visibleAddableSourceItems = useMemo(() => sourceSearchResults.filter((item) => !item.alreadyAdded), [sourceSearchResults]);
   const selectedSourceItems = useMemo(() => sourceItems.filter((item) => selectedAvailabilityVendorIdSet.has(item.availabilityVendorId) && !item.alreadyAdded), [selectedAvailabilityVendorIdSet, sourceItems]);
   const allVisibleAddableSelected = visibleAddableSourceItems.length > 0 && visibleAddableSourceItems.every((item) => selectedAvailabilityVendorIdSet.has(item.availabilityVendorId));
+  const bulkAvailabilityVendorIds = useMemo(() => parseAvailabilityVendorIdsInput(bulkAvailabilityIdsInput), [bulkAvailabilityIdsInput]);
   const chainOptions = useMemo(() => {
     const names = settings?.chains.map((item) => item.name) ?? [];
-    if (selectedChainName && !names.includes(selectedChainName)) {
-      return [...names, selectedChainName].sort((left, right) => left.localeCompare(right));
+    const extras = [selectedChainName, bulkChainName].filter((name) => name && !names.includes(name));
+    if (extras.length) {
+      return [...names, ...extras].sort((left, right) => left.localeCompare(right));
     }
     return names;
-  }, [selectedChainName, settings?.chains]);
+  }, [bulkChainName, selectedChainName, settings?.chains]);
+
+  useEffect(() => {
+    const query = deferredSourceQuery.trim();
+    if (!/^\d{3,}$/.test(query)) {
+      setSourceLookupLoading(false);
+      setSourceLookupError(null);
+      return;
+    }
+    if (sourceItems.some((item) => item.availabilityVendorId === query)) {
+      setSourceLookupLoading(false);
+      setSourceLookupError(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      setSourceLookupLoading(true);
+      setSourceLookupError(null);
+      resolveSourceIdsRef.current([query], { signal: controller.signal })
+        .then((result) => {
+          if (controller.signal.aborted) return;
+          if (!result.items.some((item) => item.availabilityVendorId === query)) {
+            setSourceLookupError(`No live branch found for Availability ${query}.`);
+          }
+        })
+        .catch((error) => {
+          if (controller.signal.aborted) return;
+          setSourceLookupError(describeApiError(error, "Failed to resolve availability ID."));
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setSourceLookupLoading(false);
+          }
+        });
+    }, 350);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [deferredSourceQuery, sourceItems]);
 
   const onStart = async () => {
     if (!canManageMonitor) {
@@ -301,6 +384,54 @@ export function BranchesPage() {
       setToast({ type: "error", msg: describeApiError(error, "Branch add failed") });
     } finally {
       setAddingBranch(false);
+    }
+  };
+
+  const handleBulkAddAvailabilityIds = async () => {
+    if (!canManageBranches) {
+      setToast({ type: "info", msg: "No access" });
+      return;
+    }
+    if (!bulkAvailabilityVendorIds.length) {
+      setToast({ type: "error", msg: "Enter at least one Availability ID" });
+      return;
+    }
+
+    try {
+      setBulkAdding(true);
+      setBulkResult(null);
+      const resolved = await resolveSourceIds(bulkAvailabilityVendorIds);
+      const foundIds = new Set(resolved.items.map((item) => item.availabilityVendorId));
+      const notFoundCount = bulkAvailabilityVendorIds.filter((id) => !foundIds.has(id)).length;
+      const resolveErrorCount = resolved.resolveErrors?.length ?? 0;
+      const existingInChain = resolved.items.filter((item) => item.alreadyAdded && sameChainName(item.chainName, bulkChainName));
+      const existingElsewhere = resolved.items.filter((item) => item.alreadyAdded && !sameChainName(item.chainName, bulkChainName));
+      const addableItems = resolved.items.filter((item) => !item.alreadyAdded);
+      const addResult = addableItems.length
+        ? await addBranches(addableItems, bulkChainName.trim())
+        : { addedCount: 0, failedAvailabilityVendorIds: [] };
+      const nextResult = {
+        addedCount: addResult.addedCount,
+        existingInChainCount: existingInChain.length,
+        existingElsewhereCount: existingElsewhere.length,
+        notFoundCount,
+        resolveErrorCount,
+        failedCount: addResult.failedAvailabilityVendorIds.length,
+        chainName: bulkChainName.trim(),
+      };
+      setBulkResult(nextResult);
+
+      const summary = `${formatBranchCount(nextResult.addedCount)} added to ${chainLabel(nextResult.chainName)}`
+        + (nextResult.existingInChainCount ? `, ${formatBranchCount(nextResult.existingInChainCount)} already there` : "")
+        + (nextResult.existingElsewhereCount ? `, ${formatBranchCount(nextResult.existingElsewhereCount)} already saved elsewhere` : "")
+        + (nextResult.notFoundCount ? `, ${formatBranchCount(nextResult.notFoundCount)} not found` : "")
+        + (nextResult.resolveErrorCount ? `, ${formatBranchCount(nextResult.resolveErrorCount)} could not use live lookup` : "")
+        + (nextResult.failedCount ? `, ${formatBranchCount(nextResult.failedCount)} failed` : "");
+      setToast({ type: nextResult.failedCount || nextResult.notFoundCount || nextResult.resolveErrorCount ? "error" : "success", msg: summary });
+    } catch (error) {
+      setToast({ type: "error", msg: describeApiError(error, "Bulk branch add failed") });
+    } finally {
+      setBulkAdding(false);
     }
   };
 
@@ -574,6 +705,51 @@ export function BranchesPage() {
                 </Stack>
               </Stack>
               <TextField placeholder="Search by branch name or availability ID" value={sourceQuery} onChange={(event) => setSourceQuery(event.target.value)} size="small" InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment> }} />
+              {sourceLookupLoading ? (
+                <Alert severity="info" variant="outlined">Resolving availability ID from live Orders source...</Alert>
+              ) : sourceLookupError ? (
+                <Alert severity="warning" variant="outlined">{sourceLookupError}</Alert>
+              ) : null}
+              <Box sx={{ p: 1, borderRadius: 2, border: "1px solid rgba(148,163,184,0.16)", bgcolor: "rgba(248,250,252,0.72)" }}>
+                <Stack spacing={0.9}>
+                  <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+                    <Typography sx={{ fontWeight: 900, color: "#0f172a" }}>Bulk Availability IDs</Typography>
+                    <Chip size="small" label={`${bulkAvailabilityVendorIds.length} ID${bulkAvailabilityVendorIds.length === 1 ? "" : "s"}`} sx={{ fontWeight: 900, bgcolor: "rgba(15,23,42,0.06)" }} />
+                  </Stack>
+                  <TextField
+                    value={bulkAvailabilityIdsInput}
+                    onChange={(event) => {
+                      setBulkAvailabilityIdsInput(event.target.value);
+                      setBulkResult(null);
+                    }}
+                    placeholder="709024&#10;740921&#10;750954"
+                    multiline
+                    minRows={3}
+                    maxRows={4}
+                    size="small"
+                    disabled={!canManageBranches || bulkAdding}
+                  />
+                  <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
+                    <TextField select label="Target chain" value={bulkChainName} onChange={(event) => setBulkChainName(event.target.value)} disabled={!canManageBranches || bulkAdding} fullWidth>
+                      <MenuItem value="">No Chain</MenuItem>
+                      {chainOptions.map((chainName) => <MenuItem key={chainName} value={chainName}>{chainName}</MenuItem>)}
+                    </TextField>
+                    <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => void handleBulkAddAvailabilityIds()} disabled={!canManageBranches || bulkAdding || !bulkAvailabilityVendorIds.length} sx={{ minWidth: { md: 180 } }}>
+                      {bulkAdding ? "Adding..." : `Add ${formatBranchCount(bulkAvailabilityVendorIds.length)}`}
+                    </Button>
+                  </Stack>
+                  {bulkResult ? (
+                    <Alert severity={bulkResult.failedCount || bulkResult.notFoundCount || bulkResult.resolveErrorCount ? "warning" : "success"} variant="outlined">
+                      {formatBranchCount(bulkResult.addedCount)} added to {chainLabel(bulkResult.chainName)}.
+                      {bulkResult.existingInChainCount ? ` ${formatBranchCount(bulkResult.existingInChainCount)} ${bulkResult.existingInChainCount === 1 ? "was" : "were"} already in this chain.` : ""}
+                      {bulkResult.existingElsewhereCount ? ` ${formatBranchCount(bulkResult.existingElsewhereCount)} ${bulkResult.existingElsewhereCount === 1 ? "was" : "were"} already saved in another chain.` : ""}
+                      {bulkResult.notFoundCount ? ` ${formatBranchCount(bulkResult.notFoundCount)} ${bulkResult.notFoundCount === 1 ? "was" : "were"} not found.` : ""}
+                      {bulkResult.resolveErrorCount ? ` Live lookup failed for ${formatBranchCount(bulkResult.resolveErrorCount)}; local matches were still added.` : ""}
+                      {bulkResult.failedCount ? ` ${formatBranchCount(bulkResult.failedCount)} failed to add.` : ""}
+                    </Alert>
+                  ) : null}
+                </Stack>
+              </Box>
               {selectedSourceItems.length ? (
                 <Box sx={{ p: 1.25, borderRadius: 3, border: "1px solid rgba(37,99,235,0.14)", bgcolor: "rgba(239,246,255,0.9)" }}>
                   <Stack spacing={1.1}>

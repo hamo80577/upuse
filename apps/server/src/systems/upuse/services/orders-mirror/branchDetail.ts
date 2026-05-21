@@ -128,6 +128,15 @@ export function getMirrorBranchDetail(params: {
     .sort((left, right) => toMillis(left.row.placedAt) - toMillis(right.row.placedAt))
     .map(({ liveOrder }) => liveOrder);
 
+  const onHoldOrders = classifiedRows
+    .filter(({ metrics: rowMetrics }) => rowMetrics.isOnHold)
+    .sort((left, right) => toMillis(left.row.placedAt) - toMillis(right.row.placedAt))
+    .map(({ liveOrder }) => ({
+      ...liveOrder,
+      isUnassigned: false,
+      isLate: false,
+    }));
+
   const preparingOrders = classifiedRows
     .filter(({ metrics: rowMetrics }) => rowMetrics.isInPrep)
     .sort((left, right) => toMillis(left.row.pickupAt) - toMillis(right.row.pickupAt))
@@ -217,6 +226,7 @@ export function getMirrorBranchDetail(params: {
     fetchedAt,
     snapshotVersion,
     staleAgeSeconds,
+    onHoldOrders,
     unassignedOrders,
     preparingOrders,
     readyToPickupOrders,

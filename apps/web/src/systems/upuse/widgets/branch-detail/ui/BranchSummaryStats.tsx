@@ -117,6 +117,7 @@ export function BranchSummaryStats(props: {
     activeNow: number;
     lateNow: number;
     unassignedNow: number;
+    onHoldNow: number;
   };
   preparingNow?: number;
   pickerCount: number;
@@ -133,6 +134,12 @@ export function BranchSummaryStats(props: {
         <Box sx={{ gridColumn: { xs: "1 / -1", md: "auto" } }}>
           <PrepAndPickersStat preparingNow={props.preparingNow ?? 0} pickerCount={props.pickerCount} />
         </Box>
+        <SummaryStat
+          label="On Hold"
+          value={props.totals.onHoldNow}
+          prominence="primary"
+          emphasize={props.totals.onHoldNow > 0 ? "danger" : "success"}
+        />
         <SummaryStat
           label="Unassigned"
           value={props.totals.unassignedNow}

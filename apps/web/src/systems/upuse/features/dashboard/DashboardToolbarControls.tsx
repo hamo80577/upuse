@@ -1,12 +1,14 @@
 import CategoryRoundedIcon from "@mui/icons-material/CategoryRounded";
+import CheckRoundedIcon from "@mui/icons-material/CheckRounded";
+import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import FilterAltRoundedIcon from "@mui/icons-material/FilterAltRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import SortRoundedIcon from "@mui/icons-material/SortRounded";
-import { Box, IconButton, InputBase, Menu, MenuItem, Stack } from "@mui/material";
+import { Badge, Box, Chip, Divider, IconButton, InputBase, Menu, MenuItem, Stack, Tooltip, Typography } from "@mui/material";
 import { useState } from "react";
-import type { GroupMode, SortMode, StatusFilter } from "../../pages/dashboard/lib/dashboardGrouping";
+import type { GroupMode, PressureFilter, SortMode, StatusFilter } from "../../pages/dashboard/lib/dashboardGrouping";
 
-export type { GroupMode, SortMode, StatusFilter };
+export type { GroupMode, PressureFilter, SortMode, StatusFilter };
 
 function statusFilterLabel(filter: StatusFilter) {
   if (filter === "all") return "All";
@@ -23,24 +25,64 @@ function groupModeLabel(groupBy: GroupMode) {
 }
 
 function sortModeLabel(sortBy: SortMode) {
+  if (sortBy === "onHold") return "On Hold";
   if (sortBy === "late") return "Late";
   if (sortBy === "unassigned") return "Unassigned";
+  if (sortBy === "ready") return "Ready";
+  if (sortBy === "inPrep") return "In Prep";
   return "Total";
 }
+
+function pressureFilterLabel(filter: PressureFilter) {
+  if (filter === "onHold") return "On Hold";
+  if (filter === "late") return "Late";
+  if (filter === "unassigned") return "Unassigned";
+  if (filter === "ready") return "Ready";
+  return "In Prep";
+}
+
+const statusFilters: Array<{ value: StatusFilter; label: string }> = [
+  { value: "all", label: "All Statuses" },
+  { value: "open", label: "Open" },
+  { value: "tempClose", label: "Temporary Close" },
+  { value: "closed", label: "Closed" },
+  { value: "unknown", label: "Unknown" },
+];
+
+const pressureFilters: PressureFilter[] = ["onHold", "late", "unassigned", "ready", "inPrep"];
+const sortModes: SortMode[] = ["total", "onHold", "late", "unassigned", "ready", "inPrep"];
 
 export function DashboardToolbarControls(props: {
   sortBy: SortMode;
   statusFilter: StatusFilter;
+  pressureFilters: PressureFilter[];
   groupBy: GroupMode;
   searchQuery: string;
   onChangeSortBy: (value: SortMode) => void;
   onChangeStatusFilter: (value: StatusFilter) => void;
+  onChangePressureFilters: (value: PressureFilter[]) => void;
   onChangeGroupBy: (value: GroupMode) => void;
   onChangeSearchQuery: (value: string) => void;
 }) {
   const [sortAnchorEl, setSortAnchorEl] = useState<HTMLElement | null>(null);
   const [filterAnchorEl, setFilterAnchorEl] = useState<HTMLElement | null>(null);
   const [groupAnchorEl, setGroupAnchorEl] = useState<HTMLElement | null>(null);
+  const activeFilterCount = (props.statusFilter === "all" ? 0 : 1) + props.pressureFilters.length;
+  const hasActiveFilters = activeFilterCount > 0 || props.searchQuery.trim().length > 0;
+
+  const togglePressureFilter = (filter: PressureFilter) => {
+    props.onChangePressureFilters(
+      props.pressureFilters.includes(filter)
+        ? props.pressureFilters.filter((item) => item !== filter)
+        : [...props.pressureFilters, filter],
+    );
+  };
+
+  const clearFilters = () => {
+    props.onChangeStatusFilter("all");
+    props.onChangePressureFilters([]);
+    props.onChangeSearchQuery("");
+  };
 
   return (
     <Box sx={{ mt: 2, mb: 1, display: "flex", justifyContent: "flex-end" }}>
@@ -51,62 +93,70 @@ export function DashboardToolbarControls(props: {
         sx={{ width: { xs: "100%", md: "auto" } }}
       >
         <Stack direction="row" spacing={1} alignItems="center">
-          <IconButton
-            onClick={(event) => setGroupAnchorEl(event.currentTarget)}
-            sx={{
-              width: 40,
-              height: 40,
-              border: "1px solid rgba(148,163,184,0.14)",
-              bgcolor: props.groupBy === "chain" ? "rgba(255,255,255,0.92)" : "rgba(37,99,235,0.08)",
-              color: props.groupBy === "chain" ? "#334155" : "#1d4ed8",
-              boxShadow: "0 8px 18px rgba(15,23,42,0.05)",
-              "&:hover": {
-                bgcolor: props.groupBy === "chain" ? "white" : "rgba(37,99,235,0.12)",
-                boxShadow: "0 10px 20px rgba(15,23,42,0.08)",
-              },
-            }}
-            title={`Group: ${groupModeLabel(props.groupBy)}`}
-          >
-            <CategoryRoundedIcon />
-          </IconButton>
+          <Tooltip title={`Group: ${groupModeLabel(props.groupBy)}`}>
+            <IconButton
+              aria-label={`Group: ${groupModeLabel(props.groupBy)}`}
+              onClick={(event) => setGroupAnchorEl(event.currentTarget)}
+              sx={{
+                width: 40,
+                height: 40,
+                border: "1px solid rgba(148,163,184,0.14)",
+                bgcolor: props.groupBy === "chain" ? "rgba(255,255,255,0.92)" : "rgba(37,99,235,0.08)",
+                color: props.groupBy === "chain" ? "#334155" : "#1d4ed8",
+                boxShadow: "0 8px 18px rgba(15,23,42,0.05)",
+                "&:hover": {
+                  bgcolor: props.groupBy === "chain" ? "white" : "rgba(37,99,235,0.12)",
+                  boxShadow: "0 10px 20px rgba(15,23,42,0.08)",
+                },
+              }}
+            >
+              <CategoryRoundedIcon />
+            </IconButton>
+          </Tooltip>
 
-          <IconButton
-            onClick={(event) => setFilterAnchorEl(event.currentTarget)}
-            sx={{
-              width: 40,
-              height: 40,
-              border: "1px solid rgba(148,163,184,0.14)",
-              bgcolor: props.statusFilter === "all" ? "rgba(255,255,255,0.92)" : "rgba(22,163,74,0.08)",
-              color: props.statusFilter === "all" ? "#334155" : "#15803d",
-              boxShadow: "0 8px 18px rgba(15,23,42,0.05)",
-              "&:hover": {
-                bgcolor: props.statusFilter === "all" ? "white" : "rgba(22,163,74,0.12)",
-                boxShadow: "0 10px 20px rgba(15,23,42,0.08)",
-              },
-            }}
-            title={`Filter: ${statusFilterLabel(props.statusFilter)}`}
-          >
-            <FilterAltRoundedIcon />
-          </IconButton>
+          <Tooltip title={`Filters: ${activeFilterCount} active`}>
+            <IconButton
+              aria-label={`Filters: ${activeFilterCount} active`}
+              onClick={(event) => setFilterAnchorEl(event.currentTarget)}
+              sx={{
+                width: 40,
+                height: 40,
+                border: "1px solid rgba(148,163,184,0.14)",
+                bgcolor: activeFilterCount === 0 ? "rgba(255,255,255,0.92)" : "rgba(22,163,74,0.08)",
+                color: activeFilterCount === 0 ? "#334155" : "#15803d",
+                boxShadow: "0 8px 18px rgba(15,23,42,0.05)",
+                "&:hover": {
+                  bgcolor: activeFilterCount === 0 ? "white" : "rgba(22,163,74,0.12)",
+                  boxShadow: "0 10px 20px rgba(15,23,42,0.08)",
+                },
+              }}
+            >
+              <Badge badgeContent={activeFilterCount} color="success" invisible={activeFilterCount === 0}>
+                <FilterAltRoundedIcon />
+              </Badge>
+            </IconButton>
+          </Tooltip>
 
-          <IconButton
-            onClick={(event) => setSortAnchorEl(event.currentTarget)}
-            sx={{
-              width: 40,
-              height: 40,
-              border: "1px solid rgba(148,163,184,0.14)",
-              bgcolor: props.sortBy === "total" ? "rgba(255,255,255,0.92)" : "rgba(249,115,22,0.10)",
-              color: props.sortBy === "total" ? "#334155" : "#c2410c",
-              boxShadow: "0 8px 18px rgba(15,23,42,0.05)",
-              "&:hover": {
-                bgcolor: props.sortBy === "total" ? "white" : "rgba(249,115,22,0.14)",
-                boxShadow: "0 10px 20px rgba(15,23,42,0.08)",
-              },
-            }}
-            title={`Sort: ${sortModeLabel(props.sortBy)}`}
-          >
-            <SortRoundedIcon />
-          </IconButton>
+          <Tooltip title={`Sort: ${sortModeLabel(props.sortBy)}`}>
+            <IconButton
+              aria-label={`Sort: ${sortModeLabel(props.sortBy)}`}
+              onClick={(event) => setSortAnchorEl(event.currentTarget)}
+              sx={{
+                width: 40,
+                height: 40,
+                border: "1px solid rgba(148,163,184,0.14)",
+                bgcolor: props.sortBy === "total" ? "rgba(255,255,255,0.92)" : "rgba(249,115,22,0.10)",
+                color: props.sortBy === "total" ? "#334155" : "#c2410c",
+                boxShadow: "0 8px 18px rgba(15,23,42,0.05)",
+                "&:hover": {
+                  bgcolor: props.sortBy === "total" ? "white" : "rgba(249,115,22,0.14)",
+                  boxShadow: "0 10px 20px rgba(15,23,42,0.08)",
+                },
+              }}
+            >
+              <SortRoundedIcon />
+            </IconButton>
+          </Tooltip>
         </Stack>
 
         <Box
@@ -141,6 +191,27 @@ export function DashboardToolbarControls(props: {
             }}
           />
         </Box>
+
+        {hasActiveFilters ? (
+          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ maxWidth: { xs: "100%", md: 520 } }}>
+            {props.statusFilter !== "all" ? (
+              <Chip size="small" label={statusFilterLabel(props.statusFilter)} sx={{ fontWeight: 900 }} />
+            ) : null}
+            {props.pressureFilters.map((filter) => (
+              <Chip key={filter} size="small" label={pressureFilterLabel(filter)} sx={{ fontWeight: 900 }} />
+            ))}
+            {props.searchQuery.trim() ? (
+              <Chip size="small" label={`Search: ${props.searchQuery.trim()}`} sx={{ fontWeight: 900 }} />
+            ) : null}
+            <Chip
+              size="small"
+              label="Clear"
+              icon={<CloseRoundedIcon />}
+              onClick={clearFilters}
+              sx={{ fontWeight: 900, bgcolor: "rgba(15,23,42,0.06)" }}
+            />
+          </Stack>
+        ) : null}
       </Stack>
 
       <Menu
@@ -204,51 +275,43 @@ export function DashboardToolbarControls(props: {
           },
         }}
       >
-        <MenuItem
-          selected={props.statusFilter === "all"}
-          onClick={() => {
-            props.onChangeStatusFilter("all");
-            setFilterAnchorEl(null);
-          }}
-        >
-          All Statuses
-        </MenuItem>
-        <MenuItem
-          selected={props.statusFilter === "open"}
-          onClick={() => {
-            props.onChangeStatusFilter("open");
-            setFilterAnchorEl(null);
-          }}
-        >
-          Open
-        </MenuItem>
-        <MenuItem
-          selected={props.statusFilter === "tempClose"}
-          onClick={() => {
-            props.onChangeStatusFilter("tempClose");
-            setFilterAnchorEl(null);
-          }}
-        >
-          Temporary Close
-        </MenuItem>
-        <MenuItem
-          selected={props.statusFilter === "closed"}
-          onClick={() => {
-            props.onChangeStatusFilter("closed");
-            setFilterAnchorEl(null);
-          }}
-        >
-          Closed
-        </MenuItem>
-        <MenuItem
-          selected={props.statusFilter === "unknown"}
-          onClick={() => {
-            props.onChangeStatusFilter("unknown");
-            setFilterAnchorEl(null);
-          }}
-        >
-          Unknown
-        </MenuItem>
+        <Box sx={{ px: 1.6, py: 0.8 }}>
+          <Typography variant="caption" sx={{ color: "#64748b", fontWeight: 900 }}>
+            Status
+          </Typography>
+        </Box>
+        {statusFilters.map((filter) => (
+          <MenuItem
+            key={filter.value}
+            selected={props.statusFilter === filter.value}
+            onClick={() => {
+              props.onChangeStatusFilter(filter.value);
+              setFilterAnchorEl(null);
+            }}
+          >
+            <Box sx={{ width: 24 }}>{props.statusFilter === filter.value ? <CheckRoundedIcon fontSize="small" /> : null}</Box>
+            {filter.label}
+          </MenuItem>
+        ))}
+        <Divider />
+        <Box sx={{ px: 1.6, py: 0.8 }}>
+          <Typography variant="caption" sx={{ color: "#64748b", fontWeight: 900 }}>
+            Pressure
+          </Typography>
+        </Box>
+        {pressureFilters.map((filter) => {
+          const selected = props.pressureFilters.includes(filter);
+          return (
+            <MenuItem
+              key={filter}
+              selected={selected}
+              onClick={() => togglePressureFilter(filter)}
+            >
+              <Box sx={{ width: 24 }}>{selected ? <CheckRoundedIcon fontSize="small" /> : null}</Box>
+              {pressureFilterLabel(filter)}
+            </MenuItem>
+          );
+        })}
       </Menu>
 
       <Menu
@@ -267,33 +330,18 @@ export function DashboardToolbarControls(props: {
           },
         }}
       >
-        <MenuItem
-          selected={props.sortBy === "total"}
-          onClick={() => {
-            props.onChangeSortBy("total");
-            setSortAnchorEl(null);
-          }}
-        >
-          Total
-        </MenuItem>
-        <MenuItem
-          selected={props.sortBy === "late"}
-          onClick={() => {
-            props.onChangeSortBy("late");
-            setSortAnchorEl(null);
-          }}
-        >
-          Late
-        </MenuItem>
-        <MenuItem
-          selected={props.sortBy === "unassigned"}
-          onClick={() => {
-            props.onChangeSortBy("unassigned");
-            setSortAnchorEl(null);
-          }}
-        >
-          Unassigned
-        </MenuItem>
+        {sortModes.map((mode) => (
+          <MenuItem
+            key={mode}
+            selected={props.sortBy === mode}
+            onClick={() => {
+              props.onChangeSortBy(mode);
+              setSortAnchorEl(null);
+            }}
+          >
+            {sortModeLabel(mode)}
+          </MenuItem>
+        ))}
       </Menu>
     </Box>
   );

@@ -31,7 +31,8 @@ export function recordMonitorCloseAction(params: {
       doneToday,
       activeNow,
       lateNow,
-      unassignedNow
+      unassignedNow,
+      onHoldNow
     )
     VALUES (
       @branchId,
@@ -50,7 +51,8 @@ export function recordMonitorCloseAction(params: {
       @doneToday,
       @activeNow,
       @lateNow,
-      @unassignedNow
+      @unassignedNow,
+      @onHoldNow
     )
   `).run({
     branchId: params.branch.id,
@@ -68,6 +70,7 @@ export function recordMonitorCloseAction(params: {
     activeNow: params.metrics.activeNow,
     lateNow: params.metrics.lateNow,
     unassignedNow: params.metrics.unassignedNow,
+    onHoldNow: params.metrics.onHoldNow ?? 0,
   });
 
   return Number(info.lastInsertRowid);
@@ -121,7 +124,8 @@ export function buildActionEventsCsv(params: {
       doneToday,
       activeNow,
       lateNow,
-      unassignedNow
+      unassignedNow,
+      onHoldNow
     FROM action_events
     WHERE ts >= ? AND ts < ?
     ORDER BY ts ASC, branchName ASC

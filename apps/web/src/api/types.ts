@@ -1,4 +1,4 @@
-export type CloseReason = "LATE" | "UNASSIGNED" | "READY_TO_PICKUP" | "CAPACITY" | "CAPACITY_HOUR";
+export type CloseReason = "LATE" | "UNASSIGNED" | "READY_TO_PICKUP" | "ON_HOLD" | "CAPACITY" | "CAPACITY_HOUR";
 export type AppUserRole = "admin" | "user" | "tracker";
 export type ScanoRole = "team_lead" | "scanner";
 export type ThresholdSource = "branch" | "chain" | "global";
@@ -33,6 +33,8 @@ export interface ChainThreshold {
   unassignedReopenThreshold?: number;
   readyThreshold?: number;
   readyReopenThreshold?: number;
+  onHoldThreshold?: number;
+  onHoldReopenThreshold?: number;
   capacityRuleEnabled?: boolean;
   capacityPerHourEnabled?: boolean;
   capacityPerHourLimit?: number | null;
@@ -45,6 +47,8 @@ export interface ThresholdProfile {
   unassignedReopenThreshold?: number;
   readyThreshold?: number;
   readyReopenThreshold?: number;
+  onHoldThreshold?: number;
+  onHoldReopenThreshold?: number;
   capacityRuleEnabled?: boolean;
   capacityPerHourEnabled?: boolean;
   capacityPerHourLimit?: number | null;
@@ -76,6 +80,7 @@ export interface OrdersMetrics {
   lateNow: number;
   unassignedNow: number;
   readyNow?: number;
+  onHoldNow?: number;
 }
 
 export interface BranchLiveOrder {
@@ -162,6 +167,8 @@ export interface BranchMappingItem {
   unassignedReopenThresholdOverride?: number | null;
   readyThresholdOverride?: number | null;
   readyReopenThresholdOverride?: number | null;
+  onHoldThresholdOverride?: number | null;
+  onHoldReopenThresholdOverride?: number | null;
   capacityRuleEnabledOverride?: boolean | null;
   capacityPerHourEnabledOverride?: boolean | null;
   capacityPerHourLimitOverride?: number | null;
@@ -223,6 +230,7 @@ export interface DashboardSnapshot {
     activeNow: number;
     lateNow: number;
     unassignedNow: number;
+    onHoldNow: number;
   };
   branches: BranchSnapshot[];
 }
@@ -520,6 +528,7 @@ interface BranchDetailBase {
   snapshotVersion?: string | null;
   staleAgeSeconds?: number | null;
   unassignedOrders: BranchLiveOrder[];
+  onHoldOrders: BranchLiveOrder[];
   preparingOrders: BranchLiveOrder[];
   readyToPickupOrders: BranchLiveOrder[];
   pickers: BranchPickersSummary;
@@ -568,6 +577,8 @@ export interface SettingsMasked {
   unassignedReopenThreshold?: number;
   readyThreshold?: number;
   readyReopenThreshold?: number;
+  onHoldThreshold?: number;
+  onHoldReopenThreshold?: number;
 
   tempCloseMinutes: number;
   graceMinutes: number;

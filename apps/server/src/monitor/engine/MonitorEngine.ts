@@ -247,6 +247,8 @@ export class MonitorEngine {
       | "unassignedReopenThresholdOverride"
       | "readyThresholdOverride"
       | "readyReopenThresholdOverride"
+      | "onHoldThresholdOverride"
+      | "onHoldReopenThresholdOverride"
       | "capacityRuleEnabledOverride"
       | "capacityPerHourEnabledOverride"
       | "capacityPerHourLimitOverride"
@@ -654,6 +656,7 @@ export class MonitorEngine {
         lateNow: 0,
         unassignedNow: 0,
         readyNow: 0,
+        onHoldNow: 0,
       };
       const currentHourPlacedCount = this.currentHourPlacedByVendor.get(branch.ordersVendorId) ?? 0;
       const preparation = this.currentPreparation(this.preparationByVendor.get(branch.ordersVendorId), true);

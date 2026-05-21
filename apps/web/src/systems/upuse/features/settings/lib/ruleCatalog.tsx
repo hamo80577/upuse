@@ -1,6 +1,7 @@
 import AccessTimeRoundedIcon from "@mui/icons-material/AccessTimeRounded";
 import BoltRoundedIcon from "@mui/icons-material/BoltRounded";
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
+import PauseCircleRoundedIcon from "@mui/icons-material/PauseCircleRounded";
 import PersonOffRoundedIcon from "@mui/icons-material/PersonOffRounded";
 import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
 import type { ReactNode } from "react";
@@ -13,7 +14,7 @@ export type ThresholdScopeSelection =
   | { kind: "chain"; chainName: string }
   | { kind: "branch"; branchId: number };
 
-export type ThresholdRuleId = "late" | "unassigned" | "ready" | "capacity" | "capacityHour";
+export type ThresholdRuleId = "late" | "unassigned" | "ready" | "onHold" | "capacity" | "capacityHour";
 
 export interface RuleCatalogEntry {
   id: ThresholdRuleId;
@@ -37,6 +38,7 @@ export interface RuleEditorDraft {
   late: { close: string; reopen: string };
   unassigned: { close: string; reopen: string };
   ready: { close: string; reopen: string };
+  onHold: { close: string; reopen: string };
   capacity: { enabled: boolean };
   capacityHour: { enabled: boolean; limit: string };
 }
@@ -87,6 +89,23 @@ export const thresholdRuleCatalog: RuleCatalogEntry[] = [
       solid: "#1d4ed8",
       border: "rgba(59,130,246,0.24)",
       glow: "0 20px 36px rgba(59,130,246,0.14)",
+    },
+    supportsClose: true,
+    supportsReopen: true,
+    supportsToggle: false,
+    supportsLimit: false,
+  },
+  {
+    id: "onHold",
+    label: "On Hold Orders",
+    shortLabel: "On Hold",
+    description: "Temporary close when orders currently on hold cross the configured threshold.",
+    icon: <PauseCircleRoundedIcon sx={{ fontSize: 20 }} />,
+    accent: {
+      soft: "rgba(248,113,113,0.14)",
+      solid: "#b91c1c",
+      border: "rgba(248,113,113,0.24)",
+      glow: "0 20px 36px rgba(248,113,113,0.14)",
     },
     supportsClose: true,
     supportsReopen: true,
@@ -145,6 +164,8 @@ export function branchHasCustomOverride(branch: Pick<
   | "unassignedReopenThresholdOverride"
   | "readyThresholdOverride"
   | "readyReopenThresholdOverride"
+  | "onHoldThresholdOverride"
+  | "onHoldReopenThresholdOverride"
   | "capacityRuleEnabledOverride"
   | "capacityPerHourEnabledOverride"
   | "capacityPerHourLimitOverride"
@@ -155,6 +176,8 @@ export function branchHasCustomOverride(branch: Pick<
     || typeof branch.unassignedReopenThresholdOverride === "number"
     || typeof branch.readyThresholdOverride === "number"
     || typeof branch.readyReopenThresholdOverride === "number"
+    || typeof branch.onHoldThresholdOverride === "number"
+    || typeof branch.onHoldReopenThresholdOverride === "number"
     || typeof branch.capacityRuleEnabledOverride === "boolean"
     || (
       typeof branch.capacityPerHourEnabledOverride === "boolean"
@@ -171,6 +194,7 @@ export function countActiveRules(
     | "lateThreshold"
     | "unassignedThreshold"
     | "readyThreshold"
+    | "onHoldThreshold"
     | "capacityRuleEnabled"
     | "capacityPerHourEnabled"
     | "capacityPerHourLimit"
@@ -179,6 +203,10 @@ export function countActiveRules(
   const hasLate = globalThresholds.lateThreshold > 0 || chains.some((chain) => chain.lateThreshold > 0);
   const hasUnassigned = globalThresholds.unassignedThreshold > 0 || chains.some((chain) => chain.unassignedThreshold > 0);
   const hasReady = (globalThresholds.readyThreshold ?? 0) > 0 || chains.some((chain) => (chain.readyThreshold ?? 0) > 0);
+  const hasOnHold =
+    (globalThresholds.onHoldThreshold ?? 0) > 0
+    || chains.some((chain) => (chain.onHoldThreshold ?? 0) > 0)
+    || branches.some((branch) => typeof branch.onHoldThresholdOverride === "number" && branch.onHoldThresholdOverride > 0);
   const hasCapacity =
     globalThresholds.capacityRuleEnabled !== false
     || chains.some((chain) => chain.capacityRuleEnabled !== false)
@@ -190,7 +218,7 @@ export function countActiveRules(
       branch.capacityPerHourEnabledOverride === true && typeof branch.capacityPerHourLimitOverride === "number"
     ));
 
-  return [hasLate, hasUnassigned, hasReady, hasCapacity, hasCapacityHour].filter(Boolean).length;
+  return [hasLate, hasUnassigned, hasReady, hasOnHold, hasCapacity, hasCapacityHour].filter(Boolean).length;
 }
 
 export function countProfileRules(profile: Pick<
@@ -198,6 +226,7 @@ export function countProfileRules(profile: Pick<
   | "lateThreshold"
   | "unassignedThreshold"
   | "readyThreshold"
+  | "onHoldThreshold"
   | "capacityRuleEnabled"
   | "capacityPerHourEnabled"
   | "capacityPerHourLimit"
@@ -206,6 +235,7 @@ export function countProfileRules(profile: Pick<
     profile.lateThreshold > 0,
     profile.unassignedThreshold > 0,
     (profile.readyThreshold ?? 0) > 0,
+    (profile.onHoldThreshold ?? 0) > 0,
     profile.capacityRuleEnabled !== false,
     profile.capacityPerHourEnabled === true && typeof profile.capacityPerHourLimit === "number",
   ].filter(Boolean).length;
@@ -219,6 +249,8 @@ export function buildRuleEditorDraft(profile: Pick<
   | "unassignedReopenThreshold"
   | "readyThreshold"
   | "readyReopenThreshold"
+  | "onHoldThreshold"
+  | "onHoldReopenThreshold"
   | "capacityRuleEnabled"
   | "capacityPerHourEnabled"
   | "capacityPerHourLimit"
@@ -235,6 +267,10 @@ export function buildRuleEditorDraft(profile: Pick<
     ready: {
       close: String(profile.readyThreshold ?? 0),
       reopen: String(profile.readyReopenThreshold ?? 0),
+    },
+    onHold: {
+      close: String(profile.onHoldThreshold ?? 0),
+      reopen: String(profile.onHoldReopenThreshold ?? 0),
     },
     capacity: {
       enabled: profile.capacityRuleEnabled !== false,

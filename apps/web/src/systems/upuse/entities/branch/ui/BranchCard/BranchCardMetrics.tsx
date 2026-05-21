@@ -6,13 +6,13 @@ import type { BranchSnapshot } from "../../../../api/types";
 function MetricTile(props: {
   label: string;
   value: number;
-  tone?: "neutral" | "late" | "ready" | "unassigned";
+  tone?: "neutral" | "late" | "ready" | "onHold" | "unassigned";
   mobileSpan?: number;
   badgeText?: ReactNode;
   badgeTone?: "default" | "syncing" | "stale";
 }) {
   const tone = props.tone ?? "neutral";
-  const zeroIsHealthy = (tone === "late" || tone === "unassigned") && props.value === 0;
+  const zeroIsHealthy = (tone === "late" || tone === "onHold" || tone === "unassigned") && props.value === 0;
   const toneSx =
     zeroIsHealthy
       ? {
@@ -35,6 +35,12 @@ function MetricTile(props: {
         : tone === "unassigned"
           ? {
               accent: "#b91c1c",
+              valueColor: "#b91c1c",
+              labelColor: "#b91c1c",
+            }
+        : tone === "onHold"
+          ? {
+              accent: "#dc2626",
               valueColor: "#b91c1c",
               labelColor: "#b91c1c",
             }
@@ -69,6 +75,10 @@ function MetricTile(props: {
                 : "rgba(255,247,237,0.95)"
               : tone === "ready"
                 ? "rgba(240,249,255,0.98)"
+              : tone === "onHold"
+                ? zeroIsHealthy
+                  ? "rgba(240,253,244,0.95)"
+                  : "rgba(254,242,242,0.95)"
               : tone === "unassigned"
                 ? zeroIsHealthy
                   ? "rgba(240,253,244,0.95)"
@@ -188,6 +198,7 @@ function BranchCardMetricsBase(props: {
         gridTemplateColumns: {
           xs: "repeat(6, minmax(0, 1fr))",
           md: "repeat(6, minmax(0, 1fr))",
+          lg: "repeat(7, minmax(0, 1fr))",
         },
       }}
     >
@@ -201,6 +212,7 @@ function BranchCardMetricsBase(props: {
       />
       <MetricTile label="Active" value={m.activeNow} mobileSpan={2} />
       <MetricTile label="Ready To Pickup" value={m.readyNow ?? 0} tone="ready" mobileSpan={2} />
+      <MetricTile label="On Hold" value={m.onHoldNow ?? 0} tone="onHold" mobileSpan={2} />
       <MetricTile label="Late" value={m.lateNow} tone="late" mobileSpan={2} />
       <MetricTile label="Unassigned" value={m.unassignedNow} tone="unassigned" mobileSpan={2} />
     </Box>

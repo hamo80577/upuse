@@ -1,8 +1,9 @@
 import type { DashboardSnapshot } from "../../../api/types";
 import { resolveAvailabilitySubtypeLabel } from "../../../shared/lib/branch/availabilityMeta";
 
-export type SortMode = "total" | "late" | "unassigned";
+export type SortMode = "total" | "onHold" | "late" | "unassigned" | "ready" | "inPrep";
 export type StatusFilter = "all" | "open" | "tempClose" | "closed" | "unknown";
+export type PressureFilter = "onHold" | "late" | "unassigned" | "ready" | "inPrep";
 export type GroupMode = "chain" | "status" | "all";
 
 export type DashboardBranch = DashboardSnapshot["branches"][number];
@@ -34,7 +35,10 @@ export interface BranchGroup {
 
 function branchValueFor(sortBy: SortMode, branch: DashboardBranch) {
   if (sortBy === "total") return branch.metrics.totalToday;
+  if (sortBy === "onHold") return branch.metrics.onHoldNow ?? 0;
   if (sortBy === "unassigned") return branch.metrics.unassignedNow;
+  if (sortBy === "ready") return branch.metrics.readyNow ?? 0;
+  if (sortBy === "inPrep") return branch.preparingNow ?? branch.metrics.preparingNow ?? 0;
   return branch.metrics.lateNow;
 }
 
@@ -42,7 +46,19 @@ export function compareBranches(a: DashboardBranch, b: DashboardBranch, sortBy: 
   const primary = branchValueFor(sortBy, b) - branchValueFor(sortBy, a);
   if (primary !== 0) return primary;
 
-  const pressure = b.metrics.lateNow + b.metrics.unassignedNow - (a.metrics.lateNow + a.metrics.unassignedNow);
+  const pressure =
+    (b.metrics.onHoldNow ?? 0) +
+    b.metrics.lateNow +
+    b.metrics.unassignedNow +
+    (b.metrics.readyNow ?? 0) +
+    (b.preparingNow ?? b.metrics.preparingNow ?? 0) -
+    (
+      (a.metrics.onHoldNow ?? 0) +
+      a.metrics.lateNow +
+      a.metrics.unassignedNow +
+      (a.metrics.readyNow ?? 0) +
+      (a.preparingNow ?? a.metrics.preparingNow ?? 0)
+    );
   if (pressure !== 0) return pressure;
 
   const total = b.metrics.totalToday - a.metrics.totalToday;
@@ -71,6 +87,18 @@ export function matchesSearchQuery(branch: DashboardBranch, query: string) {
   ];
 
   return candidates.some((value) => String(value ?? "").toLowerCase().includes(normalizedQuery));
+}
+
+export function matchesPressureFilters(branch: DashboardBranch, filters: PressureFilter[]) {
+  if (!filters.length) return true;
+
+  return filters.every((filter) => {
+    if (filter === "onHold") return (branch.metrics.onHoldNow ?? 0) > 0;
+    if (filter === "late") return branch.metrics.lateNow > 0;
+    if (filter === "unassigned") return branch.metrics.unassignedNow > 0;
+    if (filter === "ready") return (branch.metrics.readyNow ?? 0) > 0;
+    return (branch.preparingNow ?? branch.metrics.preparingNow ?? 0) > 0;
+  });
 }
 
 function emptyGroupTotals(): GroupTotals {

@@ -71,6 +71,8 @@ function createBranchSnapshot(overrides: Partial<BranchSnapshot> = {}): BranchSn
       activeNow: 4,
       lateNow: 0,
       unassignedNow: 1,
+      readyNow: 0,
+      onHoldNow: 0,
     },
     preparingNow: 3,
     preparingPickersNow: 2,
@@ -135,6 +137,7 @@ describe("BranchDetailDialog", () => {
       },
       fetchedAt: "2026-03-08T14:18:00.000Z",
       cacheState: "fresh",
+      onHoldOrders: [],
       unassignedOrders: [],
       preparingOrders: [],
       readyToPickupOrders: [],
@@ -159,6 +162,7 @@ describe("BranchDetailDialog", () => {
       totals: createBranchSnapshot().metrics,
       fetchedAt: null,
       cacheState: "warming",
+      onHoldOrders: [],
       unassignedOrders: [],
       preparingOrders: [],
       readyToPickupOrders: [],
@@ -183,6 +187,7 @@ describe("BranchDetailDialog", () => {
       totals: createBranchSnapshot().metrics,
       fetchedAt: null,
       cacheState: "warming",
+      onHoldOrders: [],
       unassignedOrders: [],
       preparingOrders: [],
       readyToPickupOrders: [],
@@ -238,6 +243,7 @@ describe("BranchDetailDialog", () => {
       totals: detailBranch.metrics,
       fetchedAt: "2026-03-08T14:10:00.000Z",
       cacheState: "fresh",
+      onHoldOrders: [],
       unassignedOrders: [],
       preparingOrders: [],
       readyToPickupOrders: [],
@@ -284,6 +290,7 @@ describe("BranchDetailDialog", () => {
       totals: detailBranch.metrics,
       fetchedAt: "2026-03-08T14:22:00.000Z",
       cacheState: "fresh",
+      onHoldOrders: [],
       unassignedOrders: [],
       preparingOrders: [],
       readyToPickupOrders: [],
@@ -305,6 +312,7 @@ describe("BranchDetailDialog", () => {
       totals: createBranchSnapshot({ monitorEnabled: true, status: "OPEN", statusColor: "green" }).metrics,
       fetchedAt: "2026-03-08T14:10:00.000Z",
       cacheState: "fresh",
+      onHoldOrders: [],
       unassignedOrders: [],
       preparingOrders: [
         {
@@ -358,6 +366,7 @@ describe("BranchDetailDialog", () => {
       totals: createBranchSnapshot({ monitorEnabled: true, status: "OPEN", statusColor: "green" }).metrics,
       fetchedAt: "2026-03-08T14:10:00.000Z",
       cacheState: "fresh",
+      onHoldOrders: [],
       unassignedOrders: [],
       preparingOrders: [
         {
@@ -399,6 +408,46 @@ describe("BranchDetailDialog", () => {
     expect(screen.getAllByText("#READY-7")).toHaveLength(1);
   });
 
+  it("renders on-hold orders with a placed-at duration warning after two minutes", () => {
+    const branch = createBranchSnapshot({
+      metrics: {
+        ...createBranchSnapshot().metrics,
+        onHoldNow: 1,
+      },
+    });
+    mockUseBranchDetailState.mockReturnValue(buildHookState({
+      kind: "ok",
+      branch,
+      totals: branch.metrics,
+      fetchedAt: "2026-03-08T14:10:00.000Z",
+      cacheState: "fresh",
+      onHoldOrders: [
+        {
+          id: "hold-1",
+          externalId: "HOLD-1",
+          status: "ON_HOLD",
+          placedAt: "2026-03-08T14:17:30.000Z",
+          pickupAt: "2026-03-08T14:40:00.000Z",
+          shopperId: 90205,
+          shopperFirstName: "Amina",
+          isUnassigned: false,
+          isLate: false,
+        },
+      ],
+      unassignedOrders: [],
+      preparingOrders: [],
+      readyToPickupOrders: [],
+      pickers: emptyPickers(),
+    }));
+
+    render(<BranchDetailDialog open branchId={7} branchSnapshot={branch} onClose={() => {}} />);
+
+    expect(screen.getByText("On Hold Orders")).toBeInTheDocument();
+    expect(screen.getByText("#HOLD-1")).toBeInTheDocument();
+    expect(screen.getByText("Over 2m")).toBeInTheDocument();
+    expect(screen.getByText("02:30")).toBeInTheDocument();
+  });
+
   it("keeps the branch snapshot shell visible while queue detail is still loading", () => {
     mockUseBranchDetailState.mockReturnValue({
       ...buildHookState(null),
@@ -420,6 +469,7 @@ describe("BranchDetailDialog", () => {
       totals: createBranchSnapshot().metrics,
       fetchedAt: "2026-03-08T14:10:00.000Z",
       cacheState: "fresh",
+      onHoldOrders: [],
       unassignedOrders: [],
       preparingOrders: [],
       readyToPickupOrders: [],
@@ -449,6 +499,7 @@ describe("BranchDetailDialog", () => {
       totals: createBranchSnapshot().metrics,
       fetchedAt: "2026-03-08T14:10:00.000Z",
       cacheState: "fresh",
+      onHoldOrders: [],
       unassignedOrders: [],
       preparingOrders: [],
       readyToPickupOrders: [],

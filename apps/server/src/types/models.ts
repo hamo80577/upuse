@@ -6,7 +6,7 @@ export type ScanoRole = "team_lead" | "scanner";
 export type ThresholdSource = "branch" | "chain" | "global";
 export type BranchCatalogState = "available" | "missing";
 
-export type CloseReason = "LATE" | "UNASSIGNED" | "READY_TO_PICKUP" | "CAPACITY" | "CAPACITY_HOUR";
+export type CloseReason = "LATE" | "UNASSIGNED" | "READY_TO_PICKUP" | "ON_HOLD" | "CAPACITY" | "CAPACITY_HOUR";
 export type MonitorIssueSource = "orders" | "availability";
 export type MonitorErrorCategory =
   | "token_missing"
@@ -38,6 +38,8 @@ export interface ChainThreshold {
   unassignedReopenThreshold?: number;
   readyThreshold?: number;
   readyReopenThreshold?: number;
+  onHoldThreshold?: number;
+  onHoldReopenThreshold?: number;
   capacityRuleEnabled?: boolean;
   capacityPerHourEnabled?: boolean;
   capacityPerHourLimit?: number | null;
@@ -50,6 +52,8 @@ export interface ThresholdProfile {
   unassignedReopenThreshold?: number;
   readyThreshold?: number;
   readyReopenThreshold?: number;
+  onHoldThreshold?: number;
+  onHoldReopenThreshold?: number;
   capacityRuleEnabled?: boolean;
   capacityPerHourEnabled?: boolean;
   capacityPerHourLimit?: number | null;
@@ -84,6 +88,8 @@ export interface Settings {
   unassignedReopenThreshold?: number;
   readyThreshold?: number;
   readyReopenThreshold?: number;
+  onHoldThreshold?: number;
+  onHoldReopenThreshold?: number;
 
   tempCloseMinutes: number; // default 30
   graceMinutes: number; // default 5
@@ -114,6 +120,8 @@ export interface BranchMapping {
   unassignedReopenThresholdOverride?: number | null;
   readyThresholdOverride?: number | null;
   readyReopenThresholdOverride?: number | null;
+  onHoldThresholdOverride?: number | null;
+  onHoldReopenThresholdOverride?: number | null;
   capacityRuleEnabledOverride?: boolean | null;
   capacityPerHourEnabledOverride?: boolean | null;
   capacityPerHourLimitOverride?: number | null;
@@ -145,6 +153,7 @@ export interface OrdersMetrics {
   lateNow: number; // in prep and now > pickupAt
   unassignedNow: number; // non-cancelled status UNASSIGNED only
   readyNow?: number; // status READY_FOR_PICKUP
+  onHoldNow?: number; // status ON_HOLD
 }
 
 export interface BranchLiveOrder {
@@ -283,6 +292,7 @@ export interface DashboardSnapshot {
     activeNow: number;
     lateNow: number;
     unassignedNow: number;
+    onHoldNow: number;
   };
   branches: BranchSnapshot[];
 }
@@ -564,6 +574,7 @@ interface BranchDetailBase {
   snapshotVersion?: string | null;
   staleAgeSeconds?: number | null;
   unassignedOrders: BranchLiveOrder[];
+  onHoldOrders: BranchLiveOrder[];
   preparingOrders: BranchLiveOrder[];
   readyToPickupOrders: BranchLiveOrder[];
   pickers: BranchPickersSummary;

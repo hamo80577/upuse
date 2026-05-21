@@ -29,6 +29,7 @@ const emptySnap: DashboardSnapshot = {
     activeNow: 0,
     lateNow: 0,
     unassignedNow: 0,
+    onHoldNow: 0,
   },
   branches: [],
 };
@@ -97,13 +98,27 @@ function normalizeDashboardSnapshot(snapshot: DashboardSnapshot | null | undefin
     return null;
   }
 
-  const branches = rawBranches.map((branch) => ({
-    ...branch,
-    ordersDataState:
-      branch && typeof branch === "object" && typeof (branch as { ordersDataState?: unknown }).ordersDataState === "string"
-        ? (branch as { ordersDataState: DashboardSnapshot["branches"][number]["ordersDataState"] }).ordersDataState
-        : "warming",
-  }));
+  const branches = rawBranches.map((branch) => {
+    if (!branch || typeof branch !== "object") {
+      return branch;
+    }
+
+    const candidate = branch as DashboardSnapshot["branches"][number];
+    return {
+      ...candidate,
+      metrics:
+        candidate.metrics && typeof candidate.metrics === "object"
+          ? {
+              ...candidate.metrics,
+              onHoldNow: candidate.metrics.onHoldNow ?? 0,
+            }
+          : candidate.metrics,
+      ordersDataState:
+        typeof candidate.ordersDataState === "string"
+          ? candidate.ordersDataState
+          : "warming",
+    };
+  });
 
   if (!branches.every(isValidBranchSnapshot)) {
     return null;

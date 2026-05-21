@@ -24,6 +24,7 @@ export function closeReasonLogTag(reason: CloseReason, metrics: OrdersMetrics, r
   if (reason === "LATE") return `Late=${metrics.lateNow}`;
   if (reason === "UNASSIGNED") return `Unassigned=${metrics.unassignedNow}`;
   if (reason === "READY_TO_PICKUP") return `Ready To Pickup=${metrics.readyNow ?? 0}`;
+  if (reason === "ON_HOLD") return `On Hold=${metrics.onHoldNow ?? 0}`;
   if (reason === "CAPACITY_HOUR") {
     return "Capacity / Hour limit reached";
   }

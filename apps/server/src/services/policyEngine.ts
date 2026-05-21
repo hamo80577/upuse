@@ -132,6 +132,10 @@ export function decide(input: PolicyInput): PolicyDecision {
     typeof thresholds.readyThreshold === "number"
       ? thresholds.readyThreshold
       : 0;
+  const onHoldThreshold =
+    typeof thresholds.onHoldThreshold === "number"
+      ? thresholds.onHoldThreshold
+      : 0;
   const lateReopenThreshold =
     typeof thresholds.lateReopenThreshold === "number"
       ? thresholds.lateReopenThreshold
@@ -144,6 +148,10 @@ export function decide(input: PolicyInput): PolicyDecision {
     typeof thresholds.readyReopenThreshold === "number"
       ? thresholds.readyReopenThreshold
       : 0;
+  const onHoldReopenThreshold =
+    typeof thresholds.onHoldReopenThreshold === "number"
+      ? thresholds.onHoldReopenThreshold
+      : 0;
   const normalizedRecentActivePickers = normalizeRecentActivePickers(recentActivePickers);
   const capacityRuleCanApply =
     capacityRuleEnabled &&
@@ -154,6 +162,7 @@ export function decide(input: PolicyInput): PolicyDecision {
   const exceedLate = metrics.lateNow >= thresholds.lateThreshold && thresholds.lateThreshold > 0;
   const exceedUnassigned = metrics.unassignedNow >= thresholds.unassignedThreshold && thresholds.unassignedThreshold > 0;
   const exceedReady = (metrics.readyNow ?? 0) >= readyThreshold && readyThreshold > 0;
+  const exceedOnHold = (metrics.onHoldNow ?? 0) >= onHoldThreshold && onHoldThreshold > 0;
   const exceedCapacity =
     capacityRuleCanApply &&
     capacityLoad > capacityLimit(normalizedRecentActivePickers);
@@ -194,6 +203,7 @@ export function decide(input: PolicyInput): PolicyDecision {
     if (exceedLate) return { type: "CLOSE", reason: "LATE" };
     if (exceedUnassigned) return { type: "CLOSE", reason: "UNASSIGNED" };
     if (exceedReady) return { type: "CLOSE", reason: "READY_TO_PICKUP" };
+    if (exceedOnHold) return { type: "CLOSE", reason: "ON_HOLD" };
     if (exceedCapacity) return { type: "CLOSE", reason: "CAPACITY" };
     if (exceedCapacityPerHour) return { type: "CLOSE", reason: "CAPACITY_HOUR" };
     return { type: "NOOP" };
@@ -212,6 +222,9 @@ export function decide(input: PolicyInput): PolicyDecision {
     }
     if (lastCloseReason === "READY_TO_PICKUP" && (readyThreshold <= 0 || (metrics.readyNow ?? 0) <= readyReopenThreshold)) {
       return { type: "EARLY_OPEN", reason: "READY_TO_PICKUP" };
+    }
+    if (lastCloseReason === "ON_HOLD" && (onHoldThreshold <= 0 || (metrics.onHoldNow ?? 0) <= onHoldReopenThreshold)) {
+      return { type: "EARLY_OPEN", reason: "ON_HOLD" };
     }
     if (lastCloseReason === "CAPACITY" && !capacityRuleEnabled) {
       return { type: "EARLY_OPEN", reason: "CAPACITY" };
@@ -241,6 +254,7 @@ export function decide(input: PolicyInput): PolicyDecision {
     if (exceedLate) return { type: "CLOSE", reason: "LATE" };
     if (exceedUnassigned) return { type: "CLOSE", reason: "UNASSIGNED" };
     if (exceedReady) return { type: "CLOSE", reason: "READY_TO_PICKUP" };
+    if (exceedOnHold) return { type: "CLOSE", reason: "ON_HOLD" };
     if (exceedCapacity) return { type: "CLOSE", reason: "CAPACITY" };
     if (exceedCapacityPerHour) return { type: "CLOSE", reason: "CAPACITY_HOUR" };
   }

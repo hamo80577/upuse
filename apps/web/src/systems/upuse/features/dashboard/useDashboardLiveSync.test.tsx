@@ -49,6 +49,7 @@ function createSnapshot(overrides?: Partial<DashboardSnapshot>): DashboardSnapsh
       activeNow: 4,
       lateNow: 0,
       unassignedNow: 1,
+      onHoldNow: 0,
       ...overrides?.totals,
     },
     branches: overrides?.branches ?? [],
@@ -125,6 +126,7 @@ describe("useDashboardLiveSync", () => {
         activeNow: 0,
         lateNow: 0,
         unassignedNow: 0,
+        onHoldNow: 0,
       },
       branches: [],
     });
@@ -169,7 +171,8 @@ describe("useDashboardLiveSync", () => {
 
     await flushEffects();
 
-    expect(result.current.snap.branches).toEqual(baseSnapshot.branches);
+    expect(result.current.snap.branches).toMatchObject(baseSnapshot.branches);
+    expect(result.current.snap.branches[0]?.metrics.onHoldNow).toBe(0);
   });
 
   it("switches to fallback polling when the stream closes", async () => {

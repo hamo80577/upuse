@@ -182,6 +182,7 @@ export async function fetchVendorOrdersDetail(params: {
 
   const metrics = initMetrics();
   const unassignedOrders: ReturnType<typeof toLiveOrder>[] = [];
+  const onHoldOrders: ReturnType<typeof toLiveOrder>[] = [];
   const preparingOrders: ReturnType<typeof toLiveOrder>[] = [];
   const readyToPickupOrders: ReturnType<typeof toLiveOrder>[] = [];
   const pickersById = new Map<number, PickerAccumulator>();
@@ -224,36 +225,47 @@ export async function fetchVendorOrdersDetail(params: {
           shopperId,
         }, nowIso);
         const isCompleted = Boolean(order?.isCompleted);
+        const isCancelled = order?.status === "CANCELLED";
+        const isOnHold = !isCancelled && order?.status === "ON_HOLD";
         const isUnassigned = liveOrder
           ? liveOrder.isUnassigned
           : classification.isUnassigned;
 
         if (includeMetrics) {
           metrics.totalToday += 1;
-          if (order?.status === "CANCELLED") metrics.cancelledToday += 1;
+          if (isCancelled) metrics.cancelledToday += 1;
 
           if (isCompleted) {
             metrics.doneToday += 1;
           }
-          if (classification.isActive) {
+          if (isOnHold) {
+            metrics.onHoldNow = (metrics.onHoldNow ?? 0) + 1;
+          }
+          if (!isOnHold && classification.isActive) {
             metrics.activeNow += 1;
           }
-          if (classification.isInPreparation) {
+          if (!isOnHold && classification.isInPreparation) {
             metrics.preparingNow = (metrics.preparingNow ?? 0) + 1;
           }
-          if (classification.isLate) {
+          if (!isOnHold && classification.isLate) {
             metrics.lateNow += 1;
           }
-          if (classification.isReadyToPickup) {
+          if (!isOnHold && classification.isReadyToPickup) {
             metrics.readyNow = (metrics.readyNow ?? 0) + 1;
           }
-          if (classification.isUnassigned) {
+          if (!isOnHold && classification.isUnassigned) {
             metrics.unassignedNow += 1;
           }
         }
 
         if (includeOrders && liveOrder) {
-          if (classification.isReadyToPickup) {
+          if (isOnHold) {
+            onHoldOrders.push({
+              ...liveOrder,
+              isUnassigned: false,
+              isLate: false,
+            });
+          } else if (classification.isReadyToPickup) {
             readyToPickupOrders.push(liveOrder);
           } else if (liveOrder.isUnassigned) {
             unassignedOrders.push(liveOrder);
@@ -339,6 +351,11 @@ export async function fetchVendorOrdersDetail(params: {
     const t2 = b.placedAt ? new Date(b.placedAt).getTime() : 0;
     return t1 - t2;
   });
+  onHoldOrders.sort((a, b) => {
+    const t1 = a.placedAt ? new Date(a.placedAt).getTime() : Number.MAX_SAFE_INTEGER;
+    const t2 = b.placedAt ? new Date(b.placedAt).getTime() : Number.MAX_SAFE_INTEGER;
+    return t1 - t2;
+  });
   preparingOrders.sort((a, b) => {
     const t1 = a.pickupAt ? new Date(a.pickupAt).getTime() : Number.MAX_SAFE_INTEGER;
     const t2 = b.pickupAt ? new Date(b.pickupAt).getTime() : Number.MAX_SAFE_INTEGER;
@@ -353,6 +370,7 @@ export async function fetchVendorOrdersDetail(params: {
   const result = {
     metrics,
     fetchedAt: nowIso,
+    onHoldOrders,
     unassignedOrders,
     preparingOrders,
     readyToPickupOrders,

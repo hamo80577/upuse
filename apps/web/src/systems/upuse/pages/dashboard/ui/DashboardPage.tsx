@@ -13,7 +13,7 @@ import { DashboardToolbarControls } from "../../../features/dashboard/DashboardT
 import { OperationsSummaryCard } from "../../../widgets/operations-summary/ui/OperationsSummaryCard";
 import { TopBar } from "../../../widgets/top-bar/ui/TopBar";
 import { opsTelemetry } from "../../../../ops/telemetry/opsTelemetryClient";
-import { buildGroupedBranches, compareBranches, matchesSearchQuery, matchesStatusFilter, type GroupMode, type SortMode, type StatusFilter } from "../lib/dashboardGrouping";
+import { buildGroupedBranches, compareBranches, matchesPressureFilters, matchesSearchQuery, matchesStatusFilter, type GroupMode, type PressureFilter, type SortMode, type StatusFilter } from "../lib/dashboardGrouping";
 import { DashboardIssueBanner } from "./DashboardIssueBanner";
 import { useDashboardPageState } from "../lib/useDashboardPageState";
 
@@ -121,6 +121,7 @@ export function DashboardPage() {
 
   const [sortBy, setSortBy] = useState<SortMode>("total");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [pressureFilters, setPressureFilters] = useState<PressureFilter[]>([]);
   const [groupBy, setGroupBy] = useState<GroupMode>("chain");
   const [searchQuery, setSearchQuery] = useState("");
   const deferredSearchQuery = useDeferredValue(searchQuery);
@@ -133,9 +134,10 @@ export function DashboardPage() {
     () =>
       [...snap.branches]
         .filter((branch) => matchesStatusFilter(branch, statusFilter))
+        .filter((branch) => matchesPressureFilters(branch, pressureFilters))
         .filter((branch) => matchesSearchQuery(branch, deferredSearchQuery))
         .sort((a, b) => compareBranches(a, b, sortBy)),
-    [deferredSearchQuery, snap.branches, sortBy, statusFilter],
+    [deferredSearchQuery, pressureFilters, snap.branches, sortBy, statusFilter],
   );
 
   const groupedBranches = useMemo(
@@ -275,10 +277,12 @@ export function DashboardPage() {
         <DashboardToolbarControls
           sortBy={sortBy}
           statusFilter={statusFilter}
+          pressureFilters={pressureFilters}
           groupBy={groupBy}
           searchQuery={searchQuery}
           onChangeSortBy={setSortBy}
           onChangeStatusFilter={setStatusFilter}
+          onChangePressureFilters={setPressureFilters}
           onChangeGroupBy={setGroupBy}
           onChangeSearchQuery={setSearchQuery}
         />

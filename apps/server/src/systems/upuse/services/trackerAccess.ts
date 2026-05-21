@@ -52,6 +52,7 @@ function emptyDashboardTotals(): DashboardSnapshot["totals"] {
     activeNow: 0,
     lateNow: 0,
     unassignedNow: 0,
+    onHoldNow: 0,
   };
 }
 
@@ -71,6 +72,7 @@ function recomputeDashboardTotals(branches: BranchSnapshot[]) {
     totals.activeNow += branch.metrics.activeNow;
     totals.lateNow += branch.metrics.lateNow;
     totals.unassignedNow += branch.metrics.unassignedNow;
+    totals.onHoldNow += branch.metrics.onHoldNow ?? 0;
   }
 
   return totals;

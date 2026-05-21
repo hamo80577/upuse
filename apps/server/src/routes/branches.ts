@@ -1,4 +1,4 @@
-import type { Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import type { MonitorEngine } from "../monitor/engine/MonitorEngine.js";
 import {
@@ -10,9 +10,10 @@ import {
   setBranchMonitoringEnabled,
   setBranchThresholdOverrides,
 } from "../services/branchStore.js";
-import { listVendorCatalog } from "../services/vendorCatalogStore.js";
+import { findVendorCatalogItemsInCsv, listVendorCatalog, upsertVendorCatalogItem } from "../services/vendorCatalogStore.js";
 import { getSettings } from "../services/settingsStore.js";
 import { getMirrorBranchDetail, getMirrorBranchPickers } from "../services/ordersMirrorStore.js";
+import { lookupWarehouseVendorByAvailabilityId } from "../services/orders/index.js";
 import { derivePreparingNow } from "../services/orders/classification.js";
 import { resolveBranchThresholdProfile } from "../services/thresholds.js";
 import { log } from "../services/logger.js";
@@ -27,6 +28,7 @@ import type {
   BranchMapping,
   BranchPickersSummary,
   BranchSnapshot,
+  LocalVendorCatalogItem,
   OrdersMetrics,
   ResolvedBranchMapping,
 } from "../types/models.js";
@@ -34,6 +36,10 @@ import type {
 const AddBranchBody = z.object({
   availabilityVendorId: z.string().trim().min(1),
   chainName: z.string().trim().max(120).default(""),
+});
+
+const ResolveVendorSourceBody = z.object({
+  availabilityVendorIds: z.array(z.string().trim().min(1).max(30)).min(1).max(200),
 });
 
 const BranchMonitoringBody = z.object({
@@ -47,6 +53,8 @@ const BranchThresholdOverrideBody = z.object({
   unassignedReopenThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
   readyThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
   readyReopenThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
+  onHoldThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
+  onHoldReopenThresholdOverride: z.number().int().min(0).max(999).nullable().optional().default(null),
   capacityRuleEnabledOverride: z.boolean().nullable().optional().default(null),
   capacityPerHourEnabledOverride: z.boolean().nullable().optional().default(null),
   capacityPerHourLimitOverride: z.number().int().min(1).max(999).nullable().optional().default(null),
@@ -98,6 +106,7 @@ function emptyOrdersMetrics(): OrdersMetrics {
     lateNow: 0,
     unassignedNow: 0,
     readyNow: 0,
+    onHoldNow: 0,
   };
 }
 
@@ -114,6 +123,8 @@ function resolveEffectiveCloseThresholds(
       unassignedReopenThresholdOverride: null,
       readyThresholdOverride: null,
       readyReopenThresholdOverride: null,
+      onHoldThresholdOverride: null,
+      onHoldReopenThresholdOverride: null,
       capacityRuleEnabledOverride: null,
       capacityPerHourEnabledOverride: null,
       capacityPerHourLimitOverride: null,
@@ -125,6 +136,7 @@ function resolveEffectiveCloseThresholds(
     lateThreshold: overrides.lateThresholdOverride ?? inherited.lateThreshold,
     unassignedThreshold: overrides.unassignedThresholdOverride ?? inherited.unassignedThreshold,
     readyThreshold: overrides.readyThresholdOverride ?? inherited.readyThreshold ?? 0,
+    onHoldThreshold: overrides.onHoldThresholdOverride ?? inherited.onHoldThreshold ?? 0,
   };
 }
 
@@ -183,6 +195,7 @@ function buildSnapshotUnavailableDetail(
     snapshotVersion?: string | null;
     staleAgeSeconds?: number | null;
     unassignedOrders?: BranchDetailSnapshotUnavailable["unassignedOrders"];
+    onHoldOrders?: BranchDetailSnapshotUnavailable["onHoldOrders"];
     preparingOrders?: BranchDetailSnapshotUnavailable["preparingOrders"];
     readyToPickupOrders?: BranchDetailSnapshotUnavailable["readyToPickupOrders"];
     pickers?: BranchDetailSnapshotUnavailable["pickers"];
@@ -200,6 +213,7 @@ function buildSnapshotUnavailableDetail(
     ...(typeof options?.snapshotVersion !== "undefined" ? { snapshotVersion: options.snapshotVersion } : {}),
     ...(typeof options?.staleAgeSeconds !== "undefined" ? { staleAgeSeconds: options.staleAgeSeconds } : {}),
     unassignedOrders: options?.unassignedOrders ?? [],
+    onHoldOrders: options?.onHoldOrders ?? [],
     preparingOrders: options?.preparingOrders ?? [],
     readyToPickupOrders: options?.readyToPickupOrders ?? [],
     pickers: options?.pickers ?? emptyBranchPickers(),
@@ -222,6 +236,7 @@ function buildDetailFetchFailedDetail(
     fetchedAt: null,
     cacheState,
     unassignedOrders: [],
+    onHoldOrders: [],
     preparingOrders: [],
     readyToPickupOrders: [],
     pickers: emptyBranchPickers(),
@@ -239,6 +254,7 @@ function buildOkBranchDetail(
     snapshotVersion?: string | null;
     staleAgeSeconds?: number | null;
     unassignedOrders: BranchDetailOk["unassignedOrders"];
+    onHoldOrders: BranchDetailOk["onHoldOrders"];
     preparingOrders: BranchDetailOk["preparingOrders"];
     readyToPickupOrders: BranchDetailOk["readyToPickupOrders"];
     pickers: BranchDetailOk["pickers"];
@@ -254,6 +270,7 @@ function buildOkBranchDetail(
     ...(typeof detail.snapshotVersion !== "undefined" ? { snapshotVersion: detail.snapshotVersion } : {}),
     ...(typeof detail.staleAgeSeconds !== "undefined" ? { staleAgeSeconds: detail.staleAgeSeconds } : {}),
     unassignedOrders: detail.unassignedOrders,
+    onHoldOrders: detail.onHoldOrders,
     preparingOrders: detail.preparingOrders,
     readyToPickupOrders: detail.readyToPickupOrders,
     pickers: detail.pickers,
@@ -294,12 +311,120 @@ function buildBranchForbiddenResponse() {
   };
 }
 
+function uniqueAvailabilityVendorIds(values: string[]) {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function mapSourceItemsByAvailabilityId(items: LocalVendorCatalogItem[]) {
+  return new Map(items.map((item) => [item.availabilityVendorId, item]));
+}
+
+function describeResolveError(error: unknown) {
+  const typed = error as { status?: unknown; response?: { status?: unknown }; message?: unknown };
+  const status = typeof typed.status === "number"
+    ? typed.status
+    : typeof typed.response?.status === "number"
+      ? typed.response.status
+      : null;
+  const message = typeof typed.message === "string" && typed.message.trim()
+    ? typed.message.trim()
+    : "Live Orders source lookup failed.";
+
+  return {
+    message,
+    ...(status ? { status } : {}),
+  };
+}
+
 export function listBranchesRoute(_req: Request, res: Response) {
   res.json({ items: listBranches() });
 }
 
 export function listVendorSourceRoute(_req: Request, res: Response) {
   res.json({ items: listVendorCatalog() });
+}
+
+export async function resolveVendorSourceRoute(req: Request, res: Response, next?: NextFunction) {
+  try {
+    const parsed = ResolveVendorSourceBody.parse(req.body);
+    const availabilityVendorIds = uniqueAvailabilityVendorIds(parsed.availabilityVendorIds);
+    const sourceById = mapSourceItemsByAvailabilityId(listVendorCatalog());
+    let missingIds = availabilityVendorIds.filter((id) => !sourceById.has(id));
+    const resolveErrors: Array<{ availabilityVendorId: string; message: string; status?: number }> = [];
+
+    if (missingIds.length) {
+      for (const item of findVendorCatalogItemsInCsv(missingIds)) {
+        try {
+          upsertVendorCatalogItem(item);
+        } catch (error) {
+          resolveErrors.push({
+            availabilityVendorId: item.availabilityVendorId,
+            ...describeResolveError(error),
+          });
+        }
+      }
+
+      const sourceAfterCsvById = mapSourceItemsByAvailabilityId(listVendorCatalog());
+      missingIds = availabilityVendorIds.filter((id) => !sourceAfterCsvById.has(id));
+    }
+
+    if (missingIds.length) {
+      const settings = getSettings();
+      const ordersToken = settings.ordersToken?.trim() ?? "";
+      if (!ordersToken) {
+        resolveErrors.push(...missingIds.map((availabilityVendorId) => ({
+          availabilityVendorId,
+          message: "Orders token is required to resolve new availability vendor IDs.",
+          status: 409,
+        })));
+      } else {
+        for (const availabilityVendorId of missingIds) {
+          try {
+            const resolved = await lookupWarehouseVendorByAvailabilityId({
+              token: ordersToken,
+              globalEntityId: settings.globalEntityId,
+              availabilityVendorId,
+            });
+            if (!resolved) continue;
+
+            upsertVendorCatalogItem({
+              availabilityVendorId: resolved.availabilityVendorId,
+              ordersVendorId: resolved.ordersVendorId,
+              name: resolved.name,
+            });
+          } catch (error) {
+            resolveErrors.push({
+              availabilityVendorId,
+              ...describeResolveError(error),
+            });
+          }
+        }
+      }
+    }
+
+    const refreshedSourceById = mapSourceItemsByAvailabilityId(listVendorCatalog());
+    const items = availabilityVendorIds
+      .map((id) => refreshedSourceById.get(id))
+      .filter((item): item is LocalVendorCatalogItem => !!item);
+
+    return res.json({
+      ok: true,
+      items,
+      notFoundAvailabilityVendorIds: availabilityVendorIds.filter((id) => !refreshedSourceById.has(id)),
+      resolveErrors,
+    });
+  } catch (error) {
+    if (next) return next(error);
+    throw error;
+  }
 }
 
 export function addBranchRoute(req: Request, res: Response) {
@@ -362,6 +487,12 @@ export function updateBranchThresholdOverridesRoute(req: Request, res: Response)
     parsed.readyReopenThresholdOverride > effectiveCloseThresholds.readyThreshold
   ) {
     return res.status(400).json({ ok: false, message: "Ready to pickup reopen threshold cannot be greater than the close threshold." });
+  }
+  if (
+    parsed.onHoldReopenThresholdOverride != null &&
+    parsed.onHoldReopenThresholdOverride > effectiveCloseThresholds.onHoldThreshold
+  ) {
+    return res.status(400).json({ ok: false, message: "On Hold reopen threshold cannot be greater than the close threshold." });
   }
 
   try {
@@ -467,6 +598,7 @@ export function branchDetailRoute(engine: MonitorEngine) {
         snapshotVersion: localDetail.snapshotVersion,
         staleAgeSeconds: localDetail.staleAgeSeconds,
         unassignedOrders: localDetail.unassignedOrders,
+        onHoldOrders: localDetail.onHoldOrders,
         preparingOrders: localDetail.preparingOrders,
         readyToPickupOrders: localDetail.readyToPickupOrders,
         pickers: localDetail.pickers,
@@ -500,6 +632,7 @@ export function branchDetailRoute(engine: MonitorEngine) {
         snapshotVersion: localDetail.snapshotVersion,
         staleAgeSeconds: localDetail.staleAgeSeconds,
         unassignedOrders: localDetail.unassignedOrders,
+        onHoldOrders: localDetail.onHoldOrders,
         preparingOrders: localDetail.preparingOrders,
         readyToPickupOrders: localDetail.readyToPickupOrders,
         pickers: localDetail.pickers,

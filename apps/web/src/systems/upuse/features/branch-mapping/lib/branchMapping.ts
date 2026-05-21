@@ -42,6 +42,11 @@ export function normalizeChains(chains: ChainThreshold[]) {
           ? Math.max(0, Math.round(chain.readyThreshold))
           : 0,
       readyReopenThreshold: clampReopenThreshold(chain.readyThreshold ?? 0, chain.readyReopenThreshold),
+      onHoldThreshold:
+        typeof chain.onHoldThreshold === "number"
+          ? Math.max(0, Math.round(chain.onHoldThreshold))
+          : 0,
+      onHoldReopenThreshold: clampReopenThreshold(chain.onHoldThreshold ?? 0, chain.onHoldReopenThreshold),
       capacityRuleEnabled: chain.capacityRuleEnabled !== false,
       capacityPerHourEnabled: chain.capacityPerHourEnabled === true,
       capacityPerHourLimit:
@@ -63,6 +68,8 @@ export function emptyChainEditor() {
     unassignedReopenThreshold: "0",
     readyThreshold: "0",
     readyReopenThreshold: "0",
+    onHoldThreshold: "0",
+    onHoldReopenThreshold: "0",
     capacityRuleEnabled: true,
     capacityPerHourEnabled: false,
     capacityPerHourLimit: "",
@@ -77,6 +84,8 @@ export function emptyBranchThresholdEditor() {
     unassignedReopenThreshold: "",
     readyThreshold: "",
     readyReopenThreshold: "",
+    onHoldThreshold: "",
+    onHoldReopenThreshold: "",
     capacityRuleEnabled: true,
     capacityPerHourEnabled: false,
     capacityPerHourLimit: "",
@@ -98,6 +107,8 @@ export function resolveEffectiveThresholds(
     | "unassignedReopenThreshold"
     | "readyThreshold"
     | "readyReopenThreshold"
+    | "onHoldThreshold"
+    | "onHoldReopenThreshold"
     | "capacityRuleEnabled"
     | "capacityPerHourEnabled"
     | "capacityPerHourLimit"
@@ -112,6 +123,8 @@ export function resolveEffectiveThresholds(
         unassignedReopenThreshold: clampReopenThreshold(chain.unassignedThreshold, chain.unassignedReopenThreshold),
         readyThreshold: chain.readyThreshold ?? 0,
         readyReopenThreshold: clampReopenThreshold(chain.readyThreshold ?? 0, chain.readyReopenThreshold),
+        onHoldThreshold: chain.onHoldThreshold ?? 0,
+        onHoldReopenThreshold: clampReopenThreshold(chain.onHoldThreshold ?? 0, chain.onHoldReopenThreshold),
         capacityRuleEnabled: chain.capacityRuleEnabled !== false,
         capacityPerHourEnabled: chain.capacityPerHourEnabled === true,
         capacityPerHourLimit: chain.capacityPerHourLimit ?? null,
@@ -124,6 +137,8 @@ export function resolveEffectiveThresholds(
         unassignedReopenThreshold: clampReopenThreshold(globalThresholds.unassignedThreshold, globalThresholds.unassignedReopenThreshold),
         readyThreshold: globalThresholds.readyThreshold ?? 0,
         readyReopenThreshold: clampReopenThreshold(globalThresholds.readyThreshold ?? 0, globalThresholds.readyReopenThreshold),
+        onHoldThreshold: globalThresholds.onHoldThreshold ?? 0,
+        onHoldReopenThreshold: clampReopenThreshold(globalThresholds.onHoldThreshold ?? 0, globalThresholds.onHoldReopenThreshold),
         capacityRuleEnabled: globalThresholds.capacityRuleEnabled !== false,
         capacityPerHourEnabled: globalThresholds.capacityPerHourEnabled === true,
         capacityPerHourLimit: globalThresholds.capacityPerHourLimit ?? null,
@@ -137,6 +152,8 @@ export function resolveEffectiveThresholds(
   const hasUnassignedReopenThresholdOverride = typeof branch.unassignedReopenThresholdOverride === "number";
   const hasReadyThresholdOverride = typeof branch.readyThresholdOverride === "number";
   const hasReadyReopenThresholdOverride = typeof branch.readyReopenThresholdOverride === "number";
+  const hasOnHoldThresholdOverride = typeof branch.onHoldThresholdOverride === "number";
+  const hasOnHoldReopenThresholdOverride = typeof branch.onHoldReopenThresholdOverride === "number";
   const hasCapacityOverride = typeof branch.capacityRuleEnabledOverride === "boolean";
   const hasCapacityPerHourOverride =
     typeof branch.capacityPerHourEnabledOverride === "boolean" &&
@@ -148,6 +165,8 @@ export function resolveEffectiveThresholds(
     || hasUnassignedReopenThresholdOverride
     || hasReadyThresholdOverride
     || hasReadyReopenThresholdOverride
+    || hasOnHoldThresholdOverride
+    || hasOnHoldReopenThresholdOverride
     || hasCapacityOverride
     || hasCapacityPerHourOverride
   ) {
@@ -166,6 +185,11 @@ export function resolveEffectiveThresholds(
       readyReopenThreshold: clampReopenThreshold(
         hasReadyThresholdOverride ? branch.readyThresholdOverride as number : inherited.readyThreshold,
         hasReadyReopenThresholdOverride ? branch.readyReopenThresholdOverride : inherited.readyReopenThreshold,
+      ),
+      onHoldThreshold: hasOnHoldThresholdOverride ? branch.onHoldThresholdOverride as number : inherited.onHoldThreshold,
+      onHoldReopenThreshold: clampReopenThreshold(
+        hasOnHoldThresholdOverride ? branch.onHoldThresholdOverride as number : inherited.onHoldThreshold ?? 0,
+        hasOnHoldReopenThresholdOverride ? branch.onHoldReopenThresholdOverride : inherited.onHoldReopenThreshold,
       ),
       capacityRuleEnabled: hasCapacityOverride ? branch.capacityRuleEnabledOverride : inherited.capacityRuleEnabled,
       capacityPerHourEnabled: hasCapacityPerHourOverride

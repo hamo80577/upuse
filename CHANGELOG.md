@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-05-13
+
+- Added `On Hold` as a UPuse monitoring trigger:
+  - counts live orders with status `ON_HOLD`
+  - supports global, chain, and branch close/reopen thresholds
+  - defaults to `0/0`, which keeps the rule disabled
+  - follows the trigger priority `Late -> Unassigned -> Ready -> On Hold -> Capacity`
+- Updated the dashboard with total On Hold, branch-card On Hold pressure, branch-detail On Hold orders, duration labels, On Hold filters, and On Hold sorting.
+- Added server and web coverage for On Hold metrics, threshold behavior, dashboard snapshots, filters, settings, and branch detail orders.
+
 ## 2026-05-04
 
 - Added the UPuse `tracker` role with assigned-chain visibility:

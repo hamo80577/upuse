@@ -111,6 +111,7 @@ export function buildMonitorSnapshot(input: MonitorSnapshotInput, tracker: Pick<
     activeNow: 0,
     lateNow: 0,
     unassignedNow: 0,
+    onHoldNow: 0,
   };
 
   const branchSnapshots = monitoredBranches.map((branch) => {
@@ -124,6 +125,7 @@ export function buildMonitorSnapshot(input: MonitorSnapshotInput, tracker: Pick<
       lateNow: 0,
       unassignedNow: 0,
       readyNow: 0,
+      onHoldNow: 0,
     };
     const preparation = currentPreparation(
       input.preparationByVendor.get(branch.ordersVendorId) ?? {
@@ -142,6 +144,7 @@ export function buildMonitorSnapshot(input: MonitorSnapshotInput, tracker: Pick<
     totals.activeNow += rawMetrics.activeNow;
     totals.lateNow += rawMetrics.lateNow;
     totals.unassignedNow += rawMetrics.unassignedNow;
+    totals.onHoldNow += rawMetrics.onHoldNow ?? 0;
 
     const runtime = getRuntime(branch.id) ?? undefined;
     const trackedMonitorClosedUntil = runtime?.closureObservedUntil ?? runtime?.lastUpuseCloseUntil ?? undefined;

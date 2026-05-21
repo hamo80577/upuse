@@ -19,6 +19,7 @@ export interface ActionEventRow {
   activeNow: number;
   lateNow: number;
   unassignedNow: number;
+  onHoldNow: number;
 }
 
 export function buildActionEventsCsvContent(params: {
@@ -39,6 +40,7 @@ export function buildActionEventsCsvContent(params: {
     "Active",
     "Late",
     "Unassigned",
+    "On Hold",
     "Closed Until",
     "Closed Until (Cairo)",
     "Reopened At",
@@ -77,6 +79,7 @@ export function buildActionEventsCsvContent(params: {
       row.activeNow,
       row.lateNow,
       row.unassignedNow,
+      row.onHoldNow,
       row.closedUntil ?? "",
       closedUntilCairo,
       row.reopenedAt ?? "",

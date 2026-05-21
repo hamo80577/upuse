@@ -49,6 +49,7 @@ const baseSnapshot: DashboardSnapshot = {
     activeNow: 4,
     lateNow: 0,
     unassignedNow: 1,
+    onHoldNow: 0,
   },
   branches: [
     {
@@ -67,6 +68,7 @@ const baseSnapshot: DashboardSnapshot = {
         activeNow: 4,
         lateNow: 0,
         unassignedNow: 1,
+        onHoldNow: 0,
       },
       preparingNow: 3,
       preparingPickersNow: 2,

@@ -15,6 +15,8 @@ function baseSettings(): Settings {
     unassignedReopenThreshold: 0,
     readyThreshold: 0,
     readyReopenThreshold: 0,
+    onHoldThreshold: 0,
+    onHoldReopenThreshold: 0,
     tempCloseMinutes: 30,
     graceMinutes: 5,
     ordersRefreshSeconds: 30,
@@ -39,6 +41,8 @@ function baseBranch(): ResolvedBranchMapping {
     unassignedReopenThresholdOverride: null,
     readyThresholdOverride: null,
     readyReopenThresholdOverride: null,
+    onHoldThresholdOverride: null,
+    onHoldReopenThresholdOverride: null,
     capacityRuleEnabledOverride: null,
     capacityPerHourEnabledOverride: null,
     capacityPerHourLimitOverride: null,
@@ -54,6 +58,7 @@ function baseMetrics(): OrdersMetrics {
     lateNow: 0,
     unassignedNow: 0,
     readyNow: 0,
+    onHoldNow: 0,
   };
 }
 
@@ -162,6 +167,88 @@ describe("policyEngine.decide", () => {
     expect(decision).toEqual({ type: "CLOSE", reason: "READY_TO_PICKUP" });
   });
 
+  it("closes on on-hold threshold while branch is open", () => {
+    const decision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        onHoldNow: 3,
+      },
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
+      availability: openAvailability(),
+      nowUtcIso: "2026-03-03T10:00:00.000Z",
+      settings: {
+        ...baseSettings(),
+        onHoldThreshold: 3,
+      },
+    });
+
+    expect(decision).toEqual({ type: "CLOSE", reason: "ON_HOLD" });
+  });
+
+  it("keeps on-hold disabled when its threshold is zero", () => {
+    const decision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        onHoldNow: 99,
+      },
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
+      availability: openAvailability(),
+      nowUtcIso: "2026-03-03T10:00:00.000Z",
+      settings: {
+        ...baseSettings(),
+        onHoldThreshold: 0,
+        onHoldReopenThreshold: 0,
+      },
+    });
+
+    expect(decision).toEqual({ type: "NOOP" });
+  });
+
+  it("prioritizes ready over on-hold and on-hold over capacity closes", () => {
+    const branch = baseBranch();
+    const settings = {
+      ...baseSettings(),
+      readyThreshold: 2,
+      onHoldThreshold: 2,
+    };
+
+    const readyFirst = decide({
+      branch,
+      metrics: {
+        ...baseMetrics(),
+        readyNow: 2,
+        onHoldNow: 2,
+      },
+      recentActivePickers: 1,
+      recentActiveAvailable: true,
+      availability: openAvailability(),
+      nowUtcIso: "2026-03-03T10:00:00.000Z",
+      settings,
+    });
+
+    const onHoldBeforeCapacity = decide({
+      branch,
+      metrics: {
+        ...baseMetrics(),
+        onHoldNow: 2,
+        activeNow: 6,
+        preparingNow: 6,
+      },
+      recentActivePickers: 1,
+      recentActiveAvailable: true,
+      availability: openAvailability(),
+      nowUtcIso: "2026-03-03T10:00:00.000Z",
+      settings,
+    });
+
+    expect(readyFirst).toEqual({ type: "CLOSE", reason: "READY_TO_PICKUP" });
+    expect(onHoldBeforeCapacity).toEqual({ type: "CLOSE", reason: "ON_HOLD" });
+  });
+
   it("reopens only when the original trigger clears", () => {
     const branch = baseBranch();
     const settings = baseSettings();
@@ -258,6 +345,33 @@ describe("policyEngine.decide", () => {
 
     expect(reopenLate).toEqual({ type: "EARLY_OPEN", reason: "LATE" });
     expect(reopenUnassigned).toEqual({ type: "EARLY_OPEN", reason: "UNASSIGNED" });
+  });
+
+  it("reopens on-hold closes when the on-hold count recovers to the reopen threshold", () => {
+    const decision = decide({
+      branch: baseBranch(),
+      metrics: {
+        ...baseMetrics(),
+        onHoldNow: 1,
+      },
+      recentActivePickers: 0,
+      recentActiveAvailable: true,
+      availability: tempCloseAvailability(),
+      runtime: {
+        lastUpuseCloseReason: "ON_HOLD",
+        lastUpuseCloseAt: "2026-03-03T10:00:00.000Z",
+        lastUpuseCloseUntil: "2026-03-03T10:30:00.000Z",
+        lastUpuseCloseEventId: 93,
+      },
+      nowUtcIso: "2026-03-03T10:05:00.000Z",
+      settings: {
+        ...baseSettings(),
+        onHoldThreshold: 4,
+        onHoldReopenThreshold: 1,
+      },
+    });
+
+    expect(decision).toEqual({ type: "EARLY_OPEN", reason: "ON_HOLD" });
   });
 
   it("reopens ready-to-pickup-owned closes only when the ready count returns to its reopen threshold", () => {

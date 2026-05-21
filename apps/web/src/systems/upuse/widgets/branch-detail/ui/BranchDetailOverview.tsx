@@ -13,6 +13,7 @@ export function BranchDetailOverview(props: {
     activeNow: number;
     lateNow: number;
     unassignedNow: number;
+    onHoldNow: number;
   };
   preparingNow: number;
   pickerCount: number;

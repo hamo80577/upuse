@@ -12,6 +12,7 @@ const mockApi = vi.hoisted(() => ({
   getSettings: vi.fn(),
   listBranches: vi.fn(),
   listBranchSource: vi.fn(),
+  resolveBranchSourceIds: vi.fn(),
   addBranch: vi.fn(),
   putSettings: vi.fn(),
   setBranchThresholdOverrides: vi.fn(),
@@ -100,6 +101,11 @@ describe("BranchesPage", () => {
       maxVendorsPerOrdersRequest: 50,
     });
     mockApi.listBranches.mockResolvedValue({ items: [] });
+    mockApi.resolveBranchSourceIds.mockResolvedValue({
+      ok: true,
+      items: [],
+      notFoundAvailabilityVendorIds: [],
+    });
     mockApi.listBranchSource.mockResolvedValue({
       items: [
         {
@@ -242,6 +248,123 @@ describe("BranchesPage", () => {
         name: "Carrefour, Zahraa El Maadi - Ashgar Darna",
         ordersVendorId: 48665,
       });
+    });
+  }, 15_000);
+
+  it("resolves a searched availability ID from the live source catalog", async () => {
+    mockApi.listBranchSource.mockResolvedValue({ items: [] });
+    mockApi.resolveBranchSourceIds.mockResolvedValue({
+      ok: true,
+      items: [
+        {
+          availabilityVendorId: "709024",
+          ordersVendorId: 23697,
+          name: "Kheir Zaman, Kheir Zaman MOHAMED FARID- NOZHA (J098)",
+          alreadyAdded: false,
+          branchId: null,
+          chainName: null,
+          enabled: null,
+        },
+      ],
+      notFoundAvailabilityVendorIds: [],
+    });
+
+    render(
+      <MemoryRouter>
+        <BranchesPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Start typing to search source branches.")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText("Search by branch name or availability ID"), {
+      target: { value: "709024" },
+    });
+
+    await waitFor(() => {
+      expect(mockApi.resolveBranchSourceIds).toHaveBeenCalledWith(["709024"], expect.any(Object));
+      expect(screen.getByText("Kheir Zaman, Kheir Zaman MOHAMED FARID- NOZHA (J098)")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Kheir Zaman, Kheir Zaman MOHAMED FARID- NOZHA (J098)" }));
+
+    expect(screen.getByText("Ready to add 1 branch")).toBeInTheDocument();
+  }, 15_000);
+
+  it("bulk adds availability IDs and reports branches already in the target chain", async () => {
+    mockApi.listBranchSource.mockResolvedValue({ items: [] });
+    mockApi.resolveBranchSourceIds.mockResolvedValue({
+      ok: true,
+      items: [
+        {
+          availabilityVendorId: "709024",
+          ordersVendorId: 23697,
+          name: "Existing Kheir Zaman",
+          alreadyAdded: true,
+          branchId: 22,
+          chainName: "Chain A",
+          enabled: true,
+        },
+        {
+          availabilityVendorId: "750954",
+          ordersVendorId: 56742,
+          name: "Carrefour, Alex City Light",
+          alreadyAdded: false,
+          branchId: null,
+          chainName: null,
+          enabled: null,
+        },
+      ],
+      notFoundAvailabilityVendorIds: [],
+    });
+    mockApi.addBranch.mockResolvedValue({ ok: true, id: 44 });
+    mockApi.listBranches
+      .mockResolvedValueOnce({ items: [] })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 44,
+            name: "Carrefour, Alex City Light",
+            chainName: "Chain A",
+            ordersVendorId: 56742,
+            availabilityVendorId: "750954",
+            enabled: true,
+            catalogState: "available",
+            lateThresholdOverride: null,
+            unassignedThresholdOverride: null,
+          },
+        ],
+      });
+
+    render(
+      <MemoryRouter>
+        <BranchesPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Bulk Availability IDs")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText(/709024/), {
+      target: { value: "709024\n750954" },
+    });
+    fireEvent.mouseDown(screen.getByRole("combobox", { name: "Target chain" }));
+    fireEvent.click(screen.getByRole("option", { name: "Chain A" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add 2 branches" }));
+
+    await waitFor(() => {
+      expect(mockApi.addBranch).toHaveBeenCalledTimes(1);
+      expect(mockApi.addBranch).toHaveBeenCalledWith({
+        availabilityVendorId: "750954",
+        chainName: "Chain A",
+        name: "Carrefour, Alex City Light",
+        ordersVendorId: 56742,
+      });
+      expect(screen.getAllByText(/1 branch added to Chain A/i).length).toBeGreaterThan(0);
+      expect(screen.getByText(/1 branch was already in this chain/i)).toBeInTheDocument();
     });
   }, 15_000);
 

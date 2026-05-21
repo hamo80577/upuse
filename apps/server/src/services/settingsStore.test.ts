@@ -38,6 +38,8 @@ function seedSettingsRow() {
       unassignedReopenThreshold INTEGER NOT NULL,
       readyThreshold INTEGER,
       readyReopenThreshold INTEGER,
+      onHoldThreshold INTEGER,
+      onHoldReopenThreshold INTEGER,
       tempCloseMinutes INTEGER NOT NULL,
       graceMinutes INTEGER NOT NULL,
       ordersRefreshSeconds INTEGER NOT NULL,
@@ -60,13 +62,15 @@ function seedSettingsRow() {
       unassignedReopenThreshold,
       readyThreshold,
       readyReopenThreshold,
+      onHoldThreshold,
+      onHoldReopenThreshold,
       tempCloseMinutes,
       graceMinutes,
       ordersRefreshSeconds,
       availabilityRefreshSeconds,
       maxVendorsPerOrdersRequest
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     1,
     "enc:orders-token",
@@ -82,6 +86,8 @@ function seedSettingsRow() {
         unassignedReopenThreshold: 1,
         readyThreshold: 3,
         readyReopenThreshold: 1,
+        onHoldThreshold: 0,
+        onHoldReopenThreshold: 0,
         capacityRuleEnabled: true,
         capacityPerHourEnabled: false,
         capacityPerHourLimit: null,
@@ -92,6 +98,8 @@ function seedSettingsRow() {
     5,
     0,
     3,
+    0,
+    0,
     0,
     30,
     5,

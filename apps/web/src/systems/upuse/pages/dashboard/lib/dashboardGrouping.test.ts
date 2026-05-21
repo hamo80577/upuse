@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BranchSnapshot } from "../../../api/types";
-import { buildGroupedBranches, compareBranches, matchesSearchQuery, matchesStatusFilter } from "./dashboardGrouping";
+import { buildGroupedBranches, compareBranches, matchesPressureFilters, matchesSearchQuery, matchesStatusFilter } from "./dashboardGrouping";
 
 function branch(overrides: Partial<BranchSnapshot>): BranchSnapshot {
   return {
@@ -19,6 +19,8 @@ function branch(overrides: Partial<BranchSnapshot>): BranchSnapshot {
       activeNow: 10,
       lateNow: 1,
       unassignedNow: 2,
+      readyNow: 0,
+      onHoldNow: 0,
     },
     preparingNow: 8,
     preparingPickersNow: 4,
@@ -36,6 +38,31 @@ describe("dashboardGrouping", () => {
 
     const sorted = [...branches].sort((a, b) => compareBranches(a, b, "total"));
     expect(sorted.map((item) => item.branchId)).toEqual([3, 2, 1]);
+  });
+
+  it("sorts by on-hold pressure before lower on-hold branches", () => {
+    const branches = [
+      branch({ branchId: 1, name: "A", metrics: { ...branch({}).metrics, onHoldNow: 1, totalToday: 20 } }),
+      branch({ branchId: 2, name: "B", metrics: { ...branch({}).metrics, onHoldNow: 4, totalToday: 10 } }),
+    ];
+
+    const sorted = [...branches].sort((a, b) => compareBranches(a, b, "onHold"));
+    expect(sorted.map((item) => item.branchId)).toEqual([2, 1]);
+  });
+
+  it("matches all selected pressure filters", () => {
+    const item = branch({
+      metrics: {
+        ...branch({}).metrics,
+        onHoldNow: 2,
+        readyNow: 3,
+        lateNow: 0,
+      },
+      preparingNow: 4,
+    });
+
+    expect(matchesPressureFilters(item, ["onHold", "ready", "inPrep"])).toBe(true);
+    expect(matchesPressureFilters(item, ["onHold", "late"])).toBe(false);
   });
 
   it("applies status and search filters", () => {

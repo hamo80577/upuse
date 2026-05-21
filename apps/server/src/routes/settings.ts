@@ -20,6 +20,8 @@ const SettingsPatch = z
         unassignedReopenThreshold: z.number().int().min(0).max(999).optional(),
         readyThreshold: z.number().int().min(0).max(999).optional(),
         readyReopenThreshold: z.number().int().min(0).max(999).optional(),
+        onHoldThreshold: z.number().int().min(0).max(999).optional(),
+        onHoldReopenThreshold: z.number().int().min(0).max(999).optional(),
         capacityRuleEnabled: z.boolean().optional(),
         capacityPerHourEnabled: z.boolean().optional(),
         capacityPerHourLimit: z.number().int().min(1).max(999).nullable().optional(),
@@ -38,6 +40,8 @@ const SettingsPatch = z
     unassignedReopenThreshold: z.number().int().min(0).optional(),
     readyThreshold: z.number().int().min(0).optional(),
     readyReopenThreshold: z.number().int().min(0).optional(),
+    onHoldThreshold: z.number().int().min(0).optional(),
+    onHoldReopenThreshold: z.number().int().min(0).optional(),
     tempCloseMinutes: z.number().int().min(1).optional(),
     graceMinutes: z.number().int().min(0).optional(),
     ordersRefreshSeconds: z.number().int().min(10).optional(),
@@ -79,6 +83,8 @@ export function putSettingsRoute(req: Request, res: Response) {
     || key === "unassignedReopenThreshold"
     || key === "readyThreshold"
     || key === "readyReopenThreshold"
+    || key === "onHoldThreshold"
+    || key === "onHoldReopenThreshold"
   );
   const touchesAdminSettings = requestedKeys.some((key) =>
     key === "globalEntityId"

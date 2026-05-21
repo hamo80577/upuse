@@ -15,9 +15,23 @@ const timeMetricPanelSx = {
   border: { xs: "none", sm: "1px solid rgba(148,163,184,0.10)" },
 } as const;
 
-function OrderRow(props: { item: BranchLiveOrder; nowMs: number; timeDisplayMode: TimeDisplayMode }) {
+function OrderRow(props: { item: BranchLiveOrder; nowMs: number; timeDisplayMode: TimeDisplayMode; durationWarningMs?: number }) {
   const pickupDiff = fmtSignedPickupDiff(props.item.pickupAt, props.nowMs);
   const duration = fmtElapsedDuration(props.item.placedAt, props.nowMs);
+  const placedAtMs = props.item.placedAt ? new Date(props.item.placedAt).getTime() : Number.NaN;
+  const durationElapsedMs = Number.isFinite(placedAtMs) ? Math.max(0, props.nowMs - placedAtMs) : null;
+  const durationIsWarning =
+    props.durationWarningMs != null &&
+    durationElapsedMs != null &&
+    durationElapsedMs > props.durationWarningMs;
+  const durationLabel =
+    props.durationWarningMs == null
+      ? "Duration"
+      : durationElapsedMs == null
+        ? "Unknown"
+        : durationIsWarning
+          ? "Over 2m"
+          : "Within 2m";
 
   return (
     <Box
@@ -100,17 +114,30 @@ function OrderRow(props: { item: BranchLiveOrder; nowMs: number; timeDisplayMode
 
         {props.timeDisplayMode === "duration" ? (
           <Box
-            sx={timeMetricPanelSx}
+            sx={{
+              ...timeMetricPanelSx,
+              bgcolor: durationIsWarning
+                ? { xs: "transparent", sm: "rgba(254,242,242,0.92)" }
+                : { xs: "transparent", sm: "rgba(240,253,244,0.92)" },
+              borderColor: durationIsWarning ? "rgba(248,113,113,0.18)" : "rgba(34,197,94,0.18)",
+            }}
           >
-            <Typography variant="caption" sx={{ color: "text.secondary", display: "block", fontWeight: 800 }}>
-              Duration
+            <Typography
+              variant="caption"
+              sx={{
+                color: durationIsWarning ? "#b91c1c" : "#15803d",
+                display: "block",
+                fontWeight: 900,
+              }}
+            >
+              {durationLabel}
             </Typography>
             <Typography
               sx={{
                 mt: 0.15,
                 fontWeight: 900,
                 fontVariantNumeric: "tabular-nums",
-                color: "#0f172a",
+                color: durationIsWarning ? "#b91c1c" : "#15803d",
               }}
             >
               {duration}
@@ -131,6 +158,7 @@ export function BranchOrdersSection(props: {
   headerBadge?: ReactNode;
   hideHeader?: boolean;
   timeDisplayMode?: TimeDisplayMode;
+  durationWarningMs?: number;
 }) {
   return (
     <Box
@@ -178,6 +206,7 @@ export function BranchOrdersSection(props: {
               item={item}
               nowMs={props.nowMs}
               timeDisplayMode={props.timeDisplayMode ?? "pickup_delta"}
+              durationWarningMs={props.durationWarningMs}
             />
           ))
         ) : (

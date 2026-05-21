@@ -61,6 +61,7 @@ export interface MirrorOrdersDetail {
   fetchedAt: string | null;
   snapshotVersion: string | null;
   staleAgeSeconds: number | null;
+  onHoldOrders: BranchLiveOrder[];
   unassignedOrders: BranchLiveOrder[];
   preparingOrders: BranchLiveOrder[];
   readyToPickupOrders: BranchLiveOrder[];

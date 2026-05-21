@@ -75,9 +75,10 @@ function QueueLoadingLayout() {
       sx={{
         display: "grid",
         gap: 1.2,
-        gridTemplateColumns: { xs: "1fr", lg: "repeat(3, minmax(0, 1fr))" },
+        gridTemplateColumns: { xs: "1fr", lg: "repeat(4, minmax(0, 1fr))" },
       }}
     >
+      <Skeleton variant="rounded" animation="wave" height={260} />
       <Skeleton variant="rounded" animation="wave" height={260} />
       <Skeleton variant="rounded" animation="wave" height={260} />
       <Skeleton variant="rounded" animation="wave" height={260} />
@@ -160,6 +161,7 @@ export function BranchDetailDialog(props: {
     activeNow: detailWithBranch?.totals.activeNow ?? branch?.metrics.activeNow ?? 0,
     lateNow: detailWithBranch?.totals.lateNow ?? branch?.metrics.lateNow ?? 0,
     unassignedNow: detailWithBranch?.totals.unassignedNow ?? branch?.metrics.unassignedNow ?? 0,
+    onHoldNow: detailWithBranch?.totals.onHoldNow ?? branch?.metrics.onHoldNow ?? 0,
   };
   const pickerSummary = pickers ?? detailWithBranch?.pickers ?? emptyPickers();
   const activePreparingPickerCount = hasLiveQueueDetail && detailWithBranch
@@ -347,10 +349,19 @@ export function BranchDetailDialog(props: {
                       sx={{
                         display: "grid",
                         gap: 1.2,
-                        gridTemplateColumns: { xs: "1fr", lg: "repeat(3, minmax(0, 1fr))" },
+                        gridTemplateColumns: { xs: "1fr", lg: "repeat(4, minmax(0, 1fr))" },
                         alignItems: "start",
                       }}
                     >
+                      <BranchOrdersSection
+                        title="On Hold Orders"
+                        subtitle="Orders currently on hold"
+                        items={detailWithBranch?.onHoldOrders ?? []}
+                        emptyText={detailWithBranch?.onHoldOrders.length ? "No on-hold orders right now." : unavailableOrdersText}
+                        nowMs={nowMs}
+                        timeDisplayMode="duration"
+                        durationWarningMs={120_000}
+                      />
                       <BranchOrdersSection
                         title="Unassigned Orders"
                         subtitle="Current unassigned queue"

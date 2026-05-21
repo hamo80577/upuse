@@ -210,6 +210,8 @@ describe("putSettingsRoute", () => {
       unassignedReopenThreshold: patch.unassignedReopenThreshold ?? 0,
       readyThreshold: patch.readyThreshold ?? 0,
       readyReopenThreshold: patch.readyReopenThreshold ?? 0,
+      onHoldThreshold: patch.onHoldThreshold ?? 0,
+      onHoldReopenThreshold: patch.onHoldReopenThreshold ?? 0,
       tempCloseMinutes: patch.tempCloseMinutes ?? 30,
       graceMinutes: patch.graceMinutes ?? 5,
       ordersRefreshSeconds: patch.ordersRefreshSeconds ?? 30,
@@ -293,6 +295,32 @@ describe("putSettingsRoute", () => {
         lateReopenThreshold: 2,
         unassignedReopenThreshold: 1,
         readyReopenThreshold: 1,
+      },
+    });
+  });
+
+  it("accepts on-hold threshold updates", () => {
+    const req: any = {
+      authUser: { role: "user" },
+      body: {
+        onHoldThreshold: 4,
+        onHoldReopenThreshold: 1,
+      },
+    };
+    const res = createResponse();
+
+    putSettingsRoute(req, res);
+
+    expect(mockUpdateSettings).toHaveBeenCalledWith({
+      onHoldThreshold: 4,
+      onHoldReopenThreshold: 1,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      settings: {
+        onHoldThreshold: 4,
+        onHoldReopenThreshold: 1,
       },
     });
   });
@@ -391,6 +419,39 @@ describe("putSettingsRoute", () => {
         unassignedReopenThreshold: 3,
         readyThreshold: 4,
         readyReopenThreshold: 1,
+        capacityRuleEnabled: false,
+      }],
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("accepts chain on-hold threshold updates", () => {
+    const req: any = {
+      authUser: { role: "user" },
+      body: {
+        chains: [{
+          name: "Chain A",
+          lateThreshold: 6,
+          unassignedThreshold: 8,
+          readyThreshold: 4,
+          onHoldThreshold: 5,
+          onHoldReopenThreshold: 2,
+          capacityRuleEnabled: false,
+        }],
+      },
+    };
+    const res = createResponse();
+
+    putSettingsRoute(req, res);
+
+    expect(mockUpdateSettings).toHaveBeenCalledWith({
+      chains: [{
+        name: "Chain A",
+        lateThreshold: 6,
+        unassignedThreshold: 8,
+        readyThreshold: 4,
+        onHoldThreshold: 5,
+        onHoldReopenThreshold: 2,
         capacityRuleEnabled: false,
       }],
     });

@@ -31,6 +31,8 @@ describe("ChainThresholdManager", () => {
           unassignedReopenThreshold: 2,
           readyThreshold: 3,
           readyReopenThreshold: 1,
+          onHoldThreshold: 0,
+          onHoldReopenThreshold: 0,
           capacityRuleEnabled: true,
           capacityPerHourEnabled: true,
           capacityPerHourLimit: 5,
@@ -42,6 +44,8 @@ describe("ChainThresholdManager", () => {
           unassignedReopenThreshold: 1,
           readyThreshold: 2,
           readyReopenThreshold: 1,
+          onHoldThreshold: 0,
+          onHoldReopenThreshold: 0,
         }}
         selectedChainName="Chain A"
         editingChainIndex={null}
@@ -53,6 +57,8 @@ describe("ChainThresholdManager", () => {
           unassignedReopenThreshold: "2",
           readyThreshold: "3",
           readyReopenThreshold: "1",
+          onHoldThreshold: "0",
+          onHoldReopenThreshold: "0",
           capacityRuleEnabled: true,
           capacityPerHourEnabled: true,
           capacityPerHourLimit: "5",
@@ -65,6 +71,8 @@ describe("ChainThresholdManager", () => {
           unassignedReopenThreshold: "1",
           readyThreshold: "2",
           readyReopenThreshold: "1",
+          onHoldThreshold: "0",
+          onHoldReopenThreshold: "0",
         }}
         defaultEditorOpen={false}
         onSelectChain={vi.fn()}
@@ -111,6 +119,8 @@ describe("ChainThresholdManager", () => {
           unassignedReopenThreshold: 2,
           readyThreshold: 3,
           readyReopenThreshold: 1,
+          onHoldThreshold: 0,
+          onHoldReopenThreshold: 0,
           capacityRuleEnabled: true,
           capacityPerHourEnabled: false,
           capacityPerHourLimit: null,
@@ -122,6 +132,8 @@ describe("ChainThresholdManager", () => {
           unassignedReopenThreshold: 1,
           readyThreshold: 2,
           readyReopenThreshold: 1,
+          onHoldThreshold: 0,
+          onHoldReopenThreshold: 0,
         }}
         selectedChainName="Chain A"
         editingChainIndex={0}
@@ -133,6 +145,8 @@ describe("ChainThresholdManager", () => {
           unassignedReopenThreshold: "2",
           readyThreshold: "3",
           readyReopenThreshold: "1",
+          onHoldThreshold: "0",
+          onHoldReopenThreshold: "0",
           capacityRuleEnabled: true,
           capacityPerHourEnabled: false,
           capacityPerHourLimit: "",
@@ -145,6 +159,8 @@ describe("ChainThresholdManager", () => {
           unassignedReopenThreshold: "1",
           readyThreshold: "2",
           readyReopenThreshold: "1",
+          onHoldThreshold: "0",
+          onHoldReopenThreshold: "0",
         }}
         defaultEditorOpen={false}
         onSelectChain={vi.fn()}

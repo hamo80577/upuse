@@ -185,3 +185,48 @@ export function getVendorCatalogItem(availabilityVendorId: string): {
     }
     : null;
 }
+
+export function findVendorCatalogItemsInCsv(
+  availabilityVendorIds: string[],
+  csvPath = resolveVendorCatalogCsvPath(),
+) {
+  const wantedIds = new Set(availabilityVendorIds.map((id) => id.trim()).filter(Boolean));
+  if (!wantedIds.size || !fs.existsSync(csvPath)) {
+    return [];
+  }
+
+  const { rows } = parseVendorCatalogCsv(fs.readFileSync(csvPath, "utf8"));
+  return rows.filter((item) => wantedIds.has(item.availabilityVendorId));
+}
+
+export function upsertVendorCatalogItem(input: {
+  availabilityVendorId: string;
+  ordersVendorId: OrdersVendorId;
+  name: string;
+}) {
+  const parsed = parseVendorCatalogCsv([
+    "name,availabilityVendorId,ordersVendorId",
+    `"${input.name.replaceAll("\"", "\"\"")}",${input.availabilityVendorId},${input.ordersVendorId}`,
+  ].join("\n"));
+  const item = parsed.rows[0];
+  if (!item) {
+    throw new Error("Vendor catalog item is invalid.");
+  }
+
+  db.prepare(`
+    INSERT INTO vendor_catalog (
+      availabilityVendorId,
+      ordersVendorId,
+      name
+    ) VALUES (?, ?, ?)
+    ON CONFLICT(availabilityVendorId) DO UPDATE SET
+      ordersVendorId = excluded.ordersVendorId,
+      name = excluded.name
+  `).run(item.availabilityVendorId, item.ordersVendorId, item.name);
+
+  return {
+    availabilityVendorId: item.availabilityVendorId,
+    ordersVendorId: item.ordersVendorId,
+    name: item.name,
+  };
+}

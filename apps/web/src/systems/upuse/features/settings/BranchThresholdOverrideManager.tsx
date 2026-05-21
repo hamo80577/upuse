@@ -43,6 +43,8 @@ export interface BranchThresholdEditorDraft {
   unassignedReopenThreshold: string;
   readyThreshold: string;
   readyReopenThreshold: string;
+  onHoldThreshold: string;
+  onHoldReopenThreshold: string;
   capacityRuleEnabled: boolean;
   capacityPerHourEnabled: boolean;
   capacityPerHourLimit: string;
@@ -85,6 +87,10 @@ function buildBranchRuleEditorDraft(branchEditor: BranchThresholdEditorDraft): R
       close: branchEditor.readyThreshold,
       reopen: branchEditor.readyReopenThreshold,
     },
+    onHold: {
+      close: branchEditor.onHoldThreshold,
+      reopen: branchEditor.onHoldReopenThreshold,
+    },
     capacity: {
       enabled: branchEditor.capacityRuleEnabled,
     },
@@ -105,6 +111,8 @@ function resolveEffectiveThresholdProfile(
     | "unassignedReopenThresholdOverride"
     | "readyThresholdOverride"
     | "readyReopenThresholdOverride"
+    | "onHoldThresholdOverride"
+    | "onHoldReopenThresholdOverride"
     | "capacityRuleEnabledOverride"
     | "capacityPerHourEnabledOverride"
     | "capacityPerHourLimitOverride"
@@ -118,6 +126,8 @@ function resolveEffectiveThresholdProfile(
     | "unassignedReopenThreshold"
     | "readyThreshold"
     | "readyReopenThreshold"
+    | "onHoldThreshold"
+    | "onHoldReopenThreshold"
     | "capacityRuleEnabled"
     | "capacityPerHourEnabled"
     | "capacityPerHourLimit"
@@ -135,6 +145,8 @@ function resolveEffectiveThresholdProfile(
         unassignedReopenThreshold: chain.unassignedReopenThreshold ?? 0,
         readyThreshold: chain.readyThreshold ?? 0,
         readyReopenThreshold: chain.readyReopenThreshold ?? 0,
+        onHoldThreshold: chain.onHoldThreshold ?? 0,
+        onHoldReopenThreshold: chain.onHoldReopenThreshold ?? 0,
         capacityRuleEnabled: chain.capacityRuleEnabled !== false,
         capacityPerHourEnabled: chain.capacityPerHourEnabled === true,
         capacityPerHourLimit: chain.capacityPerHourLimit ?? null,
@@ -147,6 +159,8 @@ function resolveEffectiveThresholdProfile(
         unassignedReopenThreshold: globalThresholds.unassignedReopenThreshold ?? 0,
         readyThreshold: globalThresholds.readyThreshold ?? 0,
         readyReopenThreshold: globalThresholds.readyReopenThreshold ?? 0,
+        onHoldThreshold: globalThresholds.onHoldThreshold ?? 0,
+        onHoldReopenThreshold: globalThresholds.onHoldReopenThreshold ?? 0,
         capacityRuleEnabled: globalThresholds.capacityRuleEnabled !== false,
         capacityPerHourEnabled: globalThresholds.capacityPerHourEnabled === true,
         capacityPerHourLimit: globalThresholds.capacityPerHourLimit ?? null,
@@ -160,6 +174,8 @@ function resolveEffectiveThresholdProfile(
   const hasUnassignedReopenThresholdOverride = typeof branch.unassignedReopenThresholdOverride === "number";
   const hasReadyThresholdOverride = typeof branch.readyThresholdOverride === "number";
   const hasReadyReopenThresholdOverride = typeof branch.readyReopenThresholdOverride === "number";
+  const hasOnHoldThresholdOverride = typeof branch.onHoldThresholdOverride === "number";
+  const hasOnHoldReopenThresholdOverride = typeof branch.onHoldReopenThresholdOverride === "number";
   const hasCapacityOverride = typeof branch.capacityRuleEnabledOverride === "boolean";
   const hasCapacityPerHourOverride =
     typeof branch.capacityPerHourEnabledOverride === "boolean" &&
@@ -171,6 +187,8 @@ function resolveEffectiveThresholdProfile(
     || hasUnassignedReopenThresholdOverride
     || hasReadyThresholdOverride
     || hasReadyReopenThresholdOverride
+    || hasOnHoldThresholdOverride
+    || hasOnHoldReopenThresholdOverride
     || hasCapacityOverride
     || hasCapacityPerHourOverride
   ) {
@@ -189,6 +207,11 @@ function resolveEffectiveThresholdProfile(
       readyReopenThreshold: clampReopenThreshold(
         hasReadyThresholdOverride ? branch.readyThresholdOverride as number : inherited.readyThreshold,
         hasReadyReopenThresholdOverride ? branch.readyReopenThresholdOverride as number : inherited.readyReopenThreshold,
+      ),
+      onHoldThreshold: hasOnHoldThresholdOverride ? branch.onHoldThresholdOverride as number : inherited.onHoldThreshold,
+      onHoldReopenThreshold: clampReopenThreshold(
+        hasOnHoldThresholdOverride ? branch.onHoldThresholdOverride as number : inherited.onHoldThreshold ?? 0,
+        hasOnHoldReopenThresholdOverride ? branch.onHoldReopenThresholdOverride as number : inherited.onHoldReopenThreshold,
       ),
       capacityRuleEnabled: hasCapacityOverride ? branch.capacityRuleEnabledOverride as boolean : inherited.capacityRuleEnabled,
       capacityPerHourEnabled:
@@ -211,6 +234,8 @@ function stripBranchOverrides(branch: BranchMappingItem): BranchMappingItem {
     unassignedReopenThresholdOverride: null,
     readyThresholdOverride: null,
     readyReopenThresholdOverride: null,
+    onHoldThresholdOverride: null,
+    onHoldReopenThresholdOverride: null,
     capacityRuleEnabledOverride: null,
     capacityPerHourEnabledOverride: null,
     capacityPerHourLimitOverride: null,
@@ -237,6 +262,7 @@ function countBranchOverrideRules(branch: BranchMappingItem) {
     typeof branch.lateThresholdOverride === "number" || typeof branch.lateReopenThresholdOverride === "number",
     typeof branch.unassignedThresholdOverride === "number" || typeof branch.unassignedReopenThresholdOverride === "number",
     typeof branch.readyThresholdOverride === "number" || typeof branch.readyReopenThresholdOverride === "number",
+    typeof branch.onHoldThresholdOverride === "number" || typeof branch.onHoldReopenThresholdOverride === "number",
     typeof branch.capacityRuleEnabledOverride === "boolean",
     typeof branch.capacityPerHourEnabledOverride === "boolean" && typeof branch.capacityPerHourLimitOverride === "number",
   ].filter(Boolean).length;
@@ -252,6 +278,10 @@ function hasUnassignedOverride(branch: BranchMappingItem) {
 
 function hasReadyOverride(branch: BranchMappingItem) {
   return typeof branch.readyThresholdOverride === "number" || typeof branch.readyReopenThresholdOverride === "number";
+}
+
+function hasOnHoldOverride(branch: BranchMappingItem) {
+  return typeof branch.onHoldThresholdOverride === "number" || typeof branch.onHoldReopenThresholdOverride === "number";
 }
 
 function hasCapacityOverride(branch: BranchMappingItem) {
@@ -446,6 +476,8 @@ export function BranchThresholdOverrideManager(props: {
     unassignedReopenThreshold?: number;
     readyThreshold?: number;
     readyReopenThreshold?: number;
+    onHoldThreshold?: number;
+    onHoldReopenThreshold?: number;
     capacityRuleEnabled: boolean;
     capacityPerHourEnabled: boolean;
     capacityPerHourLimit: number | null;
@@ -702,6 +734,9 @@ export function BranchThresholdOverrideManager(props: {
                               Late {branchEffective.lateThreshold} {"->"} {branchEffective.lateReopenThreshold ?? 0}
                             </Typography>
                             <Typography variant="caption" sx={{ color: "#64748b", display: "block" }} noWrap>
+                              On Hold {branchEffective.onHoldThreshold ?? 0} {"->"} {branchEffective.onHoldReopenThreshold ?? 0}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: "#64748b", display: "block" }} noWrap>
                               {customCount ? `${customCount} custom` : thresholdSourceLabel(branchEffective.source)}
                             </Typography>
                           </Stack>
@@ -844,6 +879,22 @@ export function BranchThresholdOverrideManager(props: {
                                   : "Inherited"
                               }
                               statusLabel={hasReadyOverride(selectedBranch) ? "Custom" : thresholdSourceLabel(inherited.source)}
+                            />
+                          );
+                        }
+
+                        if (entry.id === "onHold") {
+                          return (
+                            <RuleComparisonCard
+                              key={entry.id}
+                              entry={entry}
+                              effectiveLabel={`${effective.onHoldThreshold ?? 0} -> ${effective.onHoldReopenThreshold ?? 0}`}
+                              overrideLabel={
+                                hasOnHoldOverride(selectedBranch)
+                                  ? `${selectedBranch.onHoldThresholdOverride ?? inherited.onHoldThreshold ?? 0} -> ${selectedBranch.onHoldReopenThresholdOverride ?? inherited.onHoldReopenThreshold ?? 0}`
+                                  : "Inherited"
+                              }
+                              statusLabel={hasOnHoldOverride(selectedBranch) ? "Custom" : thresholdSourceLabel(inherited.source)}
                             />
                           );
                         }
@@ -1075,6 +1126,22 @@ export function BranchThresholdOverrideManager(props: {
                     );
                   }
 
+                  if (entry.id === "onHold") {
+                    return (
+                      <RuleComparisonCard
+                        key={entry.id}
+                        entry={entry}
+                        effectiveLabel={`${effective.onHoldThreshold ?? 0} -> ${effective.onHoldReopenThreshold ?? 0}`}
+                        overrideLabel={
+                          hasOnHoldOverride(selectedBranch)
+                            ? `${selectedBranch.onHoldThresholdOverride ?? inherited.onHoldThreshold ?? 0} -> ${selectedBranch.onHoldReopenThresholdOverride ?? inherited.onHoldReopenThreshold ?? 0}`
+                            : "Inherited"
+                        }
+                        statusLabel={hasOnHoldOverride(selectedBranch) ? "Custom override" : thresholdSourceLabel(inherited.source)}
+                      />
+                    );
+                  }
+
                   if (entry.id === "capacity") {
                     return (
                       <RuleComparisonCard
@@ -1215,6 +1282,25 @@ export function BranchThresholdOverrideManager(props: {
                       helperText=""
                       onCloseChange={(value) => props.onChangeEditor({ readyThreshold: value })}
                       onReopenChange={(value) => props.onChangeEditor({ readyReopenThreshold: value })}
+                    />
+                  );
+                }
+
+                if (entry.id === "onHold") {
+                  return (
+                    <RuleEditorCard
+                      key={entry.id}
+                      entry={entry}
+                      draft={branchDraft}
+                      disabled={readOnly || savingBranchId === selectedBranch.id}
+                      closeLabelSuffix="Threshold Override"
+                      reopenLabelSuffix="Reopen Threshold Override"
+                      limitLabel=""
+                      closePlaceholder={String(effective.onHoldThreshold ?? 0)}
+                      reopenPlaceholder={String(effective.onHoldReopenThreshold ?? 0)}
+                      helperText=""
+                      onCloseChange={(value) => props.onChangeEditor({ onHoldThreshold: value })}
+                      onReopenChange={(value) => props.onChangeEditor({ onHoldReopenThreshold: value })}
                     />
                   );
                 }

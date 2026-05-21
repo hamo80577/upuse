@@ -19,6 +19,8 @@ export function resolveBranchThresholdProfile(
     | "unassignedReopenThresholdOverride"
     | "readyThresholdOverride"
     | "readyReopenThresholdOverride"
+    | "onHoldThresholdOverride"
+    | "onHoldReopenThresholdOverride"
     | "capacityRuleEnabledOverride"
     | "capacityPerHourEnabledOverride"
     | "capacityPerHourLimitOverride"
@@ -32,6 +34,8 @@ export function resolveBranchThresholdProfile(
     | "unassignedReopenThreshold"
     | "readyThreshold"
     | "readyReopenThreshold"
+    | "onHoldThreshold"
+    | "onHoldReopenThreshold"
   >,
 ): ThresholdProfile {
   const chains = Array.isArray(settings.chains) ? settings.chains : [];
@@ -48,6 +52,8 @@ export function resolveBranchThresholdProfile(
         unassignedReopenThreshold: clampReopenThreshold(chainMatch.unassignedThreshold, chainMatch.unassignedReopenThreshold),
         readyThreshold: chainMatch.readyThreshold ?? 0,
         readyReopenThreshold: clampReopenThreshold(chainMatch.readyThreshold ?? 0, chainMatch.readyReopenThreshold),
+        onHoldThreshold: chainMatch.onHoldThreshold ?? 0,
+        onHoldReopenThreshold: clampReopenThreshold(chainMatch.onHoldThreshold ?? 0, chainMatch.onHoldReopenThreshold),
         capacityRuleEnabled: chainMatch.capacityRuleEnabled !== false,
         capacityPerHourEnabled: chainMatch.capacityPerHourEnabled === true,
         capacityPerHourLimit: chainMatch.capacityPerHourLimit ?? null,
@@ -60,6 +66,8 @@ export function resolveBranchThresholdProfile(
         unassignedReopenThreshold: clampReopenThreshold(settings.unassignedThreshold, settings.unassignedReopenThreshold),
         readyThreshold: settings.readyThreshold ?? 0,
         readyReopenThreshold: clampReopenThreshold(settings.readyThreshold ?? 0, settings.readyReopenThreshold),
+        onHoldThreshold: settings.onHoldThreshold ?? 0,
+        onHoldReopenThreshold: clampReopenThreshold(settings.onHoldThreshold ?? 0, settings.onHoldReopenThreshold),
         capacityRuleEnabled: true,
         capacityPerHourEnabled: false,
         capacityPerHourLimit: null,
@@ -73,6 +81,8 @@ export function resolveBranchThresholdProfile(
   const hasBranchUnassignedReopenThresholdOverride = typeof branch.unassignedReopenThresholdOverride === "number";
   const hasBranchReadyThresholdOverride = typeof branch.readyThresholdOverride === "number";
   const hasBranchReadyReopenThresholdOverride = typeof branch.readyReopenThresholdOverride === "number";
+  const hasBranchOnHoldThresholdOverride = typeof branch.onHoldThresholdOverride === "number";
+  const hasBranchOnHoldReopenThresholdOverride = typeof branch.onHoldReopenThresholdOverride === "number";
   const hasBranchCapacityOverride = typeof branch.capacityRuleEnabledOverride === "boolean";
   const hasBranchCapacityPerHourOverride =
     typeof branch.capacityPerHourEnabledOverride === "boolean" &&
@@ -84,6 +94,8 @@ export function resolveBranchThresholdProfile(
     || hasBranchUnassignedReopenThresholdOverride
     || hasBranchReadyThresholdOverride
     || hasBranchReadyReopenThresholdOverride
+    || hasBranchOnHoldThresholdOverride
+    || hasBranchOnHoldReopenThresholdOverride
     || hasBranchCapacityOverride
     || hasBranchCapacityPerHourOverride
   ) {
@@ -102,6 +114,11 @@ export function resolveBranchThresholdProfile(
       readyReopenThreshold: clampReopenThreshold(
         hasBranchReadyThresholdOverride ? branch.readyThresholdOverride as number : inherited.readyThreshold ?? 0,
         hasBranchReadyReopenThresholdOverride ? branch.readyReopenThresholdOverride as number : inherited.readyReopenThreshold,
+      ),
+      onHoldThreshold: hasBranchOnHoldThresholdOverride ? branch.onHoldThresholdOverride as number : inherited.onHoldThreshold,
+      onHoldReopenThreshold: clampReopenThreshold(
+        hasBranchOnHoldThresholdOverride ? branch.onHoldThresholdOverride as number : inherited.onHoldThreshold ?? 0,
+        hasBranchOnHoldReopenThresholdOverride ? branch.onHoldReopenThresholdOverride as number : inherited.onHoldReopenThreshold,
       ),
       capacityRuleEnabled: hasBranchCapacityOverride ? branch.capacityRuleEnabledOverride as boolean : inherited.capacityRuleEnabled,
       capacityPerHourEnabled:

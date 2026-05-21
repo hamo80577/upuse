@@ -34,6 +34,7 @@ describe("actionReportStore CSV sanitization", () => {
           activeNow: 3,
           lateNow: 2,
           unassignedNow: 1,
+          onHoldNow: 0,
         },
       ],
     });

@@ -16,6 +16,8 @@ interface SettingsRow {
   unassignedReopenThreshold?: number;
   readyThreshold?: number;
   readyReopenThreshold?: number;
+  onHoldThreshold?: number;
+  onHoldReopenThreshold?: number;
   tempCloseMinutes: number;
   graceMinutes: number;
   ordersRefreshSeconds: number;
@@ -40,6 +42,8 @@ function addReopenThresholdIssues(
     unassignedReopenThreshold?: number;
     readyThreshold?: number;
     readyReopenThreshold?: number;
+    onHoldThreshold?: number;
+    onHoldReopenThreshold?: number;
   },
   ctx: z.RefinementCtx,
 ) {
@@ -64,6 +68,13 @@ function addReopenThresholdIssues(
       path: ["readyReopenThreshold"],
     });
   }
+  if ((value.onHoldReopenThreshold ?? 0) > (value.onHoldThreshold ?? 0)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "On Hold reopen threshold cannot be greater than the close threshold.",
+      path: ["onHoldReopenThreshold"],
+    });
+  }
 }
 
 const SettingsSchema = z.object({
@@ -80,6 +91,8 @@ const SettingsSchema = z.object({
       unassignedReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
       readyThreshold: z.number().int().min(0).max(999).optional().default(0),
       readyReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
+      onHoldThreshold: z.number().int().min(0).max(999).optional().default(0),
+      onHoldReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
       capacityRuleEnabled: z.boolean().optional().default(true),
       capacityPerHourEnabled: z.boolean().optional().default(false),
       capacityPerHourLimit: z.number().int().min(1).max(999).nullable().optional().default(null),
@@ -101,6 +114,8 @@ const SettingsSchema = z.object({
   unassignedReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
   readyThreshold: z.number().int().min(0).max(999).optional().default(0),
   readyReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
+  onHoldThreshold: z.number().int().min(0).max(999).optional().default(0),
+  onHoldReopenThreshold: z.number().int().min(0).max(999).optional().default(0),
 
   tempCloseMinutes: z.number().int().min(1).max(720),
   graceMinutes: z.number().int().min(0).max(60),
@@ -152,6 +167,11 @@ function normalizeChainThresholds(values: ChainThreshold[]) {
           ? Math.max(0, Math.round(item.readyThreshold))
           : 0,
       readyReopenThreshold: clampReopenThreshold(item.readyThreshold ?? 0, item.readyReopenThreshold),
+      onHoldThreshold:
+        typeof item.onHoldThreshold === "number"
+          ? Math.max(0, Math.round(item.onHoldThreshold))
+          : 0,
+      onHoldReopenThreshold: clampReopenThreshold(item.onHoldThreshold ?? 0, item.onHoldReopenThreshold),
       capacityRuleEnabled: item.capacityRuleEnabled !== false,
       capacityPerHourEnabled: item.capacityPerHourEnabled === true,
       capacityPerHourLimit:
@@ -186,6 +206,8 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
         unassignedReopenThreshold: 0,
         readyThreshold: 0,
         readyReopenThreshold: 0,
+        onHoldThreshold: 0,
+        onHoldReopenThreshold: 0,
         capacityRuleEnabled: true,
         capacityPerHourEnabled: false,
         capacityPerHourLimit: null,
@@ -214,6 +236,8 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
           unassignedReopenThreshold: 0,
           readyThreshold: 0,
           readyReopenThreshold: 0,
+          onHoldThreshold: 0,
+          onHoldReopenThreshold: 0,
           capacityRuleEnabled: true,
           capacityPerHourEnabled: false,
           capacityPerHourLimit: null,
@@ -236,6 +260,8 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
                 unassignedReopenThreshold?: number;
                 readyThreshold?: number;
                 readyReopenThreshold?: number;
+                onHoldThreshold?: number;
+                onHoldReopenThreshold?: number;
                 capacityRuleEnabled?: boolean;
                 capacityPerHourEnabled?: boolean;
                 capacityPerHourLimit?: number | null;
@@ -261,6 +287,8 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
             unassignedReopenThreshold?: number;
             readyThreshold?: number;
             readyReopenThreshold?: number;
+            onHoldThreshold?: number;
+            onHoldReopenThreshold?: number;
             capacityRuleEnabled?: boolean;
             capacityPerHourEnabled?: boolean;
             capacityPerHourLimit?: number | null;
@@ -293,6 +321,14 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
             readyReopenThreshold:
               typeof legacyValue.readyReopenThreshold === "number"
                 ? legacyValue.readyReopenThreshold
+                : 0,
+            onHoldThreshold:
+              typeof legacyValue.onHoldThreshold === "number"
+                ? legacyValue.onHoldThreshold
+                : 0,
+            onHoldReopenThreshold:
+              typeof legacyValue.onHoldReopenThreshold === "number"
+                ? legacyValue.onHoldReopenThreshold
                 : 0,
             capacityRuleEnabled: legacyValue.capacityRuleEnabled !== false,
             capacityPerHourEnabled: legacyValue.capacityPerHourEnabled === true,
@@ -328,6 +364,8 @@ export function getSettings(): Settings {
     unassignedReopenThreshold: clampReopenThreshold(row.unassignedThreshold, row.unassignedReopenThreshold),
     readyThreshold: typeof row.readyThreshold === "number" ? row.readyThreshold : 0,
     readyReopenThreshold: clampReopenThreshold(row.readyThreshold ?? 0, row.readyReopenThreshold),
+    onHoldThreshold: typeof row.onHoldThreshold === "number" ? row.onHoldThreshold : 0,
+    onHoldReopenThreshold: clampReopenThreshold(row.onHoldThreshold ?? 0, row.onHoldReopenThreshold),
     tempCloseMinutes: row.tempCloseMinutes,
     graceMinutes: row.graceMinutes,
     ordersRefreshSeconds: row.ordersRefreshSeconds,
@@ -377,6 +415,8 @@ export function updateSettings(patch: Partial<Settings>) {
       unassignedReopenThreshold = ?,
       readyThreshold = ?,
       readyReopenThreshold = ?,
+      onHoldThreshold = ?,
+      onHoldReopenThreshold = ?,
       tempCloseMinutes = ?,
       graceMinutes = ?,
       ordersRefreshSeconds = ?,
@@ -395,6 +435,8 @@ export function updateSettings(patch: Partial<Settings>) {
     normalized.unassignedReopenThreshold ?? 0,
     normalized.readyThreshold ?? 0,
     normalized.readyReopenThreshold ?? 0,
+    normalized.onHoldThreshold ?? 0,
+    normalized.onHoldReopenThreshold ?? 0,
     normalized.tempCloseMinutes,
     normalized.graceMinutes,
     normalized.ordersRefreshSeconds,

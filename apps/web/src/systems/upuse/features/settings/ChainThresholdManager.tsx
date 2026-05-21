@@ -43,6 +43,8 @@ export interface ChainEditorDraft {
   unassignedReopenThreshold: string;
   readyThreshold: string;
   readyReopenThreshold: string;
+  onHoldThreshold: string;
+  onHoldReopenThreshold: string;
   capacityRuleEnabled: boolean;
   capacityPerHourEnabled: boolean;
   capacityPerHourLimit: string;
@@ -55,6 +57,8 @@ export interface DefaultThresholdEditorDraft {
   unassignedReopenThreshold: string;
   readyThreshold: string;
   readyReopenThreshold: string;
+  onHoldThreshold: string;
+  onHoldReopenThreshold: string;
 }
 
 function surfaceCardSx(entry: RuleCatalogEntry, highlighted = false) {
@@ -86,6 +90,10 @@ function buildChainRuleEditorDraft(chainEditor: ChainEditorDraft): RuleEditorDra
       close: chainEditor.readyThreshold,
       reopen: chainEditor.readyReopenThreshold,
     },
+    onHold: {
+      close: chainEditor.onHoldThreshold,
+      reopen: chainEditor.onHoldReopenThreshold,
+    },
     capacity: {
       enabled: chainEditor.capacityRuleEnabled,
     },
@@ -109,6 +117,10 @@ function buildDefaultRuleEditorDraft(defaultEditor: DefaultThresholdEditorDraft)
     ready: {
       close: defaultEditor.readyThreshold,
       reopen: defaultEditor.readyReopenThreshold,
+    },
+    onHold: {
+      close: defaultEditor.onHoldThreshold,
+      reopen: defaultEditor.onHoldReopenThreshold,
     },
     capacity: {
       enabled: true,
@@ -307,6 +319,8 @@ export function ChainThresholdManager(props: {
     unassignedReopenThreshold?: number;
     readyThreshold?: number;
     readyReopenThreshold?: number;
+    onHoldThreshold?: number;
+    onHoldReopenThreshold?: number;
   };
   selectedChainName: string | null;
   editingChainIndex: number | null;
@@ -484,6 +498,9 @@ export function ChainThresholdManager(props: {
                             <Typography variant="caption" sx={{ color: "#64748b", display: "block" }} noWrap>
                               Ready {formatThresholdPair(chain.readyThreshold ?? 0, chain.readyReopenThreshold)}
                             </Typography>
+                            <Typography variant="caption" sx={{ color: "#64748b", display: "block" }} noWrap>
+                              On Hold {formatThresholdPair(chain.onHoldThreshold ?? 0, chain.onHoldReopenThreshold)}
+                            </Typography>
                           </Stack>
                         </Box>
                       </ButtonBase>
@@ -591,6 +608,18 @@ export function ChainThresholdManager(props: {
                             entry={entry}
                             closeValue={selectedChainEntry.chain.readyThreshold ?? 0}
                             reopenValue={selectedChainEntry.chain.readyReopenThreshold}
+                            caption=""
+                          />
+                        );
+                      }
+
+                      if (entry.id === "onHold") {
+                        return (
+                          <RuleShowcaseCard
+                            key={entry.id}
+                            entry={entry}
+                            closeValue={selectedChainEntry.chain.onHoldThreshold ?? 0}
+                            reopenValue={selectedChainEntry.chain.onHoldReopenThreshold}
                             caption=""
                           />
                         );
@@ -743,6 +772,11 @@ export function ChainThresholdManager(props: {
                 />
                 <Chip
                   size="small"
+                  label={`On Hold ${formatThresholdPair(selectedChainEntry.chain.onHoldThreshold ?? 0, selectedChainEntry.chain.onHoldReopenThreshold)}`}
+                  sx={{ fontWeight: 900, bgcolor: "rgba(248,113,113,0.1)", color: "#b91c1c" }}
+                />
+                <Chip
+                  size="small"
                   label={selectedChainEntry.chain.capacityRuleEnabled === false ? "Capacity off" : "Capacity on"}
                   sx={{ fontWeight: 900, bgcolor: "rgba(20,184,166,0.1)", color: "#0f766e" }}
                 />
@@ -788,6 +822,18 @@ export function ChainThresholdManager(props: {
                         closeValue={selectedChainEntry.chain.readyThreshold ?? 0}
                         reopenValue={selectedChainEntry.chain.readyReopenThreshold}
                         caption="Ready queue thresholds for this chain."
+                      />
+                    );
+                  }
+
+                  if (entry.id === "onHold") {
+                    return (
+                      <RuleShowcaseCard
+                        key={entry.id}
+                        entry={entry}
+                        closeValue={selectedChainEntry.chain.onHoldThreshold ?? 0}
+                        reopenValue={selectedChainEntry.chain.onHoldReopenThreshold}
+                        caption="On Hold thresholds for this chain."
                       />
                     );
                   }
@@ -875,8 +921,8 @@ export function ChainThresholdManager(props: {
           <Divider />
 
           <Stack spacing={1.1}>
-            {["late", "unassigned", "ready"].map((ruleId) => {
-              const entry = getRuleCatalogEntry(ruleId as "late" | "unassigned" | "ready");
+            {["late", "unassigned", "ready", "onHold"].map((ruleId) => {
+              const entry = getRuleCatalogEntry(ruleId as "late" | "unassigned" | "ready" | "onHold");
 
               if (entry.id === "late") {
                 return (
@@ -906,6 +952,22 @@ export function ChainThresholdManager(props: {
                     disabled={readOnly}
                     onCloseChange={(value) => props.onChangeDefaultEditor({ unassignedThreshold: value })}
                     onReopenChange={(value) => props.onChangeDefaultEditor({ unassignedReopenThreshold: value })}
+                  />
+                );
+              }
+
+              if (entry.id === "onHold") {
+                return (
+                  <RuleEditorCard
+                    key={entry.id}
+                    entry={entry}
+                    draft={defaultsDraft}
+                    closeLabelSuffix="Close Threshold"
+                    reopenLabelSuffix="Reopen Threshold"
+                    limitLabel=""
+                    disabled={readOnly}
+                    onCloseChange={(value) => props.onChangeDefaultEditor({ onHoldThreshold: value })}
+                    onReopenChange={(value) => props.onChangeDefaultEditor({ onHoldReopenThreshold: value })}
                   />
                 );
               }
@@ -1044,6 +1106,22 @@ export function ChainThresholdManager(props: {
                     disabled={readOnly}
                     onCloseChange={(value) => props.onChangeEditor({ readyThreshold: value })}
                     onReopenChange={(value) => props.onChangeEditor({ readyReopenThreshold: value })}
+                  />
+                );
+              }
+
+              if (entry.id === "onHold") {
+                return (
+                  <RuleEditorCard
+                    key={entry.id}
+                    entry={entry}
+                    draft={chainDraft}
+                    closeLabelSuffix="Close Threshold"
+                    reopenLabelSuffix="Reopen Threshold"
+                    limitLabel=""
+                    disabled={readOnly}
+                    onCloseChange={(value) => props.onChangeEditor({ onHoldThreshold: value })}
+                    onReopenChange={(value) => props.onChangeEditor({ onHoldReopenThreshold: value })}
                   />
                 );
               }

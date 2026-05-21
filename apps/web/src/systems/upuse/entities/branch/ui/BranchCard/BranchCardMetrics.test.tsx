@@ -14,6 +14,7 @@ describe("BranchCardMetrics", () => {
           lateNow: 2,
           unassignedNow: 1,
           readyNow: 3,
+          onHoldNow: 2,
         }}
         preparingNow={6}
         preparingPickersNow={3}
@@ -23,6 +24,7 @@ describe("BranchCardMetrics", () => {
 
     expect(screen.getByText("In Prep")).toBeInTheDocument();
     expect(screen.getByText("Ready To Pickup")).toBeInTheDocument();
+    expect(screen.getByText("On Hold")).toBeInTheDocument();
     expect(screen.getByText("3 pickers")).toBeInTheDocument();
     expect(screen.queryByText("Cancelled")).not.toBeInTheDocument();
   });
@@ -38,6 +40,7 @@ describe("BranchCardMetrics", () => {
           lateNow: 2,
           unassignedNow: 1,
           readyNow: 0,
+          onHoldNow: 0,
         }}
         preparingNow={0}
         preparingPickersNow={0}
@@ -62,6 +65,7 @@ describe("BranchCardMetrics", () => {
           lateNow: 2,
           unassignedNow: 1,
           readyNow: 1,
+          onHoldNow: 0,
         }}
         preparingNow={6}
         preparingPickersNow={3}

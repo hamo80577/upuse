@@ -126,26 +126,31 @@ export async function fetchOrdersAggregates(params: {
           }, nowIso);
 
           metrics.totalToday += 1;
-          if (order?.status === "CANCELLED") metrics.cancelledToday += 1;
+          const isCancelled = order?.status === "CANCELLED";
+          const isOnHold = !isCancelled && order?.status === "ON_HOLD";
+          if (isCancelled) metrics.cancelledToday += 1;
 
           if (order?.isCompleted) {
             metrics.doneToday += 1;
           }
-          if (classification.isActive) {
+          if (isOnHold) {
+            metrics.onHoldNow = (metrics.onHoldNow ?? 0) + 1;
+          }
+          if (!isOnHold && classification.isActive) {
             metrics.activeNow += 1;
           }
-          if (classification.isLate) {
+          if (!isOnHold && classification.isLate) {
             metrics.lateNow += 1;
           }
-          if (classification.isReadyToPickup) {
+          if (!isOnHold && classification.isReadyToPickup) {
             metrics.readyNow = (metrics.readyNow ?? 0) + 1;
           }
-          if (classification.isUnassigned) {
+          if (!isOnHold && classification.isUnassigned) {
             metrics.unassignedNow += 1;
           }
 
           const preparation = preparingByVendor.get(vendorId);
-          if (preparation && classification.isInPreparation) {
+          if (preparation && !isOnHold && classification.isInPreparation) {
             preparation.preparingNow += 1;
             if (shopperId != null && isPreparingQueueOrder(classification)) {
               const pickerIds = pickerIdsByVendor.get(vendorId);
