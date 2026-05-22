@@ -354,4 +354,48 @@ describe("availabilityClient", () => {
       state: "OPEN",
     })).rejects.toThrow(/malformed payload/i);
   });
+
+  it("sends the VSS high demand mutation payload", async () => {
+    mockAxiosPut.mockResolvedValue({
+      data: {
+        vendors: {
+          open: {
+            highDemand: {
+              vendorStatuses: [
+                {
+                  platformVendorId: "vendor-1",
+                  adjustmentMinutes: 10,
+                  endTime: "2026-05-22T14:06:11.099Z",
+                },
+              ],
+            },
+          },
+        },
+      },
+    });
+
+    await setAvailability({
+      token: "token",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      availabilityVendorId: "vendor-1",
+      state: "HIGH_DEMAND_MODE",
+      adjustmentMinutes: 10,
+      durationMinutes: 30,
+    });
+
+    expect(mockAxiosPut).toHaveBeenCalledWith(
+      `https://vss.me.restaurant-partners.com/api/v2/globalEntities/${TEST_GLOBAL_ENTITY_ID}/vendors/vendor-1/availability`,
+      {
+        availabilityState: "HIGH_DEMAND_MODE",
+        adjustmentMinutes: 10,
+        durationMinutes: 30,
+      },
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer token",
+          "Content-Type": "application/json",
+        }),
+      }),
+    );
+  });
 });

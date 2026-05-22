@@ -9,10 +9,11 @@ function PickerMetricTile(props: { label: string; value: number | string; tone?:
   return (
     <Box
       sx={{
-        borderRadius: 1.75,
-        p: 1,
-        bgcolor: props.tone === "accent" ? "rgba(236,253,245,0.95)" : "rgba(248,250,252,0.92)",
-        border: props.tone === "accent" ? "1px solid rgba(16,185,129,0.14)" : "1px solid rgba(148,163,184,0.12)",
+        borderRadius: 2,
+        p: 1.1,
+        bgcolor: props.tone === "accent" ? "rgba(236,253,245,0.96)" : "rgba(255,255,255,0.96)",
+        border: props.tone === "accent" ? "1px solid rgba(16,185,129,0.16)" : "1px solid rgba(148,163,184,0.14)",
+        boxShadow: "0 12px 24px rgba(15,23,42,0.045)",
       }}
     >
       <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>
@@ -53,16 +54,21 @@ export function BranchPickersPanel(props: {
 
       <Box
         sx={{
-          borderRadius: 2.5,
-          border: "1px solid rgba(148,163,184,0.14)",
+          borderRadius: 2.7,
+          border: "1px solid rgba(148,163,184,0.16)",
           overflow: "hidden",
-          bgcolor: "rgba(255,255,255,0.94)",
-          boxShadow: "0 12px 28px rgba(15,23,42,0.04)",
+          bgcolor: "rgba(255,255,255,0.96)",
+          boxShadow: "0 16px 34px rgba(15,23,42,0.06)",
         }}
       >
-        <Box sx={{ px: 1.5, py: 1.12, bgcolor: "rgba(248,250,252,0.86)" }}>
-          <Typography sx={{ fontWeight: 900 }}>Picker Activity</Typography>
-          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+        <Box sx={{ px: 1.45, py: 1.2, bgcolor: "linear-gradient(180deg, rgba(248,250,252,0.96) 0%, rgba(255,255,255,0.94) 100%)" }}>
+          <Typography variant="caption" sx={{ color: "#64748b", fontWeight: 800 }}>
+            Picker Command Board
+          </Typography>
+          <Typography sx={{ fontWeight: 900, color: "#0f172a", lineHeight: 1.15 }}>
+            Picker Activity
+          </Typography>
+          <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mt: 0.25 }}>
             Today&apos;s prepared orders with first and last order timing.
           </Typography>
         </Box>
@@ -82,10 +88,10 @@ export function BranchPickersPanel(props: {
             <Table stickyHeader size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ fontWeight: 900, bgcolor: "rgba(248,250,252,0.96)", py: 1 }}>Picker</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 900, bgcolor: "rgba(248,250,252,0.96)", py: 1 }}>Orders</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 900, bgcolor: "rgba(248,250,252,0.96)", py: 1 }}>Frist order</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 900, bgcolor: "rgba(248,250,252,0.96)", py: 1 }}>Last order</TableCell>
+                  <TableCell sx={{ fontWeight: 900, bgcolor: "rgba(248,250,252,0.98)", py: 1 }}>Picker</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 900, bgcolor: "rgba(248,250,252,0.98)", py: 1 }}>Orders</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 900, bgcolor: "rgba(248,250,252,0.98)", py: 1 }}>First order</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 900, bgcolor: "rgba(248,250,252,0.98)", py: 1 }}>Last order</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>

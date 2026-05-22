@@ -67,6 +67,7 @@ If you want one Windows command that loads `.env`, builds, and starts production
 - Availability countdowns are shown only when there is a real timer target:
   - a UPuse-owned tracked close window
   - or `shortClosures.nextOpeningAt` from VSS
+- UPuse can now schedule VSS `highDemand` automatically from `Thresholds > High Demand`. Schedules are daily Cairo-time hour blocks on the chain, branch overrides can inherit, replace, or explicitly disable the chain schedule, and automation runs only while Monitor is running.
 - VSS availability refresh is fixed at `15s` on the server. The Settings page keeps orders cadence editable, but availability cadence is read-only.
 - `/api/health`, `/api/ready`, dashboard monitoring state, and monitor banners now expose structured sync metadata and actionable upstream error categories (`token_missing`, `auth`, `conflict`, `tunnel`, `timeout`, `network`, `malformed_response`, `upstream`) for both orders and availability.
 - UPuse monitoring thresholds now include an optional `On Hold` trigger based on orders with status `ON_HOLD`. Global, chain, and branch overrides use `close/reopen` values, with `0/0` meaning disabled.
@@ -240,6 +241,8 @@ If you want one Windows command that loads `.env`, builds, and starts production
 
 ## Availability sync model
 - Availability reads come from VSS and refresh on a fixed server-managed `15s` cadence.
+- Scheduled High Demand runs during monitor reconciliation after normal close/open decisions. A selected hour such as `15` covers `3:00 PM` up to before `4:00 PM` in `Africa/Cairo`; UPuse applies `HIGH_DEMAND_MODE` for 30 minutes with a +10 minute prep-time adjustment whenever the branch is active, open, not already highDemand, and not inside a tracked temporary-close or external-open recovery window.
+- If the 30-minute UPuse highDemand window expires while the selected hour is still active, the next monitor cycle may activate it again. If it extends past the configured hour, it is allowed to finish naturally.
 - Branch snapshots keep both coarse status compatibility and the richer VSS-aware fields:
   - `availabilityKind`
   - `vssBucket`

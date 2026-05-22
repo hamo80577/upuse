@@ -91,4 +91,30 @@ describe("BranchCardStatus", () => {
 
     expect(screen.getByText("Ready To Pickup Trigger")).toBeInTheDocument();
   });
+
+  it("marks UPuse-owned highDemand with a blue icon on the branch card", () => {
+    render(
+      <BranchCardStatus
+        branch={createBranch({
+          status: "OPEN",
+          statusColor: "green",
+          closedByUpuse: false,
+          closureSource: undefined,
+          closeReason: undefined,
+          closedUntil: undefined,
+          closeStartedAt: undefined,
+          availabilityKind: "highDemand",
+          vssGroup: "highDemand",
+          highDemandSource: "UPUSE",
+        })}
+        nowMs={Date.parse("2026-03-18T12:00:00.000Z")}
+        progressValue={0}
+        canTrackProgress={false}
+        timerReached={false}
+      />,
+    );
+
+    expect(screen.getByText("highDemand")).toBeInTheDocument();
+    expect(screen.getByTestId("BoltRoundedIcon")).toBeInTheDocument();
+  });
 });

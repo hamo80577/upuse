@@ -109,6 +109,7 @@ export function backfillLegacyChainThresholds(db: Database.Database) {
         capacityRuleEnabled: true,
         capacityPerHourEnabled: false,
         capacityPerHourLimit: null,
+        highDemandSchedule: { enabled: false, hours: [] },
       })),
     ),
     JSON.stringify(chainNames),

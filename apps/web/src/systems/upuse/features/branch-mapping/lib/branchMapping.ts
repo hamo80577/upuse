@@ -1,4 +1,9 @@
-import type { BranchMappingItem, ChainThreshold, LocalVendorCatalogItem, ThresholdProfile } from "../../../api/types";
+import type { BranchMappingItem, ChainThreshold, HighDemandSchedule, LocalVendorCatalogItem, ThresholdProfile } from "../../../api/types";
+
+export const DEFAULT_HIGH_DEMAND_SCHEDULE: HighDemandSchedule = {
+  enabled: false,
+  hours: [],
+};
 
 function clampReopenThreshold(closeThreshold: number, reopenThreshold: number | null | undefined) {
   const normalizedClose = Math.max(0, Math.round(closeThreshold));
@@ -17,6 +22,53 @@ export interface SavedChainGroup {
   enabledCount: number;
   pausedCount: number;
   missingCount: number;
+}
+
+export function normalizeHighDemandSchedule(value: unknown): HighDemandSchedule {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return DEFAULT_HIGH_DEMAND_SCHEDULE;
+  }
+
+  const raw = value as { enabled?: unknown; hours?: unknown };
+  const enabled = raw.enabled === true;
+  const hours = Array.isArray(raw.hours)
+    ? Array.from(new Set(
+      raw.hours
+        .filter((hour): hour is number => Number.isInteger(hour) && hour >= 0 && hour <= 23),
+    )).sort((left, right) => left - right)
+    : [];
+
+  return {
+    enabled,
+    hours: enabled ? hours : [],
+  };
+}
+
+export function normalizeNullableHighDemandSchedule(value: unknown): HighDemandSchedule | null {
+  if (value == null) return null;
+  return normalizeHighDemandSchedule(value);
+}
+
+export function formatHighDemandHour(hour: number) {
+  const normalized = ((Math.round(hour) % 24) + 24) % 24;
+  if (normalized === 0) return "12 AM";
+  if (normalized < 12) return `${normalized} AM`;
+  if (normalized === 12) return "12 PM";
+  return `${normalized - 12} PM`;
+}
+
+export function formatHighDemandHourRange(hour: number) {
+  const start = ((Math.round(hour) % 24) + 24) % 24;
+  const end = (start + 1) % 24;
+  return `${formatHighDemandHour(start)} - ${formatHighDemandHour(end)}`;
+}
+
+export function formatHighDemandHours(schedule: HighDemandSchedule | null | undefined) {
+  const normalized = normalizeHighDemandSchedule(schedule);
+  if (!normalized.enabled) return "Inactive";
+  if (!normalized.hours.length) return "No hours selected";
+  if (normalized.hours.length === 24) return "All day";
+  return normalized.hours.map(formatHighDemandHour).join(", ");
 }
 
 export function normalizeChains(chains: ChainThreshold[]) {
@@ -57,6 +109,7 @@ export function normalizeChains(chains: ChainThreshold[]) {
         typeof chain.capacityPerHourLimit === "number"
           ? Math.max(1, Math.round(chain.capacityPerHourLimit))
           : null,
+      highDemandSchedule: normalizeHighDemandSchedule(chain.highDemandSchedule),
     });
   }
 
@@ -100,6 +153,36 @@ export function emptyBranchThresholdEditor() {
 
 export function safeBranchName(branch: Pick<BranchMappingItem, "name" | "availabilityVendorId">) {
   return branch.name?.trim() || `Availability ${branch.availabilityVendorId}`;
+}
+
+export function resolveEffectiveHighDemandSchedule(
+  branch: Pick<BranchMappingItem, "chainName" | "highDemandScheduleOverride">,
+  chains: ChainThreshold[],
+) {
+  const override = normalizeNullableHighDemandSchedule(branch.highDemandScheduleOverride);
+  if (override) {
+    return {
+      source: "branch" as const,
+      schedule: override,
+      override,
+    };
+  }
+
+  const chainName = branch.chainName.trim().toLowerCase();
+  const chain = chains.find((item) => item.name.trim().toLowerCase() === chainName);
+  if (chain) {
+    return {
+      source: "chain" as const,
+      schedule: normalizeHighDemandSchedule(chain.highDemandSchedule),
+      override: null,
+    };
+  }
+
+  return {
+    source: "default" as const,
+    schedule: DEFAULT_HIGH_DEMAND_SCHEDULE,
+    override: null,
+  };
 }
 
 export function resolveEffectiveThresholds(

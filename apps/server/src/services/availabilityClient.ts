@@ -284,8 +284,9 @@ export async function setAvailability(params: {
   token: string;
   globalEntityId: string;
   availabilityVendorId: string; // vendorId in vss endpoint
-  state: "OPEN" | "TEMPORARY_CLOSURE";
+  state: "OPEN" | "TEMPORARY_CLOSURE" | "HIGH_DEMAND_MODE";
   durationMinutes?: number;
+  adjustmentMinutes?: number;
 }) {
   const url = `${WRITE_BASE}/api/v2/globalEntities/${params.globalEntityId}/vendors/${params.availabilityVendorId}/availability`;
   const headers = { Authorization: `Bearer ${params.token}`, "Content-Type": "application/json", Accept: "application/json" };
@@ -293,7 +294,13 @@ export async function setAvailability(params: {
   const payload =
     params.state === "OPEN"
       ? { availabilityState: "OPEN" }
-      : { availabilityState: "TEMPORARY_CLOSURE", durationMinutes: params.durationMinutes ?? 30 };
+      : params.state === "HIGH_DEMAND_MODE"
+        ? {
+            availabilityState: "HIGH_DEMAND_MODE",
+            adjustmentMinutes: params.adjustmentMinutes ?? 10,
+            durationMinutes: params.durationMinutes ?? 30,
+          }
+        : { availabilityState: "TEMPORARY_CLOSURE", durationMinutes: params.durationMinutes ?? 30 };
 
   const res = await putWithRetry(url, payload, headers, 1);
   if (res.data == null) {

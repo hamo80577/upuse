@@ -5,6 +5,7 @@ import { GlobalEntityIdSchema } from "../config/globalEntityId.js";
 import { z } from "zod";
 import { getSettingsTokenTestSnapshot, startSettingsTokenTestJob } from "../services/settingsTokenTestStore.js";
 import { hasCapability } from "../http/authorization.js";
+import { HighDemandScheduleSchema } from "../services/highDemandSchedule.js";
 
 const SettingsPatch = z
   .object({
@@ -26,6 +27,7 @@ const SettingsPatch = z
         capacityRuleEnabled: z.boolean().optional(),
         capacityPerHourEnabled: z.boolean().optional(),
         capacityPerHourLimit: z.number().int().min(1).max(999).nullable().optional(),
+        highDemandSchedule: HighDemandScheduleSchema.optional(),
       }).superRefine((value, ctx) => {
         if (!value.capacityPerHourEnabled || typeof value.capacityPerHourLimit === "number") return;
         ctx.addIssue({

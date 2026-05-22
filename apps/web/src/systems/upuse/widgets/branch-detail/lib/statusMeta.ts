@@ -97,9 +97,16 @@ export function statusPanelMeta(branch: BranchSnapshot) {
   }
 
   if (kind === "highDemand") {
+    const isUpuseHighDemand = branch.highDemandSource === "UPUSE";
     return {
       title: "Live and Open",
-      caption: highDemandMeta ? `Source marks this branch as highDemand. ${highDemandMeta}.` : "Source marks this branch as highDemand.",
+      caption: isUpuseHighDemand
+        ? highDemandMeta
+          ? `UPuse scheduled highDemand is active. ${highDemandMeta}.`
+          : "UPuse scheduled highDemand is active."
+        : highDemandMeta
+          ? `Source marks this branch as highDemand. ${highDemandMeta}.`
+          : "Source marks this branch as highDemand.",
       tone: "#166534",
       sourceLabel: subtype?.label ?? "highDemand",
       showTimer: false,

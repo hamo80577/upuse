@@ -11,6 +11,7 @@ const {
   mockFindVendorCatalogItemsInCsv,
   mockLookupWarehouseVendorByAvailabilityId,
   mockSetBranchMonitoringEnabled,
+  mockSetBranchHighDemandScheduleOverride,
   mockSetBranchThresholdOverrides,
   mockUpsertVendorCatalogItem,
   mockGetSettings,
@@ -27,6 +28,7 @@ const {
   mockFindVendorCatalogItemsInCsv: vi.fn(),
   mockLookupWarehouseVendorByAvailabilityId: vi.fn(),
   mockSetBranchMonitoringEnabled: vi.fn(),
+  mockSetBranchHighDemandScheduleOverride: vi.fn(),
   mockSetBranchThresholdOverrides: vi.fn(),
   mockUpsertVendorCatalogItem: vi.fn(),
   mockGetSettings: vi.fn(),
@@ -42,6 +44,7 @@ vi.mock("../services/branchStore.js", () => ({
   getResolvedBranchById: mockGetResolvedBranchById,
   listBranches: mockListBranches,
   setBranchMonitoringEnabled: mockSetBranchMonitoringEnabled,
+  setBranchHighDemandScheduleOverride: mockSetBranchHighDemandScheduleOverride,
   setBranchThresholdOverrides: mockSetBranchThresholdOverrides,
 }));
 
@@ -77,6 +80,7 @@ import {
   listVendorSourceRoute,
   resolveVendorSourceRoute,
   updateBranchMonitoringRoute,
+  updateBranchHighDemandScheduleOverrideRoute,
   updateBranchThresholdOverridesRoute,
 } from "./branches.js";
 
@@ -129,6 +133,7 @@ function branchMapping(overrides?: Record<string, unknown>) {
     capacityRuleEnabledOverride: null,
     capacityPerHourEnabledOverride: null,
     capacityPerHourLimitOverride: null,
+    highDemandScheduleOverride: null,
     ...overrides,
   };
 }
@@ -204,6 +209,7 @@ describe("branches routes", () => {
     mockFindVendorCatalogItemsInCsv.mockReset();
     mockLookupWarehouseVendorByAvailabilityId.mockReset();
     mockSetBranchMonitoringEnabled.mockReset();
+    mockSetBranchHighDemandScheduleOverride.mockReset();
     mockSetBranchThresholdOverrides.mockReset();
     mockUpsertVendorCatalogItem.mockReset();
     mockGetSettings.mockReset();
@@ -602,6 +608,69 @@ describe("branches routes", () => {
         capacityPerHourLimitOverride: 5,
       }),
     });
+  });
+
+  it("updates branch high demand schedule overrides through the narrow endpoint", () => {
+    mockGetBranchById.mockReturnValue(branchMapping());
+    mockSetBranchHighDemandScheduleOverride.mockReturnValue(branchMapping({
+      highDemandScheduleOverride: {
+        enabled: true,
+        hours: [15, 16],
+      },
+    }));
+    const req: any = {
+      params: { id: "7" },
+      body: {
+        enabled: true,
+        hours: [16, 15, 15],
+      },
+    };
+    const res = createResponse();
+
+    updateBranchHighDemandScheduleOverrideRoute(req, res);
+
+    expect(mockSetBranchHighDemandScheduleOverride).toHaveBeenCalledWith(7, {
+      enabled: true,
+      hours: [15, 16],
+    });
+    expect(res.body).toEqual({
+      ok: true,
+      item: branchMapping({
+        highDemandScheduleOverride: {
+          enabled: true,
+          hours: [15, 16],
+        },
+      }),
+    });
+  });
+
+  it("clears branch high demand schedule overrides with a null body", () => {
+    mockGetBranchById.mockReturnValue(branchMapping({
+      highDemandScheduleOverride: {
+        enabled: true,
+        hours: [15],
+      },
+    }));
+    mockSetBranchHighDemandScheduleOverride.mockReturnValue(branchMapping());
+    const res = createResponse();
+
+    updateBranchHighDemandScheduleOverrideRoute({ params: { id: "7" }, body: null } as any, res);
+
+    expect(mockSetBranchHighDemandScheduleOverride).toHaveBeenCalledWith(7, null);
+    expect(res.body).toEqual({ ok: true, item: branchMapping() });
+  });
+
+  it("rejects invalid branch high demand schedule hours", () => {
+    mockGetBranchById.mockReturnValue(branchMapping());
+    const res = createResponse();
+
+    expect(() => updateBranchHighDemandScheduleOverrideRoute({
+      params: { id: "7" },
+      body: {
+        enabled: true,
+        hours: [24],
+      },
+    } as any, res)).toThrow(/less than or equal to 23/i);
   });
 
   it("rejects branch reopen overrides that exceed the effective close threshold", () => {

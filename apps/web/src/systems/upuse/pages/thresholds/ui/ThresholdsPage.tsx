@@ -1,4 +1,5 @@
 import AccountTreeRoundedIcon from "@mui/icons-material/AccountTreeRounded";
+import BoltRoundedIcon from "@mui/icons-material/BoltRounded";
 import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
 import {
   Alert,
@@ -13,7 +14,7 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { startTransition, useEffect, useState } from "react";
 import { describeApiError } from "../../../api/client";
-import type { BranchMappingItem, ChainThreshold } from "../../../api/types";
+import type { BranchMappingItem, ChainThreshold, HighDemandSchedule } from "../../../api/types";
 import { useAuth } from "../../../app/providers/AuthProvider";
 import { useMonitorStatus } from "../../../app/providers/MonitorStatusProvider";
 import {
@@ -36,6 +37,7 @@ import {
   type ChainEditorDraft,
   type DefaultThresholdEditorDraft,
 } from "../../../features/settings/ChainThresholdManager";
+import { HighDemandScheduleManager } from "../../../features/settings/HighDemandScheduleManager";
 import {
   branchHasCustomOverride,
   countActiveRules,
@@ -70,6 +72,7 @@ export function ThresholdsPage() {
     saveChains: persistThresholdChains,
     saveGlobalThresholds: persistGlobalThresholds,
     saveBranchThresholdOverride: persistBranchThresholdOverride,
+    saveBranchHighDemandScheduleOverride: persistBranchHighDemandScheduleOverride,
   } = useBranchMappingState();
 
   const [toast, setToast] = useState<{ type: "success" | "error" | "info"; msg: string } | null>(null);
@@ -258,6 +261,10 @@ export function ThresholdsPage() {
       return;
     }
 
+    const existingHighDemandSchedule =
+      editingChainIndex == null
+        ? thresholdForm.chains.find((item) => item.name.trim().toLowerCase() === name.toLowerCase())?.highDemandSchedule
+        : thresholdForm.chains[editingChainIndex]?.highDemandSchedule;
     const nextChains = normalizeChains(thresholdForm.chains.filter((_item, index) => index !== editingChainIndex))
       .filter((item) => item.name.trim().toLowerCase() !== name.toLowerCase());
     nextChains.push({
@@ -274,6 +281,7 @@ export function ThresholdsPage() {
       capacityRuleEnabled: chainEditor.capacityRuleEnabled,
       capacityPerHourEnabled: chainEditor.capacityPerHourEnabled,
       capacityPerHourLimit: capacityPerHourLimit == null ? null : Math.round(capacityPerHourLimit),
+      highDemandSchedule: existingHighDemandSchedule,
     });
     await persistChains(nextChains);
     setSelectedChainName(name);
@@ -612,6 +620,38 @@ export function ThresholdsPage() {
     }
   };
 
+  const saveHighDemandChains = async (nextChains: ChainThreshold[]) => {
+    if (!canManageThresholds) {
+      setToast({ type: "info", msg: "No access" });
+      return;
+    }
+
+    try {
+      const normalized = await persistThresholdChains(nextChains);
+      setThresholdForm((current) => ({ ...current, chains: normalized }));
+      setToast({ type: "success", msg: "High Demand schedule saved" });
+    } catch (error) {
+      setToast({ type: "error", msg: describeApiError(error, "High Demand save failed") });
+    }
+  };
+
+  const saveBranchHighDemandOverride = async (branch: BranchMappingItem, override: HighDemandSchedule | null) => {
+    if (!canManageThresholds) {
+      setToast({ type: "info", msg: "No access" });
+      return;
+    }
+
+    try {
+      setSavingThresholdBranchId(branch.id);
+      await persistBranchHighDemandScheduleOverride(branch.id, override);
+      setToast({ type: "success", msg: "High Demand override saved" });
+    } catch (error) {
+      setToast({ type: "error", msg: describeApiError(error, "High Demand override save failed") });
+    } finally {
+      setSavingThresholdBranchId(null);
+    }
+  };
+
   const modeCards: Array<{
     value: ThresholdWorkspaceMode;
     label: string;
@@ -626,6 +666,11 @@ export function ThresholdsPage() {
       value: "overrides",
       label: "Overrides",
       icon: <TuneRoundedIcon sx={{ fontSize: 22 }} />,
+    },
+    {
+      value: "highDemand",
+      label: "High Demand",
+      icon: <BoltRoundedIcon sx={{ fontSize: 22 }} />,
     },
   ];
 
@@ -671,7 +716,7 @@ export function ThresholdsPage() {
               <Stack direction="row" spacing={0.8} flexWrap="wrap">
                 <Chip
                   size="small"
-                  label={rulesMode === "chains" ? "Chains" : "Overrides"}
+                  label={rulesMode === "chains" ? "Chains" : rulesMode === "overrides" ? "Overrides" : "High Demand"}
                   sx={{ fontWeight: 900, bgcolor: "rgba(15,23,42,0.06)", color: "#0f172a" }}
                 />
                 {overrideChainFilter !== "all" ? (
@@ -801,7 +846,7 @@ export function ThresholdsPage() {
                   });
                 }}
               />
-            ) : (
+            ) : rulesMode === "overrides" ? (
               <BranchThresholdOverrideManager
                 branches={branches}
                 chains={thresholdForm.chains}
@@ -820,6 +865,14 @@ export function ThresholdsPage() {
                   setEditingThresholdBranchId(null);
                   setBranchThresholdEditor(emptyBranchThresholdEditor());
                 }}
+              />
+            ) : (
+              <HighDemandScheduleManager
+                chains={thresholdForm.chains}
+                branches={branches}
+                readOnly={!canManageThresholds}
+                onSaveChains={saveHighDemandChains}
+                onSaveBranchOverride={saveBranchHighDemandOverride}
               />
             )}
           </motion.div>

@@ -20,6 +20,7 @@ import type {
   SettingsMasked,
   SettingsTokenTestSnapshot,
   SettingsTokenTestStartResponse,
+  HighDemandSchedule,
 } from "../../../api/types";
 import { describeApiError, requestCsvDownload, requestJson, requestJsonWebSocket } from "../../../shared/api/httpClient";
 
@@ -116,7 +117,33 @@ function normalizeBranchItem(item: BranchMappingItem | LegacyBranchMappingItem):
       typeof item.capacityPerHourLimitOverride === "number" && Number.isFinite(item.capacityPerHourLimitOverride)
         ? Math.max(1, Math.round(item.capacityPerHourLimitOverride))
         : null,
+    highDemandScheduleOverride: normalizeNullableHighDemandSchedule((item as BranchMappingItem).highDemandScheduleOverride),
   };
+}
+
+function normalizeHighDemandSchedule(value: unknown): HighDemandSchedule {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { enabled: false, hours: [] };
+  }
+
+  const raw = value as { enabled?: unknown; hours?: unknown };
+  const enabled = raw.enabled === true;
+  const hours = Array.isArray(raw.hours)
+    ? Array.from(new Set(
+      raw.hours
+        .filter((hour): hour is number => Number.isInteger(hour) && hour >= 0 && hour <= 23),
+    )).sort((left, right) => left - right)
+    : [];
+
+  return {
+    enabled,
+    hours: enabled ? hours : [],
+  };
+}
+
+function normalizeNullableHighDemandSchedule(value: unknown): HighDemandSchedule | null {
+  if (value == null) return null;
+  return normalizeHighDemandSchedule(value);
 }
 
 function normalizeBranchItemsResponse(response: { items: Array<BranchMappingItem | LegacyBranchMappingItem> }) {
@@ -413,6 +440,18 @@ export const upuseApi = {
     },
   ) =>
     requestJson<{ ok: boolean; item: BranchMappingItem | LegacyBranchMappingItem }>(`/api/branches/${id}/threshold-overrides`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then((response) => ({
+      ...response,
+      item: normalizeBranchItem(response.item),
+    })),
+  setBranchHighDemandScheduleOverride: (
+    id: number,
+    payload: HighDemandSchedule | null,
+  ) =>
+    requestJson<{ ok: boolean; item: BranchMappingItem | LegacyBranchMappingItem }>(`/api/branches/${id}/high-demand-override`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

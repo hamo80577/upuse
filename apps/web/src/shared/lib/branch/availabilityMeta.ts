@@ -80,6 +80,17 @@ export function availabilitySubtypeChip(branch: BranchSnapshot) {
   }
 
   if (label === "highDemand") {
+    if (branch.highDemandSource === "UPUSE") {
+      return {
+        label,
+        sx: {
+          bgcolor: "rgba(219,234,254,0.94)",
+          color: "#1d4ed8",
+          borderColor: "rgba(96,165,250,0.24)",
+        },
+      };
+    }
+
     return {
       label,
       sx: {
@@ -139,6 +150,10 @@ export function availabilityNote(branch: BranchSnapshot) {
   }
 
   if (kind === "highDemand") {
+    if (branch.highDemandSource === "UPUSE") {
+      return highDemandMeta ? `UPuse scheduled highDemand is active. ${highDemandMeta}.` : "UPuse scheduled highDemand is active.";
+    }
+
     return highDemandMeta ? `Source marks this branch as highDemand. ${highDemandMeta}.` : "Source marks this branch as highDemand.";
   }
 

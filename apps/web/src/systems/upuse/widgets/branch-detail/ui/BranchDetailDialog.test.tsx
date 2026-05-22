@@ -526,6 +526,73 @@ describe("BranchDetailDialog", () => {
     expect(screen.getByRole("tab", { name: "Queue" })).toBeInTheDocument();
   });
 
+  it("renders the redesigned command-center detail shell with grouped queue lanes", () => {
+    mockUseBranchDetailState.mockReturnValue(buildHookState({
+      kind: "ok",
+      branch: createBranchSnapshot({ status: "OPEN", statusColor: "green" }),
+      totals: createBranchSnapshot({ status: "OPEN", statusColor: "green" }).metrics,
+      fetchedAt: "2026-03-08T14:10:00.000Z",
+      cacheState: "fresh",
+      onHoldOrders: [],
+      unassignedOrders: [],
+      preparingOrders: [],
+      readyToPickupOrders: [],
+      freshReadyToPickupOrders: [],
+      pickers: emptyPickers(),
+    }));
+
+    render(<BranchDetailDialog open branchId={7} branchSnapshot={createBranchSnapshot({ status: "OPEN", statusColor: "green" })} onClose={() => {}} />);
+
+    expect(screen.getByText("Branch Command Center")).toBeInTheDocument();
+    expect(screen.getByText("Control, queue pressure, picker activity, and branch history in one live workspace.")).toBeInTheDocument();
+    expect(screen.getByText("Attention Queue")).toBeInTheDocument();
+    expect(screen.getByText("Preparation Lane")).toBeInTheDocument();
+    expect(screen.getByText("Pickup Lane")).toBeInTheDocument();
+    expect(screen.getAllByText("State").length).toBeGreaterThan(0);
+    expect(screen.queryByText("VSS subtype")).not.toBeInTheDocument();
+  });
+
+  it("marks UPuse-owned highDemand as a blue UPuse state in branch detail", () => {
+    const branch = createBranchSnapshot({
+      status: "OPEN",
+      statusColor: "green",
+      availabilityKind: "highDemand",
+      vssGroup: "highDemand",
+      highDemandSource: "UPUSE",
+      closedUntil: undefined,
+      closeStartedAt: undefined,
+      closedByUpuse: false,
+      closureSource: undefined,
+      closeReason: undefined,
+      preptimeAdjustment: {
+        adjustmentMinutes: 10,
+        interval: {
+          startTime: "15:00",
+          endTime: "15:30",
+        },
+      },
+    });
+    mockUseBranchDetailState.mockReturnValue(buildHookState({
+      kind: "ok",
+      branch,
+      totals: branch.metrics,
+      fetchedAt: "2026-03-08T14:10:00.000Z",
+      cacheState: "fresh",
+      onHoldOrders: [],
+      unassignedOrders: [],
+      preparingOrders: [],
+      readyToPickupOrders: [],
+      freshReadyToPickupOrders: [],
+      pickers: emptyPickers(),
+    }));
+
+    render(<BranchDetailDialog open branchId={7} branchSnapshot={branch} onClose={() => {}} />);
+
+    expect(screen.getByText("UPuse High Demand")).toBeInTheDocument();
+    expect(screen.getByText("UPuse scheduled highDemand is active. +10 min • 15:00 - 15:30.")).toBeInTheDocument();
+    expect(screen.getAllByText("highDemand").length).toBeGreaterThan(0);
+  });
+
   it("keeps close state context inside the status window instead of the header chips", () => {
     mockUseBranchDetailState.mockReturnValue(buildHookState({
       kind: "ok",

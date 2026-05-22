@@ -7,7 +7,7 @@ import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
 import type { ReactNode } from "react";
 import type { BranchMappingItem, ChainThreshold, ThresholdProfile } from "../../../api/types";
 
-export type ThresholdWorkspaceMode = "chains" | "overrides";
+export type ThresholdWorkspaceMode = "chains" | "overrides" | "highDemand";
 
 export type ThresholdScopeSelection =
   | { kind: "global" }

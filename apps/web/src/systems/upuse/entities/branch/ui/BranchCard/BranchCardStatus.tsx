@@ -1,4 +1,5 @@
 import AccessTimeFilledRoundedIcon from "@mui/icons-material/AccessTimeFilledRounded";
+import BoltRoundedIcon from "@mui/icons-material/BoltRounded";
 import GroupsRoundedIcon from "@mui/icons-material/GroupsRounded";
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
 import PauseCircleFilledRoundedIcon from "@mui/icons-material/PauseCircleFilledRounded";
@@ -88,6 +89,9 @@ function BranchCardStatusBase(props: {
   const sourceClosedReason = resolveSourceClosedReason(props.branch);
   const highDemandMeta = formatHighDemandMeta(props.branch);
   const trigger = kind === "upuseTempClose" ? triggerMeta(props.branch.closeReason) : null;
+  const subtypeIcon = kind === "highDemand" && props.branch.highDemandSource === "UPUSE"
+    ? <BoltRoundedIcon sx={{ fontSize: 14 }} />
+    : undefined;
   const reopenAtLabel = `${props.timerReached ? "Window reached at" : "Reopens at"} ${fmtTimeCairo(props.branch.closedUntil)}`;
   const progressLabel = `Duration progress ${Math.round(props.progressValue)}%`;
   const showTimer = hasTimerBackedAvailability(props.branch);
@@ -134,6 +138,7 @@ function BranchCardStatusBase(props: {
           />
           {subtype ? (
             <Chip
+              icon={subtypeIcon}
               label={subtype.label}
               size="small"
               sx={{

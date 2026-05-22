@@ -13,6 +13,7 @@ import { derivePreparingNow } from "../../services/orders/classification.js";
 import { resolveOrdersStaleMultiplier } from "../../services/orders/shared.js";
 import { currentPreparation, type OrdersPressureSummary } from "./monitorState.js";
 import type { MonitorRuntimeTracker, OrdersDataState } from "./runtimeTracking.js";
+import { resolveEffectiveHighDemandSchedule, resolveHighDemandSource } from "../../services/highDemandSchedule.js";
 
 type MonitorSnapshotInput = {
   running: boolean;
@@ -147,6 +148,12 @@ export function buildMonitorSnapshot(input: MonitorSnapshotInput, tracker: Pick<
     totals.onHoldNow += rawMetrics.onHoldNow ?? 0;
 
     const runtime = getRuntime(branch.id) ?? undefined;
+    const effectiveHighDemandSchedule = resolveEffectiveHighDemandSchedule(branch, settings);
+    const highDemandReferenceAt =
+      input.lastAvailabilityFetchAt ??
+      input.availabilityLastSuccessfulSyncAt ??
+      input.lastHealthyAt ??
+      new Date().toISOString();
     const trackedMonitorClosedUntil = runtime?.closureObservedUntil ?? runtime?.lastUpuseCloseUntil ?? undefined;
     let status: "OPEN" | "TEMP_CLOSE" | "CLOSED" | "UNKNOWN" = "UNKNOWN";
     let statusColor: "green" | "red" | "orange" | "grey" = "grey";
@@ -235,6 +242,10 @@ export function buildMonitorSnapshot(input: MonitorSnapshotInput, tracker: Pick<
       vssClosedReason: availabilityState?.vssClosedReason,
       vssChangeable: availabilityState?.vssChangeable,
       preptimeAdjustment: availabilityState?.preptimeAdjustment,
+      highDemandSchedule: effectiveHighDemandSchedule.schedule,
+      highDemandScheduleSource: effectiveHighDemandSchedule.source,
+      highDemandScheduleOverride: effectiveHighDemandSchedule.override,
+      highDemandSource: resolveHighDemandSource(availabilityState, runtime, highDemandReferenceAt),
       thresholds,
       metrics: rawMetrics,
       preparingNow: preparation.preparingNow,

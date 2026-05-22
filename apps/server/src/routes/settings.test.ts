@@ -373,6 +373,39 @@ describe("putSettingsRoute", () => {
     expect(res.statusCode).toBe(200);
   });
 
+  it("accepts chain high demand schedule updates", () => {
+    const req: any = {
+      authUser: { role: "user" },
+      body: {
+        chains: [{
+          name: "Chain A",
+          lateThreshold: 6,
+          unassignedThreshold: 8,
+          highDemandSchedule: {
+            enabled: true,
+            hours: [16, 15, 15],
+          },
+        }],
+      },
+    };
+    const res = createResponse();
+
+    putSettingsRoute(req, res);
+
+    expect(mockUpdateSettings).toHaveBeenCalledWith({
+      chains: [{
+        name: "Chain A",
+        lateThreshold: 6,
+        unassignedThreshold: 8,
+        highDemandSchedule: {
+          enabled: true,
+          hours: [15, 16],
+        },
+      }],
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
   it("accepts chain ready to pickup threshold updates", () => {
     const req: any = {
       authUser: { role: "user" },

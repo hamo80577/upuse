@@ -39,13 +39,13 @@ function OrderRow(props: { item: BranchLiveOrder; nowMs: number; timeDisplayMode
   return (
     <Box
       sx={{
-        px: 1.35,
-        py: 1.15,
+        px: 1.15,
+        py: 1.05,
         borderBottom: "1px solid rgba(148,163,184,0.10)",
-        bgcolor: props.item.isLate ? "rgba(255,247,237,0.62)" : "transparent",
+        bgcolor: props.item.isLate ? "rgba(255,247,237,0.70)" : "rgba(255,255,255,0.72)",
       }}
     >
-      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "flex-start" }}>
+      <Stack direction={{ xs: "column", sm: "row", lg: "column", xl: "row" }} spacing={1} justifyContent="space-between" alignItems={{ xs: "flex-start", xl: "flex-start" }}>
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Stack direction="row" spacing={0.7} alignItems="center" sx={{ flexWrap: "wrap", rowGap: 0.7 }}>
             <Typography sx={{ fontWeight: 900, lineHeight: 1.1, fontSize: 15 }}>#{props.item.externalId}</Typography>
@@ -199,20 +199,20 @@ export function BranchOrdersSection(props: {
   return (
     <Box
       sx={{
-        borderRadius: 2.5,
-        border: "1px solid rgba(148,163,184,0.14)",
+        borderRadius: 2.4,
+        border: "1px solid rgba(148,163,184,0.16)",
         overflow: "hidden",
-        bgcolor: "rgba(255,255,255,0.94)",
-        boxShadow: "0 12px 28px rgba(15,23,42,0.04)",
+        bgcolor: "rgba(255,255,255,0.96)",
+        boxShadow: "0 14px 30px rgba(15,23,42,0.055)",
       }}
     >
       {props.hideHeader ? null : (
         <>
           <Box
             sx={{
-              px: 1.5,
-              py: 1.15,
-              bgcolor: "rgba(248,250,252,0.86)",
+              px: 1.2,
+              py: 1.05,
+              bgcolor: "rgba(248,250,252,0.94)",
               display: "flex",
               alignItems: "flex-start",
               justifyContent: "space-between",
@@ -220,7 +220,7 @@ export function BranchOrdersSection(props: {
             }}
           >
             <Box sx={{ minWidth: 0 }}>
-              <Typography sx={{ fontWeight: 900 }}>{props.title}</Typography>
+              <Typography sx={{ fontWeight: 900, color: "#0f172a", lineHeight: 1.1 }}>{props.title}</Typography>
               <Typography variant="caption" sx={{ color: "text.secondary", display: "block", lineHeight: 1.45 }}>
                 {props.items.length ? `${props.items.length} live orders` : props.subtitle}
               </Typography>
@@ -234,7 +234,7 @@ export function BranchOrdersSection(props: {
           <Divider />
         </>
       )}
-      <Stack spacing={0} sx={{ maxHeight: { xs: "none", sm: 360 }, overflowY: { xs: "visible", sm: "auto" } }}>
+      <Stack spacing={0} sx={{ maxHeight: { xs: "none", sm: 420 }, overflowY: { xs: "visible", sm: "auto" } }}>
         {props.items.length ? (
           props.items.map((item) => (
             <OrderRow

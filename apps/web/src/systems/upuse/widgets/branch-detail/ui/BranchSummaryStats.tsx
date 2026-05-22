@@ -9,11 +9,11 @@ function PrepAndPickersStat(props: { preparingNow: number; pickerCount: number }
   return (
     <Box
       sx={{
-        borderRadius: 1.8,
-        p: 0.95,
+        borderRadius: 2,
+        p: 1.05,
         minHeight: { xs: 96, sm: 102 },
-        bgcolor: "rgba(248,250,252,0.98)",
-        border: "1px solid rgba(148,163,184,0.12)",
+        bgcolor: "rgba(239,246,255,0.96)",
+        border: "1px solid rgba(96,165,250,0.18)",
         display: "flex",
         flexDirection: "column",
         justifyContent: "center",
@@ -28,7 +28,7 @@ function PrepAndPickersStat(props: { preparingNow: number; pickerCount: number }
         sx={{
           mt: 0.32,
           fontWeight: 900,
-          color: "#0f172a",
+          color: "#1e3a8a",
           lineHeight: 1.02,
           fontSize: { xs: 24, sm: 26 },
         }}
@@ -41,12 +41,12 @@ function PrepAndPickersStat(props: { preparingNow: number; pickerCount: number }
           px: 0.78,
           py: 0.28,
           borderRadius: 999,
-          bgcolor: "rgba(14,165,233,0.08)",
-          color: "#0f766e",
+          bgcolor: "rgba(255,255,255,0.75)",
+          color: "#1d4ed8",
           fontSize: 10.5,
           fontWeight: 900,
           lineHeight: 1,
-          border: "1px solid rgba(14,165,233,0.14)",
+          border: "1px solid rgba(96,165,250,0.18)",
           display: "inline-flex",
           alignItems: "center",
           gap: 0.55,
@@ -58,7 +58,7 @@ function PrepAndPickersStat(props: { preparingNow: number; pickerCount: number }
             width: 6.5,
             height: 6.5,
             borderRadius: "50%",
-            bgcolor: "#14b8a6",
+            bgcolor: "#2563eb",
             flexShrink: 0,
           }}
         />
@@ -84,8 +84,8 @@ function SummaryStat(props: {
   return (
     <Box
       sx={{
-        borderRadius: props.prominence === "primary" ? 1.8 : 1.65,
-        p: props.prominence === "primary" ? 0.95 : 0.85,
+        borderRadius: props.prominence === "primary" ? 2 : 1.85,
+        p: props.prominence === "primary" ? 1.05 : 0.9,
         bgcolor: accent.bg,
         border: "1px solid rgba(148,163,184,0.12)",
         textAlign: "left",
@@ -123,11 +123,11 @@ export function BranchSummaryStats(props: {
   pickerCount: number;
 }) {
   return (
-    <Box sx={{ display: "grid", gap: 0.8 }}>
+    <Box sx={{ display: "grid", gap: 0.85 }}>
       <Box
         sx={{
           display: "grid",
-          gap: 0.8,
+          gap: 0.85,
           gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(3, minmax(0, 1fr))" },
         }}
       >
@@ -157,7 +157,7 @@ export function BranchSummaryStats(props: {
       <Box
         sx={{
           display: "grid",
-          gap: 0.8,
+          gap: 0.85,
           gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", md: "repeat(3, minmax(0, 1fr))" },
         }}
       >

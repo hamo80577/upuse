@@ -7,6 +7,7 @@ import {
   listBranchesRoute,
   listVendorSourceRoute,
   resolveVendorSourceRoute,
+  updateBranchHighDemandScheduleOverrideRoute,
   updateBranchMonitoringRoute,
   updateBranchThresholdOverridesRoute,
 } from "../../../routes/branches.js";
@@ -30,6 +31,7 @@ export function registerUpuseRoutes({ app, engine, securityConfig }: ServerSyste
   app.post("/api/branches/source/resolve", requireFullUpuseAccess(), resolveVendorSourceRoute);
   app.post("/api/branches", requireCapability("manage_branch_mappings"), addBranchRoute);
   app.patch("/api/branches/:id/threshold-overrides", requireCapability("manage_thresholds"), updateBranchThresholdOverridesRoute);
+  app.patch("/api/branches/:id/high-demand-override", requireCapability("manage_thresholds"), updateBranchHighDemandScheduleOverrideRoute);
   app.patch("/api/branches/:id/monitoring", requireCapability("manage_branch_mappings"), updateBranchMonitoringRoute(engine));
   app.get("/api/branches/:id/detail", requireUpuseAccess(), branchDetailRoute(engine));
   app.get("/api/branches/:id/pickers", requireUpuseAccess(), branchPickersRoute());

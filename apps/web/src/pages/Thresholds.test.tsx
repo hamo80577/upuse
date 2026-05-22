@@ -209,6 +209,25 @@ describe("ThresholdsPage", () => {
     });
   });
 
+  it("opens the high demand workspace mode from the thresholds shell", async () => {
+    render(
+      <MemoryRouter>
+        <ThresholdsPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("chains-studio")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "High Demand" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Chain Schedule")).toBeInTheDocument();
+      expect(screen.getByText("Branch Override")).toBeInTheDocument();
+    });
+  });
+
   it("passes read-only mode through to the studios when thresholds cannot be managed", async () => {
     authState.canManageThresholds = false;
 

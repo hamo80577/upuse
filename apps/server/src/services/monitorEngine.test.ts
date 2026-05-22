@@ -2097,6 +2097,320 @@ describe("monitorEngine.reconcile", () => {
     expect(mockLog).toHaveBeenCalledWith(8, "INFO", "TEMP CLOSE — Unassigned=7");
   });
 
+  it("activates scheduled high demand while the selected Cairo hour is active", async () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "availability-token",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      chainNames: ["Carrefour"],
+      chains: [{
+        name: "Carrefour",
+        lateThreshold: 4,
+        unassignedThreshold: 5,
+        highDemandSchedule: { enabled: true, hours: [14] },
+      }],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 20,
+      availabilityRefreshSeconds: 15,
+      maxVendorsPerOrdersRequest: 50,
+    });
+    mockListBranches.mockReturnValue([
+      {
+        id: 8,
+        name: "Carrefour Branch",
+        chainName: "Carrefour",
+        ordersVendorId: 808,
+        availabilityVendorId: "av-8",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        enabled: true,
+        highDemandScheduleOverride: null,
+      },
+    ]);
+    mockGetRuntime.mockReturnValue({
+      lastUpuseCloseUntil: null,
+      lastUpuseCloseReason: null,
+      lastUpuseCloseAt: null,
+      lastUpuseCloseEventId: null,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      closureOwner: null,
+      closureObservedUntil: null,
+      closureObservedAt: null,
+      externalOpenDetectedAt: null,
+      lastActionAt: null,
+      lastUpuseHighDemandAt: null,
+      lastUpuseHighDemandUntil: null,
+    });
+    mockFetchAvailabilities.mockResolvedValue([
+      {
+        platformKey: "test",
+        changeable: true,
+        availabilityState: "OPEN",
+        platformRestaurantId: "av-8",
+        vssGroup: "open",
+      },
+    ]);
+    mockSetAvailability.mockResolvedValue({});
+
+    const engine = new MonitorEngine() as any;
+    engine.running = true;
+    engine.ordersFresh = true;
+    engine.ordersDataStateByVendor = new Map([[808, "fresh"]]);
+    engine.ordersByVendor = new Map([
+      [808, { totalToday: 5, cancelledToday: 0, doneToday: 1, activeNow: 2, lateNow: 0, unassignedNow: 0 }],
+    ]);
+    engine.availabilityByVendor = new Map([
+      ["av-8", { platformKey: "test", changeable: true, availabilityState: "OPEN", platformRestaurantId: "av-8", vssGroup: "open" }],
+    ]);
+
+    await engine.reconcile("orders");
+
+    expect(mockSetAvailability).toHaveBeenCalledWith({
+      token: "availability-token",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      availabilityVendorId: "av-8",
+      state: "HIGH_DEMAND_MODE",
+      adjustmentMinutes: 10,
+      durationMinutes: 30,
+    });
+    expect(mockSetRuntime).toHaveBeenCalledWith(8, expect.objectContaining({
+      lastUpuseHighDemandAt: "2026-03-04T12:45:30.000Z",
+      lastUpuseHighDemandUntil: "2026-03-04T13:15:30.000Z",
+    }));
+    expect(mockLog).toHaveBeenCalledWith(8, "INFO", "HIGH DEMAND — scheduled until 15:15");
+  });
+
+  it("skips scheduled high demand when VSS already reports highDemand", async () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "availability-token",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      chainNames: ["Carrefour"],
+      chains: [{
+        name: "Carrefour",
+        lateThreshold: 4,
+        unassignedThreshold: 5,
+        highDemandSchedule: { enabled: true, hours: [14] },
+      }],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 20,
+      availabilityRefreshSeconds: 15,
+      maxVendorsPerOrdersRequest: 50,
+    });
+    mockListBranches.mockReturnValue([
+      {
+        id: 8,
+        name: "Carrefour Branch",
+        chainName: "Carrefour",
+        ordersVendorId: 808,
+        availabilityVendorId: "av-8",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        enabled: true,
+        highDemandScheduleOverride: null,
+      },
+    ]);
+    mockGetRuntime.mockReturnValue({
+      lastUpuseHighDemandAt: null,
+      lastUpuseHighDemandUntil: null,
+    });
+
+    const engine = new MonitorEngine() as any;
+    engine.running = true;
+    engine.ordersFresh = true;
+    engine.ordersDataStateByVendor = new Map([[808, "fresh"]]);
+    engine.ordersByVendor = new Map([
+      [808, { totalToday: 5, cancelledToday: 0, doneToday: 1, activeNow: 2, lateNow: 0, unassignedNow: 0 }],
+    ]);
+    engine.availabilityByVendor = new Map([
+      ["av-8", { platformKey: "test", changeable: true, availabilityState: "OPEN", platformRestaurantId: "av-8", vssGroup: "highDemand" }],
+    ]);
+
+    await engine.reconcile("availability");
+
+    expect(mockSetAvailability).not.toHaveBeenCalled();
+  });
+
+  it("can temporary-close an open branch even when VSS currently reports highDemand", async () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "availability-token",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 20,
+      availabilityRefreshSeconds: 15,
+      maxVendorsPerOrdersRequest: 50,
+    });
+    mockListBranches.mockReturnValue([
+      {
+        id: 18,
+        name: "High Demand Branch",
+        chainName: "",
+        ordersVendorId: 1818,
+        availabilityVendorId: "av-18",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        enabled: true,
+      },
+    ]);
+
+    let runtime: any = {
+      branchId: 18,
+      lastUpuseCloseUntil: null,
+      lastUpuseCloseReason: null,
+      lastUpuseCloseAt: null,
+      lastUpuseCloseEventId: null,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      closureOwner: null,
+      closureObservedUntil: null,
+      closureObservedAt: null,
+      externalOpenDetectedAt: null,
+      lastActionAt: null,
+      lastUpuseHighDemandAt: "2026-03-04T12:40:00.000Z",
+      lastUpuseHighDemandUntil: "2026-03-04T13:10:00.000Z",
+    };
+    mockGetRuntime.mockImplementation(() => runtime);
+    mockSetRuntime.mockImplementation((_branchId: number, patch: Record<string, unknown>) => {
+      runtime = { ...runtime, ...patch };
+      return runtime;
+    });
+    mockDecide.mockReturnValue({ type: "CLOSE", reason: "UNASSIGNED" });
+    mockSetAvailability.mockResolvedValue({});
+    mockFetchAvailabilities.mockResolvedValue([
+      {
+        platformKey: "test",
+        changeable: true,
+        availabilityState: "OPEN",
+        platformRestaurantId: "av-18",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        vssGroup: "highDemand",
+      },
+    ]);
+    mockRecordMonitorCloseAction.mockReturnValue(181);
+
+    const engine = new MonitorEngine() as any;
+    engine.running = true;
+    engine.ordersFresh = true;
+    engine.ordersDataStateByVendor = new Map([[1818, "fresh"]]);
+    engine.ordersByVendor = new Map([
+      [1818, { totalToday: 20, cancelledToday: 1, doneToday: 8, activeNow: 11, lateNow: 0, unassignedNow: 8 }],
+    ]);
+    engine.availabilityByVendor = new Map([
+      ["av-18", { platformKey: "test", changeable: true, availabilityState: "OPEN", platformRestaurantId: "av-18", globalEntityId: TEST_GLOBAL_ENTITY_ID, vssGroup: "highDemand" }],
+    ]);
+
+    await engine.reconcile("orders");
+
+    expect(mockSetAvailability).toHaveBeenCalledWith(expect.objectContaining({
+      availabilityVendorId: "av-18",
+      state: "TEMPORARY_CLOSURE",
+    }));
+    expect(runtime.lastUpuseCloseUntil).toBe("2026-03-04T13:15:30.000Z");
+    expect(runtime.closureOwner).toBe("UPUSE");
+  });
+
+  it("can reopen a tracked UPuse close normally after highDemand was active before the close", async () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "availability-token",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 20,
+      availabilityRefreshSeconds: 15,
+      maxVendorsPerOrdersRequest: 50,
+    });
+    mockListBranches.mockReturnValue([
+      {
+        id: 19,
+        name: "Reopen High Demand Branch",
+        chainName: "",
+        ordersVendorId: 1919,
+        availabilityVendorId: "av-19",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        enabled: true,
+      },
+    ]);
+
+    let runtime: any = {
+      branchId: 19,
+      lastUpuseCloseUntil: "2026-03-04T13:15:30.000Z",
+      lastUpuseCloseReason: "UNASSIGNED",
+      lastUpuseCloseAt: "2026-03-04T12:45:30.000Z",
+      lastUpuseCloseEventId: 191,
+      lastExternalCloseUntil: null,
+      lastExternalCloseAt: null,
+      closureOwner: "UPUSE",
+      closureObservedUntil: "2026-03-04T13:15:30.000Z",
+      closureObservedAt: "2026-03-04T12:45:30.000Z",
+      externalOpenDetectedAt: null,
+      lastActionAt: "2026-03-04T12:45:00.000Z",
+      lastUpuseHighDemandAt: "2026-03-04T12:40:00.000Z",
+      lastUpuseHighDemandUntil: "2026-03-04T13:10:00.000Z",
+    };
+    mockGetRuntime.mockImplementation(() => runtime);
+    mockSetRuntime.mockImplementation((_branchId: number, patch: Record<string, unknown>) => {
+      runtime = { ...runtime, ...patch };
+      return runtime;
+    });
+    mockDecide.mockReturnValue({ type: "EARLY_OPEN", reason: "UNASSIGNED" });
+    mockSetAvailability.mockResolvedValue({});
+    mockFetchAvailabilities.mockResolvedValue([
+      {
+        platformKey: "test",
+        changeable: true,
+        availabilityState: "CLOSED_UNTIL",
+        platformRestaurantId: "av-19",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        modifiedBy: "log_vendor_monitor",
+        vssGroup: "highDemand",
+      },
+    ]);
+
+    const engine = new MonitorEngine() as any;
+    engine.running = true;
+    engine.ordersFresh = true;
+    engine.ordersDataStateByVendor = new Map([[1919, "fresh"]]);
+    engine.ordersByVendor = new Map([
+      [1919, { totalToday: 20, cancelledToday: 1, doneToday: 8, activeNow: 2, lateNow: 0, unassignedNow: 0 }],
+    ]);
+    engine.availabilityByVendor = new Map([
+      ["av-19", {
+        platformKey: "test",
+        changeable: true,
+        availabilityState: "CLOSED_UNTIL",
+        platformRestaurantId: "av-19",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        modifiedBy: "log_vendor_monitor",
+        vssGroup: "highDemand",
+      }],
+    ]);
+
+    await engine.reconcile("orders");
+
+    expect(mockSetAvailability).toHaveBeenCalledWith(expect.objectContaining({
+      availabilityVendorId: "av-19",
+      state: "OPEN",
+    }));
+    expect(runtime.lastUpuseCloseUntil).toBeNull();
+    expect(runtime.closureOwner).toBeNull();
+    expect(runtime.lastUpuseHighDemandUntil).toBe("2026-03-04T13:10:00.000Z");
+  });
+
   it("ignores mutation currentSlotEndAt when tracking a new UPuse temporary close", async () => {
     mockGetSettings.mockReturnValue({
       ordersToken: "",

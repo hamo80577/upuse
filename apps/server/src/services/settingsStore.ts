@@ -3,6 +3,7 @@ import { GlobalEntityIdSchema } from "../config/globalEntityId.js";
 import { FIXED_AVAILABILITY_REFRESH_SECONDS } from "../config/monitoring.js";
 import { z } from "zod";
 import type { ChainThreshold, Settings } from "../types/models.js";
+import { HighDemandScheduleSchema, normalizeHighDemandSchedule } from "./highDemandSchedule.js";
 
 interface SettingsRow {
   ordersTokenEnc: string;
@@ -98,6 +99,7 @@ const SettingsSchema = z.object({
       capacityRuleEnabled: z.boolean().optional().default(true),
       capacityPerHourEnabled: z.boolean().optional().default(false),
       capacityPerHourLimit: z.number().int().min(1).max(999).nullable().optional().default(null),
+      highDemandSchedule: HighDemandScheduleSchema.optional().default({ enabled: false, hours: [] }),
     }).superRefine((value, ctx) => {
       if (value.capacityPerHourEnabled && typeof value.capacityPerHourLimit !== "number") {
         ctx.addIssue({
@@ -185,6 +187,7 @@ function normalizeChainThresholds(values: ChainThreshold[]) {
         typeof item.capacityPerHourLimit === "number"
           ? Math.max(1, Math.round(item.capacityPerHourLimit))
           : null,
+      highDemandSchedule: normalizeHighDemandSchedule(item.highDemandSchedule),
     });
   }
 
@@ -219,6 +222,7 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
         capacityRuleEnabled: true,
         capacityPerHourEnabled: false,
         capacityPerHourLimit: null,
+        highDemandSchedule: { enabled: false, hours: [] },
       })),
     );
 
@@ -250,6 +254,7 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
           capacityRuleEnabled: true,
           capacityPerHourEnabled: false,
           capacityPerHourLimit: null,
+          highDemandSchedule: { enabled: false, hours: [] },
         })),
       );
     }
@@ -275,6 +280,7 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
                 capacityRuleEnabled?: boolean;
                 capacityPerHourEnabled?: boolean;
                 capacityPerHourLimit?: number | null;
+                highDemandSchedule?: unknown;
               } =>
             typeof value === "object" &&
             value !== null &&
@@ -303,6 +309,7 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
             capacityRuleEnabled?: boolean;
             capacityPerHourEnabled?: boolean;
             capacityPerHourLimit?: number | null;
+            highDemandSchedule?: unknown;
           };
 
           const fallbackThreshold = typeof legacyValue.threshold === "number" ? legacyValue.threshold : 5;
@@ -351,6 +358,7 @@ function parseChainThresholds(raw: unknown, fallbackNames: string[]) {
               typeof legacyValue.capacityPerHourLimit === "number"
                 ? legacyValue.capacityPerHourLimit
                 : null,
+            highDemandSchedule: normalizeHighDemandSchedule(legacyValue.highDemandSchedule),
           };
         }),
     );

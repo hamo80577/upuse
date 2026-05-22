@@ -1,4 +1,5 @@
 import AccessTimeFilledRoundedIcon from "@mui/icons-material/AccessTimeFilledRounded";
+import BoltRoundedIcon from "@mui/icons-material/BoltRounded";
 import GroupsRoundedIcon from "@mui/icons-material/GroupsRounded";
 import PersonOffRoundedIcon from "@mui/icons-material/PersonOffRounded";
 import ScheduleRoundedIcon from "@mui/icons-material/ScheduleRounded";
@@ -19,6 +20,17 @@ import { closeReasonMeta, statusChip, statusPanelMeta } from "../lib/statusMeta"
 function sourceWindowMeta(branch: BranchSnapshot, sourceLabel: string | null) {
   if (!sourceLabel) return null;
 
+  if (branch.highDemandSource === "UPUSE" && (sourceLabel === "highDemand" || branch.vssGroup === "highDemand")) {
+    return {
+      label: "UPuse High Demand",
+      title: "State",
+      tone: "#1d4ed8",
+      background: "rgba(219,234,254,0.96)",
+      border: "rgba(96,165,250,0.26)",
+      icon: <BoltRoundedIcon sx={{ fontSize: 18 }} />,
+    };
+  }
+
   if (sourceLabel === "UPuse" || branch.closureSource === "UPUSE" || branch.closedByUpuse) {
     return {
       label: sourceLabel,
@@ -32,12 +44,38 @@ function sourceWindowMeta(branch: BranchSnapshot, sourceLabel: string | null) {
 
   return {
     label: sourceLabel,
-    title: "VSS subtype",
+    title: "State",
     tone: "#334155",
     background: "rgba(248,250,252,0.98)",
     border: "rgba(148,163,184,0.16)",
     icon: <StorefrontRoundedIcon sx={{ fontSize: 18 }} />,
   };
+}
+
+function fallbackStateMeta(branch: BranchSnapshot, kind: ReturnType<typeof resolveAvailabilityKind>) {
+  if (kind === "highDemand" && branch.highDemandSource === "UPUSE") {
+    return {
+      label: "UPuse High Demand",
+      title: "State",
+      tone: "#1d4ed8",
+      background: "rgba(219,234,254,0.96)",
+      border: "rgba(96,165,250,0.26)",
+      icon: <BoltRoundedIcon sx={{ fontSize: 18 }} />,
+    };
+  }
+
+  if (kind === "open" || branch.status === "OPEN") {
+    return {
+      label: "Open",
+      title: "State",
+      tone: "#166534",
+      background: "rgba(220,252,231,0.96)",
+      border: "rgba(34,197,94,0.18)",
+      icon: <StorefrontRoundedIcon sx={{ fontSize: 18 }} />,
+    };
+  }
+
+  return null;
 }
 
 function triggerIcon(reason?: BranchSnapshot["closeReason"]) {
@@ -54,6 +92,7 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
   const availabilityChip = availabilitySubtypeChip(props.branch);
   const source = sourceWindowMeta(props.branch, panel.sourceLabel);
   const kind = resolveAvailabilityKind(props.branch);
+  const stateSource = source ?? fallbackStateMeta(props.branch, kind);
   const reason = kind === "upuseTempClose" ? closeReasonMeta(props.branch.closeReason) : null;
   const reasonIcon = kind === "upuseTempClose" ? triggerIcon(props.branch.closeReason) : null;
   const sourceClosedReason = resolveSourceClosedReason(props.branch);
@@ -66,13 +105,15 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
     <Box
       sx={{
         borderRadius: 2.25,
-        border: props.branch.status === "TEMP_CLOSE" ? "1px solid rgba(220,38,38,0.16)" : "1px solid rgba(148,163,184,0.14)",
-        p: { xs: 1.1, sm: 1.2 },
+        border: props.branch.status === "TEMP_CLOSE" ? "1px solid rgba(220,38,38,0.16)" : "1px solid rgba(148,163,184,0.16)",
+        p: { xs: 1.15, sm: 1.35 },
         background:
           props.branch.status === "TEMP_CLOSE"
             ? "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(255,247,247,0.92) 100%)"
-            : "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.92) 100%)",
-        boxShadow: "0 12px 26px rgba(15,23,42,0.05)",
+            : props.branch.highDemandSource === "UPUSE"
+              ? "linear-gradient(180deg, rgba(255,255,255,0.99) 0%, rgba(239,246,255,0.94) 100%)"
+              : "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.92) 100%)",
+        boxShadow: "0 16px 34px rgba(15,23,42,0.07)",
       }}
     >
       <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1}>
@@ -113,13 +154,13 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
         {panel.caption}
       </Typography>
 
-      {source || (reason && reasonIcon) ? (
+      {stateSource || (reason && reasonIcon) ? (
         <Stack
           direction={{ xs: "column", sm: "row" }}
           spacing={0.7}
           sx={{ mt: 0.95, alignItems: { sm: "stretch" } }}
         >
-          {source ? (
+          {stateSource ? (
             <Box
               sx={{
                 flex: 1,
@@ -140,20 +181,20 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
                     borderRadius: "10px",
                     display: "grid",
                     placeItems: "center",
-                    bgcolor: source.background,
-                    color: source.tone,
-                    border: `1px solid ${source.border}`,
+                    bgcolor: stateSource.background,
+                    color: stateSource.tone,
+                    border: `1px solid ${stateSource.border}`,
                     flexShrink: 0,
                   }}
                 >
-                  {source.icon}
+                  {stateSource.icon}
                 </Box>
                 <Box sx={{ minWidth: 0 }}>
                   <Typography variant="caption" sx={{ color: "#64748b", fontWeight: 800, lineHeight: 1.1 }}>
-                    {source.title}
+                    {stateSource.title}
                   </Typography>
                   <Typography sx={{ mt: 0.16, fontWeight: 800, color: "#0f172a", lineHeight: 1.22, fontSize: 13 }}>
-                    {source.label}
+                    {stateSource.label}
                   </Typography>
                 </Box>
               </Stack>
@@ -164,7 +205,7 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
             <Box
               aria-label={reason.label}
               sx={{
-                flex: source ? { sm: "0 1 44%" } : 1,
+                flex: stateSource ? { sm: "0 1 44%" } : 1,
                 minWidth: 0,
                 borderRadius: 1.9,
                 px: 0.9,
@@ -284,7 +325,9 @@ export function BranchStatusPanel(props: { branch: BranchSnapshot; nowMs: number
           <Typography variant="caption" sx={{ color: "text.secondary", lineHeight: 1.5 }}>
             {props.branch.status === "OPEN"
               ? kind === "highDemand"
-                ? "The branch stays open while VSS reports highDemand."
+                ? props.branch.highDemandSource === "UPUSE"
+                  ? "The branch stays open while UPuse scheduled highDemand is active."
+                  : "The branch stays open while VSS reports highDemand."
                 : "No closure timer is active right now."
               : props.branch.status === "CLOSED"
                 ? panel.footerCaption

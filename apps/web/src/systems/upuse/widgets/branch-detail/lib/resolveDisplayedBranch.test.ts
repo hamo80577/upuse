@@ -104,6 +104,43 @@ describe("resolveDisplayedBranch", () => {
     expect(result?.vssGroup).toBe("shortClosures");
   });
 
+  it("keeps UPuse high demand ownership metadata when merging detail and dashboard snapshots", () => {
+    const detailBranch = createSnapshot({
+      status: "OPEN",
+      statusColor: "green",
+      closedUntil: undefined,
+      closeStartedAt: undefined,
+      closedByUpuse: false,
+      closureSource: undefined,
+      closeReason: undefined,
+      lastUpdatedAt: "2026-03-08T12:44:05.000Z",
+    });
+    const freshSnapshot = createSnapshot({
+      status: "OPEN",
+      statusColor: "green",
+      availabilityKind: "highDemand",
+      vssGroup: "highDemand",
+      highDemandSource: "UPUSE",
+      preptimeAdjustment: {
+        adjustmentMinutes: 10,
+        interval: { startTime: "15:00", endTime: "15:30" },
+      },
+      closedUntil: undefined,
+      closeStartedAt: undefined,
+      closedByUpuse: false,
+      closureSource: undefined,
+      closeReason: undefined,
+      lastUpdatedAt: "2026-03-08T12:50:00.000Z",
+    });
+
+    const result = resolveDisplayedBranch(createDetail(detailBranch), freshSnapshot);
+
+    expect(result?.availabilityKind).toBe("highDemand");
+    expect(result?.vssGroup).toBe("highDemand");
+    expect(result?.highDemandSource).toBe("UPUSE");
+    expect(result?.preptimeAdjustment?.adjustmentMinutes).toBe(10);
+  });
+
   it("returns null when the branch was deleted after the dialog opened", () => {
     const result = resolveDisplayedBranch({
       kind: "branch_not_found",

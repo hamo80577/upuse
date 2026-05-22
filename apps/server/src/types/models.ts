@@ -5,6 +5,7 @@ export type AppUserRole = "admin" | "user" | "tracker";
 export type ScanoRole = "team_lead" | "scanner";
 export type ThresholdSource = "branch" | "chain" | "global";
 export type BranchCatalogState = "available" | "missing";
+export type HighDemandScheduleSource = "branch" | "chain" | "default";
 
 export type CloseReason = "LATE" | "UNASSIGNED" | "READY_TO_PICKUP" | "ON_HOLD" | "CAPACITY" | "CAPACITY_HOUR";
 export type MonitorIssueSource = "orders" | "availability";
@@ -44,6 +45,12 @@ export interface ChainThreshold {
   capacityRuleEnabled?: boolean;
   capacityPerHourEnabled?: boolean;
   capacityPerHourLimit?: number | null;
+  highDemandSchedule?: HighDemandSchedule;
+}
+
+export interface HighDemandSchedule {
+  enabled: boolean;
+  hours: number[];
 }
 
 export interface ThresholdProfile {
@@ -129,6 +136,7 @@ export interface BranchMapping {
   capacityRuleEnabledOverride?: boolean | null;
   capacityPerHourEnabledOverride?: boolean | null;
   capacityPerHourLimitOverride?: number | null;
+  highDemandScheduleOverride?: HighDemandSchedule | null;
 }
 
 export interface ResolvedBranchMapping extends Omit<BranchMapping, "name" | "ordersVendorId" | "catalogState"> {
@@ -242,6 +250,10 @@ export interface BranchSnapshot {
   vssClosedReason?: string;
   vssChangeable?: boolean | null;
   preptimeAdjustment?: AvailabilityRecord["preptimeAdjustment"];
+  highDemandSchedule?: HighDemandSchedule;
+  highDemandScheduleSource?: HighDemandScheduleSource;
+  highDemandScheduleOverride?: HighDemandSchedule | null;
+  highDemandSource?: "UPUSE" | "EXTERNAL";
   thresholds?: ThresholdProfile;
 
   metrics: OrdersMetrics;

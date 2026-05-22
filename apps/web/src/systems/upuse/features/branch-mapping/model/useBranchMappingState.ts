@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, describeApiError } from "../../../api/client";
-import type { BranchMappingItem, ChainThreshold, LocalVendorCatalogItem, SettingsMasked } from "../../../api/types";
+import type { BranchMappingItem, ChainThreshold, HighDemandSchedule, LocalVendorCatalogItem, SettingsMasked } from "../../../api/types";
 import { mergeSourceItemsWithBranches, normalizeChains, type SavedChainGroup } from "../lib/branchMapping";
 
 function normalizeSettings(settings: SettingsMasked): SettingsMasked {
@@ -230,6 +230,15 @@ export function useBranchMappingState() {
     return response.item;
   };
 
+  const saveBranchHighDemandScheduleOverride = async (
+    branchId: number,
+    override: HighDemandSchedule | null,
+  ) => {
+    const response = await api.setBranchHighDemandScheduleOverride(branchId, override);
+    setBranches((current) => current.map((item) => (item.id === branchId ? response.item : item)));
+    return response.item;
+  };
+
   return {
     settings,
     branches,
@@ -245,5 +254,6 @@ export function useBranchMappingState() {
     saveChains,
     saveGlobalThresholds,
     saveBranchThresholdOverride,
+    saveBranchHighDemandScheduleOverride,
   };
 }

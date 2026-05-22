@@ -26,6 +26,14 @@ import { decide } from "../../services/policyEngine.js";
 import { Mutex } from "../../utils/mutex.js";
 import { nowUtcIso } from "../../utils/time.js";
 import { resolveOrdersStaleMultiplier } from "../../services/orders/shared.js";
+import {
+  HIGH_DEMAND_ADJUSTMENT_MINUTES,
+  HIGH_DEMAND_DURATION_MINUTES,
+  getHighDemandUntil,
+  isHighDemandHourActive,
+  isUpuseHighDemandWindowActive,
+  resolveEffectiveHighDemandSchedule,
+} from "../../services/highDemandSchedule.js";
 import { MonitorCycleCoordinator, type CycleOptions, type ScheduledSource } from "./cycleCoordinator.js";
 import { closeReasonLogTag, currentPreparation, type OrdersPressureSummary } from "./monitorState.js";
 import { buildMonitorSnapshot } from "./snapshotBuilder.js";
@@ -99,6 +107,8 @@ export class MonitorEngine {
       closureObservedUntil: null,
       closureObservedAt: null,
       externalOpenDetectedAt: null,
+      lastUpuseHighDemandAt: null,
+      lastUpuseHighDemandUntil: null,
       lastActionAt: null,
     });
     this.publish();
@@ -360,6 +370,37 @@ export class MonitorEngine {
     return this.runtimeTracker.extractClosedUntilCandidate(payload);
   }
 
+  private extractHighDemandEndTimeCandidate(payload: unknown, availabilityVendorId: string): string | undefined {
+    const visit = (node: unknown): string | undefined => {
+      if (!node || typeof node !== "object") return undefined;
+
+      if (Array.isArray(node)) {
+        for (const item of node) {
+          const result = visit(item);
+          if (result) return result;
+        }
+        return undefined;
+      }
+
+      const record = node as Record<string, unknown>;
+      const platformVendorId = typeof record.platformVendorId === "string" ? record.platformVendorId : undefined;
+      const endTime = typeof record.endTime === "string" ? record.endTime : undefined;
+      if (platformVendorId === availabilityVendorId && endTime) {
+        const parsed = DateTime.fromISO(endTime, { zone: "utc" });
+        return parsed.isValid ? parsed.toISO({ suppressMilliseconds: false }) ?? undefined : undefined;
+      }
+
+      for (const value of Object.values(record)) {
+        const result = visit(value);
+        if (result) return result;
+      }
+
+      return undefined;
+    };
+
+    return visit(payload);
+  }
+
   private syncExternalClosureState(nowIso: string) {
     this.runtimeTracker.syncExternalClosureState({
       availabilityByVendor: this.availabilityByVendor,
@@ -368,6 +409,74 @@ export class MonitorEngine {
       currentHourPlacedByVendor: this.currentHourPlacedByVendor,
       ordersDataStateByVendor: this.ordersDataStateByVendor,
     }, nowIso);
+  }
+
+  private async maybeApplyScheduledHighDemand(params: {
+    branch: ResolvedBranchMapping;
+    settings: Settings;
+    nowIso: string;
+    getActionAvailability: () => Promise<Map<string, AvailabilityRecord>>;
+    expectedLifecycleId?: number;
+  }) {
+    const { branch, settings, nowIso, getActionAvailability, expectedLifecycleId } = params;
+    const effectiveSchedule = resolveEffectiveHighDemandSchedule(branch, settings);
+    if (!isHighDemandHourActive(effectiveSchedule.schedule, nowIso)) return false;
+
+    const runtime = getRuntime(branch.id) ?? undefined;
+    if (runtime?.externalOpenDetectedAt) return false;
+    if (this.hasActiveTrackedMonitorWindow(runtime, nowIso)) return false;
+    if (isUpuseHighDemandWindowActive(runtime, nowIso)) return false;
+
+    const actionAvailability = await getActionAvailability();
+    if (!this.isLifecycleActive(expectedLifecycleId)) return false;
+
+    const current = actionAvailability.get(branch.availabilityVendorId);
+    if (!current || current.availabilityState !== "OPEN" || current.vssGroup === "highDemand") {
+      return false;
+    }
+
+    const mutationResult = await setAvailability({
+      token: settings.availabilityToken,
+      globalEntityId: branch.globalEntityId,
+      availabilityVendorId: branch.availabilityVendorId,
+      state: "HIGH_DEMAND_MODE",
+      adjustmentMinutes: HIGH_DEMAND_ADJUSTMENT_MINUTES,
+      durationMinutes: HIGH_DEMAND_DURATION_MINUTES,
+    });
+    if (!this.isLifecycleActive(expectedLifecycleId)) return false;
+
+    const startedAt = nowIso;
+    const until = this.extractHighDemandEndTimeCandidate(mutationResult, branch.availabilityVendorId) ?? getHighDemandUntil(nowIso);
+    const updatedAvailability: AvailabilityRecord = {
+      ...current,
+      availabilityState: "OPEN",
+      platformRestaurantId: branch.availabilityVendorId,
+      vssBucket: "open",
+      vssGroup: "highDemand",
+      currentSlotEndAt: until,
+      vssEndTime: until,
+      preptimeAdjustment: until
+        ? {
+            adjustmentMinutes: HIGH_DEMAND_ADJUSTMENT_MINUTES,
+            interval: {
+              startTime: startedAt,
+              endTime: until,
+            },
+          }
+        : current.preptimeAdjustment,
+    };
+    actionAvailability.set(branch.availabilityVendorId, updatedAvailability);
+    this.availabilityByVendor.set(branch.availabilityVendorId, updatedAvailability);
+    setRuntime(branch.id, {
+      lastUpuseHighDemandAt: startedAt,
+      lastUpuseHighDemandUntil: until ?? null,
+    });
+
+    const untilLabel = until
+      ? DateTime.fromISO(until, { zone: "utc" }).setZone("Africa/Cairo").toFormat("HH:mm")
+      : null;
+    log(branch.id, "INFO", untilLabel ? `HIGH DEMAND — scheduled until ${untilLabel}` : "HIGH DEMAND — scheduled");
+    return true;
   }
 
   getSnapshot(): DashboardSnapshot {
@@ -755,6 +864,16 @@ export class MonitorEngine {
           if (!this.isLifecycleActive(expectedLifecycleId)) return;
           setRuntime(branch.id, { externalOpenDetectedAt: null });
         }
+        const highDemandApplied = await this.maybeApplyScheduledHighDemand({
+          branch,
+          settings,
+          nowIso,
+          getActionAvailability: ensureActionAvailability,
+          expectedLifecycleId,
+        });
+        if (highDemandApplied) {
+          shouldRefreshAvailabilityAfterActions = true;
+        }
         continue;
       }
 
@@ -923,6 +1042,17 @@ export class MonitorEngine {
           return;
         }
       });
+
+      const highDemandApplied = await this.maybeApplyScheduledHighDemand({
+        branch,
+        settings,
+        nowIso,
+        getActionAvailability: ensureActionAvailability,
+        expectedLifecycleId,
+      });
+      if (highDemandApplied) {
+        shouldRefreshAvailabilityAfterActions = true;
+      }
     }
 
     if (!shouldRefreshAvailabilityAfterActions || !this.isLifecycleActive(expectedLifecycleId)) return;

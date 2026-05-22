@@ -7,6 +7,7 @@ import {
   getBranchById,
   getResolvedBranchById,
   listBranches,
+  setBranchHighDemandScheduleOverride,
   setBranchMonitoringEnabled,
   setBranchThresholdOverrides,
 } from "../services/branchStore.js";
@@ -17,6 +18,7 @@ import { lookupWarehouseVendorByAvailabilityId } from "../services/orders/index.
 import { derivePreparingNow } from "../services/orders/classification.js";
 import { resolveBranchThresholdProfile } from "../services/thresholds.js";
 import { log } from "../services/logger.js";
+import { NullableHighDemandScheduleOverrideSchema } from "../services/highDemandSchedule.js";
 import { buildDeleteBranchResponse, parseBranchIdParam } from "./branchRouteHelpers.js";
 import { canUserAccessUpuseBranch } from "../systems/upuse/services/trackerAccess.js";
 import type {
@@ -45,6 +47,8 @@ const ResolveVendorSourceBody = z.object({
 const BranchMonitoringBody = z.object({
   enabled: z.boolean(),
 });
+
+const BranchHighDemandScheduleOverrideBody = NullableHighDemandScheduleOverrideSchema;
 
 const BranchThresholdOverrideBody = z.object({
   lateThresholdOverride: z.number().int().min(0).max(999).nullable(),
@@ -508,6 +512,36 @@ export function updateBranchThresholdOverridesRoute(req: Request, res: Response)
       return res.status(404).json({ ok: false, message: "Branch not found" });
     }
     res.json({ ok: true, item: updated });
+  } catch (error: unknown) {
+    const errorMessage = typeof error === "object" && error !== null && "message" in error
+      ? (error as { message?: unknown }).message
+      : undefined;
+    if (errorMessage === "Branch not found") {
+      return res.status(404).json({ ok: false, message: "Branch not found" });
+    }
+    throw error;
+  }
+}
+
+export function updateBranchHighDemandScheduleOverrideRoute(req: Request, res: Response) {
+  const id = parseBranchIdParam(req.params.id);
+  if (!id) {
+    return res.status(400).json({ ok: false, message: "Invalid branch id" });
+  }
+
+  const branch = getBranchById(id);
+  if (!branch) {
+    return res.status(404).json({ ok: false, message: "Branch not found" });
+  }
+
+  const parsed = BranchHighDemandScheduleOverrideBody.parse(req.body ?? null);
+
+  try {
+    const updated = setBranchHighDemandScheduleOverride(id, parsed);
+    if (!updated) {
+      return res.status(404).json({ ok: false, message: "Branch not found" });
+    }
+    return res.json({ ok: true, item: updated });
   } catch (error: unknown) {
     const errorMessage = typeof error === "object" && error !== null && "message" in error
       ? (error as { message?: unknown }).message

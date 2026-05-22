@@ -39,7 +39,8 @@ export function buildSharedSchemaSql() {
       onHoldReopenThresholdOverride INTEGER,
       capacityRuleEnabledOverride INTEGER,
       capacityPerHourEnabledOverride INTEGER,
-      capacityPerHourLimitOverride INTEGER
+      capacityPerHourLimitOverride INTEGER,
+      highDemandScheduleOverrideJson TEXT
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_branches_availabilityVendorId ON branches(availabilityVendorId);
@@ -56,6 +57,8 @@ export function buildSharedSchemaSql() {
       closureObservedUntil TEXT,
       closureObservedAt TEXT,
       externalOpenDetectedAt TEXT,
+      lastUpuseHighDemandAt TEXT,
+      lastUpuseHighDemandUntil TEXT,
       lastActionAt TEXT,
       FOREIGN KEY (branchId) REFERENCES branches(id) ON DELETE CASCADE
     );

@@ -67,6 +67,14 @@ export function resolveDisplayedBranch(
     vssClosedReason: liveBranch.vssClosedReason,
     vssChangeable: liveBranch.vssChangeable,
     preptimeAdjustment: liveBranch.preptimeAdjustment,
+    highDemandSchedule: liveBranch.highDemandSchedule ?? detailBranch.highDemandSchedule ?? branchSnapshot.highDemandSchedule,
+    highDemandScheduleSource: liveBranch.highDemandScheduleSource ?? detailBranch.highDemandScheduleSource ?? branchSnapshot.highDemandScheduleSource,
+    highDemandScheduleOverride: liveBranch.highDemandScheduleOverride !== undefined
+      ? liveBranch.highDemandScheduleOverride
+      : detailBranch.highDemandScheduleOverride !== undefined
+        ? detailBranch.highDemandScheduleOverride
+        : branchSnapshot.highDemandScheduleOverride,
+    highDemandSource: liveBranch.highDemandSource ?? detailBranch.highDemandSource ?? branchSnapshot.highDemandSource,
     thresholds: liveBranch.thresholds ?? detailBranch.thresholds ?? branchSnapshot.thresholds,
     metrics: liveBranch.metrics,
     preparingNow: liveBranch.preparingNow,

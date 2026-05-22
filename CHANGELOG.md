@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-05-22
+
+- Added UPuse scheduled High Demand automation:
+  - chain-level daily hour schedules in `Thresholds > High Demand`
+  - branch overrides for `Inherited`, `Custom`, and `Disabled`
+  - Cairo-time hour evaluation, 30-minute highDemand duration, and +10 minute prep-time adjustment
+  - monitor-only execution after normal close/open reconciliation so temporary-close and recovery behavior keep priority
+- Added UPuse-owned highDemand runtime tracking so dashboard, branch cards, and branch detail render scheduled highDemand in blue while external/source highDemand keeps the existing amber treatment.
+- Added backend and frontend coverage for highDemand payloads, schedule resolution, scheduler skips/reactivation, settings/branch override APIs, the 24-hour UI grid, and status coloring.
+
 ## 2026-05-13
 
 - Added `On Hold` as a UPuse monitoring trigger:

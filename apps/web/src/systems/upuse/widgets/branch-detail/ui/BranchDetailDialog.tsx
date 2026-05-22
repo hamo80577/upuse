@@ -1,4 +1,5 @@
 import { Alert, Box, Dialog, DialogContent, DialogTitle, LinearProgress, Skeleton, Stack, Typography, useMediaQuery, useTheme } from "@mui/material";
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import type { BranchDetailResult, BranchPickersSummary, BranchSnapshot } from "../../../api/types";
 import { useAuth } from "../../../app/providers/AuthProvider";
@@ -82,6 +83,33 @@ function QueueLoadingLayout() {
       <Skeleton variant="rounded" animation="wave" height={260} />
       <Skeleton variant="rounded" animation="wave" height={260} />
       <Skeleton variant="rounded" animation="wave" height={260} />
+    </Box>
+  );
+}
+
+function QueueLane(props: { title: string; caption: string; children: ReactNode }) {
+  return (
+    <Box
+      sx={{
+        minWidth: 0,
+        borderRadius: 2.6,
+        border: "1px solid rgba(148,163,184,0.14)",
+        bgcolor: "rgba(248,250,252,0.72)",
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.65)",
+        p: { xs: 0.85, sm: 0.95 },
+      }}
+    >
+      <Stack spacing={0.15} sx={{ px: 0.25, pb: 0.85 }}>
+        <Typography sx={{ fontWeight: 900, color: "#0f172a", lineHeight: 1.1 }}>
+          {props.title}
+        </Typography>
+        <Typography variant="caption" sx={{ color: "#64748b", lineHeight: 1.35 }}>
+          {props.caption}
+        </Typography>
+      </Stack>
+      <Stack spacing={0.9}>
+        {props.children}
+      </Stack>
     </Box>
   );
 }
@@ -210,20 +238,22 @@ export function BranchDetailDialog(props: {
       onClose={props.onClose}
       fullWidth
       fullScreen={isMobile}
-      maxWidth="lg"
+      maxWidth="xl"
       PaperProps={{
         sx: {
-          width: { xs: "100%", sm: "min(1040px, calc(100vw - 56px))" },
-          height: { xs: "100%", sm: "min(760px, calc(100vh - 48px))" },
-          maxHeight: { xs: "100%", sm: "calc(100vh - 48px)" },
+          width: { xs: "100%", sm: "min(1280px, calc(100vw - 44px))" },
+          height: { xs: "100%", sm: "min(840px, calc(100vh - 36px))" },
+          maxHeight: { xs: "100%", sm: "calc(100vh - 36px)" },
           m: { xs: 0, sm: 2.5 },
-          borderRadius: { xs: 0, sm: 2.4 },
+          borderRadius: { xs: 0, sm: 3 },
           display: "flex",
           flexDirection: "column",
+          bgcolor: "#f8fafc",
+          boxShadow: "0 28px 80px rgba(15,23,42,0.28)",
         },
       }}
     >
-      <DialogTitle sx={{ pb: { xs: 0.9, sm: 1 }, px: { xs: 1, sm: 1.6 }, pt: { xs: 0.9, sm: 1.2 } }}>
+      <DialogTitle sx={{ pb: { xs: 0.9, sm: 1 }, px: { xs: 1, sm: 1.4 }, pt: { xs: 0.9, sm: 1.1 }, bgcolor: "#f8fafc" }}>
         {showFullScreenLoading ? (
           <Skeleton variant="rounded" animation="wave" height={122} />
         ) : (
@@ -241,6 +271,7 @@ export function BranchDetailDialog(props: {
         dividers
         sx={{
           p: { xs: 1, md: 1.35 },
+          bgcolor: "#f8fafc",
           flex: 1,
           minHeight: 0,
           display: "flex",
@@ -348,51 +379,62 @@ export function BranchDetailDialog(props: {
                     <Box
                       sx={{
                         display: "grid",
-                        gap: 1.2,
-                        gridTemplateColumns: { xs: "1fr", lg: "repeat(5, minmax(0, 1fr))" },
+                        gap: 1.05,
+                        gridTemplateColumns: {
+                          xs: "1fr",
+                          lg: "minmax(260px, 0.9fr) minmax(360px, 1.25fr) minmax(260px, 0.95fr)",
+                        },
                         alignItems: "start",
                       }}
                     >
-                      <BranchOrdersSection
-                        title="On Hold Orders"
-                        subtitle="Orders currently on hold"
-                        items={detailWithBranch?.onHoldOrders ?? []}
-                        emptyText={detailWithBranch?.onHoldOrders.length ? "No on-hold orders right now." : unavailableOrdersText}
-                        nowMs={nowMs}
-                        timeDisplayMode="duration"
-                        durationWarningMs={120_000}
-                      />
-                      <BranchOrdersSection
-                        title="Unassigned Orders"
-                        subtitle="Current unassigned queue"
-                        items={detailWithBranch?.unassignedOrders ?? []}
-                        emptyText={detailWithBranch?.unassignedOrders.length ? "No unassigned orders right now." : unavailableOrdersText}
-                        nowMs={nowMs}
-                      />
-                      <BranchOrdersSection
-                        title="In Preparation"
-                        subtitle="Assigned preparation queue"
-                        items={detailWithBranch?.preparingOrders ?? []}
-                        emptyText={detailWithBranch?.preparingOrders.length ? "No active preparation orders right now." : unavailableOrdersText}
-                        nowMs={nowMs}
-                        headerBadge={renderPickerBadge(activePreparingPickerCount)}
-                      />
-                      <BranchOrdersSection
-                        title="Ready To Pickup"
-                        subtitle="Ready orders counted by the hold rule"
-                        items={detailWithBranch?.readyToPickupOrders ?? []}
-                        emptyText={detailWithBranch?.readyToPickupOrders.length ? "No ready-to-pickup orders right now." : unavailableOrdersText}
-                        nowMs={nowMs}
-                        timeDisplayMode="ready_age"
-                      />
-                      <BranchOrdersSection
-                        title="Fresh Ready To Pickup"
-                        subtitle="Ready orders below the minimum age"
-                        items={detailWithBranch?.freshReadyToPickupOrders ?? []}
-                        emptyText={(detailWithBranch?.freshReadyToPickupOrders?.length ?? 0) ? "No fresh ready-to-pickup orders right now." : unavailableOrdersText}
-                        nowMs={nowMs}
-                        timeDisplayMode="ready_age"
-                      />
+                      <QueueLane title="Attention Queue" caption="Problem queues that can drive closures.">
+                        <BranchOrdersSection
+                          title="On Hold Orders"
+                          subtitle="Orders currently on hold"
+                          items={detailWithBranch?.onHoldOrders ?? []}
+                          emptyText={detailWithBranch?.onHoldOrders.length ? "No on-hold orders right now." : unavailableOrdersText}
+                          nowMs={nowMs}
+                          timeDisplayMode="duration"
+                          durationWarningMs={120_000}
+                        />
+                        <BranchOrdersSection
+                          title="Unassigned Orders"
+                          subtitle="Current unassigned queue"
+                          items={detailWithBranch?.unassignedOrders ?? []}
+                          emptyText={detailWithBranch?.unassignedOrders.length ? "No unassigned orders right now." : unavailableOrdersText}
+                          nowMs={nowMs}
+                        />
+                      </QueueLane>
+
+                      <QueueLane title="Preparation Lane" caption="Assigned work currently moving through preparation.">
+                        <BranchOrdersSection
+                          title="In Preparation"
+                          subtitle="Assigned preparation queue"
+                          items={detailWithBranch?.preparingOrders ?? []}
+                          emptyText={detailWithBranch?.preparingOrders.length ? "No active preparation orders right now." : unavailableOrdersText}
+                          nowMs={nowMs}
+                          headerBadge={renderPickerBadge(activePreparingPickerCount)}
+                        />
+                      </QueueLane>
+
+                      <QueueLane title="Pickup Lane" caption="Ready orders separated by rule eligibility.">
+                        <BranchOrdersSection
+                          title="Ready To Pickup"
+                          subtitle="Ready orders counted by the hold rule"
+                          items={detailWithBranch?.readyToPickupOrders ?? []}
+                          emptyText={detailWithBranch?.readyToPickupOrders.length ? "No ready-to-pickup orders right now." : unavailableOrdersText}
+                          nowMs={nowMs}
+                          timeDisplayMode="ready_age"
+                        />
+                        <BranchOrdersSection
+                          title="Fresh Ready To Pickup"
+                          subtitle="Ready orders below the minimum age"
+                          items={detailWithBranch?.freshReadyToPickupOrders ?? []}
+                          emptyText={(detailWithBranch?.freshReadyToPickupOrders?.length ?? 0) ? "No fresh ready-to-pickup orders right now." : unavailableOrdersText}
+                          nowMs={nowMs}
+                          timeDisplayMode="ready_age"
+                        />
+                      </QueueLane>
                     </Box>
                   )
                 ) : null}

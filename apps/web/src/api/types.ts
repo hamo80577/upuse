@@ -2,6 +2,7 @@ export type CloseReason = "LATE" | "UNASSIGNED" | "READY_TO_PICKUP" | "ON_HOLD" 
 export type AppUserRole = "admin" | "user" | "tracker";
 export type ScanoRole = "team_lead" | "scanner";
 export type ThresholdSource = "branch" | "chain" | "global";
+export type HighDemandScheduleSource = "branch" | "chain" | "default";
 export type BranchCatalogState = "available" | "missing";
 export type MonitorErrorCategory =
   | "token_missing"
@@ -39,6 +40,12 @@ export interface ChainThreshold {
   capacityRuleEnabled?: boolean;
   capacityPerHourEnabled?: boolean;
   capacityPerHourLimit?: number | null;
+  highDemandSchedule?: HighDemandSchedule;
+}
+
+export interface HighDemandSchedule {
+  enabled: boolean;
+  hours: number[];
 }
 
 export interface ThresholdProfile {
@@ -149,6 +156,10 @@ export interface BranchSnapshot {
     interval: { startTime: string; endTime: string };
   };
   thresholds?: ThresholdProfile;
+  highDemandSchedule?: HighDemandSchedule;
+  highDemandScheduleSource?: HighDemandScheduleSource;
+  highDemandScheduleOverride?: HighDemandSchedule | null;
+  highDemandSource?: "UPUSE" | "EXTERNAL";
 
   metrics: OrdersMetrics;
   preparingNow: number;
@@ -178,6 +189,7 @@ export interface BranchMappingItem {
   capacityRuleEnabledOverride?: boolean | null;
   capacityPerHourEnabledOverride?: boolean | null;
   capacityPerHourLimitOverride?: number | null;
+  highDemandScheduleOverride?: HighDemandSchedule | null;
 }
 
 export interface LocalVendorCatalogItem {

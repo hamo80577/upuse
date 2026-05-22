@@ -26,18 +26,21 @@ export function BranchLogPanel(props: {
   return (
     <Box
       sx={{
-        borderRadius: 2.5,
-        border: "1px solid rgba(148,163,184,0.14)",
+        borderRadius: 2.7,
+        border: "1px solid rgba(148,163,184,0.16)",
         overflow: "hidden",
-        bgcolor: "rgba(255,255,255,0.94)",
-        boxShadow: "0 12px 28px rgba(15,23,42,0.04)",
+        bgcolor: "rgba(255,255,255,0.96)",
+        boxShadow: "0 16px 34px rgba(15,23,42,0.06)",
       }}
     >
-      <Box sx={{ px: 1.35, py: 1.1, bgcolor: "rgba(248,250,252,0.86)" }}>
+      <Box sx={{ px: 1.45, py: 1.2, bgcolor: "linear-gradient(180deg, rgba(248,250,252,0.96) 0%, rgba(255,255,255,0.94) 100%)" }}>
         <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
           <Box>
             <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 800 }}>
               Activity Feed
+            </Typography>
+            <Typography sx={{ fontWeight: 900, color: "#0f172a", lineHeight: 1.15 }}>
+              Branch History
             </Typography>
             <Typography variant="caption" sx={{ display: { xs: "none", sm: "block" }, color: "text.secondary" }}>
               {loadedLogCount ? `${fmtInt(loadedLogCount)} loaded entries` : "No saved entries"}

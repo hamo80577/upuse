@@ -74,6 +74,13 @@ export function applySharedSchemaMigrations(db: Database.Database) {
   if (!branchRuntimeColumns.some((column) => column.name === "closureObservedAt")) {
     db.exec("ALTER TABLE branch_runtime ADD COLUMN closureObservedAt TEXT");
   }
+  if (!branchRuntimeColumns.some((column) => column.name === "lastUpuseHighDemandAt")) {
+    db.exec("ALTER TABLE branch_runtime ADD COLUMN lastUpuseHighDemandAt TEXT");
+  }
+  if (!branchRuntimeColumns.some((column) => column.name === "lastUpuseHighDemandUntil")) {
+    db.exec("ALTER TABLE branch_runtime ADD COLUMN lastUpuseHighDemandUntil TEXT");
+  }
+  db.exec("INSERT OR IGNORE INTO branch_runtime (branchId) SELECT id FROM branches");
 
   const branchesColumns = db.prepare("PRAGMA table_info(branches)").all() as Array<{ name: string }>;
   if (!branchesColumns.some((column) => column.name === "lateReopenThresholdOverride")) {
@@ -102,6 +109,9 @@ export function applySharedSchemaMigrations(db: Database.Database) {
   }
   if (!branchesColumns.some((column) => column.name === "capacityPerHourLimitOverride")) {
     db.exec("ALTER TABLE branches ADD COLUMN capacityPerHourLimitOverride INTEGER");
+  }
+  if (!branchesColumns.some((column) => column.name === "highDemandScheduleOverrideJson")) {
+    db.exec("ALTER TABLE branches ADD COLUMN highDemandScheduleOverrideJson TEXT");
   }
 
   const actionEventColumns = db.prepare("PRAGMA table_info(action_events)").all() as Array<{ name: string }>;

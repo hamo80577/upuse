@@ -2,7 +2,8 @@ import { z } from "zod";
 import { db } from "../config/db.js";
 import { getGlobalEntityId } from "./settingsStore.js";
 import { getVendorCatalogItem } from "./vendorCatalogStore.js";
-import type { BranchMapping, CloseReason, ResolvedBranchMapping } from "../types/models.js";
+import type { BranchMapping, CloseReason, HighDemandSchedule, ResolvedBranchMapping } from "../types/models.js";
+import { HighDemandScheduleSchema, normalizeNullableHighDemandScheduleOverride } from "./highDemandSchedule.js";
 
 interface BranchRow {
   id: number;
@@ -21,6 +22,7 @@ interface BranchRow {
   capacityRuleEnabledOverride: number | null;
   capacityPerHourEnabledOverride: number | null;
   capacityPerHourLimitOverride: number | null;
+  highDemandScheduleOverrideJson: string | null;
 }
 
 interface JoinedBranchRow extends BranchRow {
@@ -40,6 +42,8 @@ interface BranchRuntimeRow {
   closureObservedUntil?: string | null;
   closureObservedAt?: string | null;
   externalOpenDetectedAt?: string | null;
+  lastUpuseHighDemandAt?: string | null;
+  lastUpuseHighDemandUntil?: string | null;
   lastActionAt?: string | null;
 }
 
@@ -85,6 +89,17 @@ const ThresholdOverrideSchema = z.object({
   }
 });
 
+const HighDemandScheduleOverrideSchema = z.union([HighDemandScheduleSchema, z.null()]);
+
+function parseHighDemandScheduleOverrideJson(raw: unknown) {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    return normalizeNullableHighDemandScheduleOverride(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
 function mapBranchRow(row: JoinedBranchRow): BranchMapping {
   return {
     id: row.id,
@@ -108,6 +123,7 @@ function mapBranchRow(row: JoinedBranchRow): BranchMapping {
     capacityPerHourEnabledOverride:
       row.capacityPerHourEnabledOverride == null ? null : row.capacityPerHourEnabledOverride === 1,
     capacityPerHourLimitOverride: row.capacityPerHourLimitOverride,
+    highDemandScheduleOverride: parseHighDemandScheduleOverrideJson(row.highDemandScheduleOverrideJson),
   };
 }
 
@@ -144,6 +160,7 @@ function getJoinedBranchQuery(whereClause = "", orderClause = "ORDER BY LOWER(CO
       branches.capacityRuleEnabledOverride,
       branches.capacityPerHourEnabledOverride,
       branches.capacityPerHourLimitOverride,
+      branches.highDemandScheduleOverrideJson,
       vendor_catalog.name,
       vendor_catalog.ordersVendorId
     FROM branches
@@ -202,9 +219,10 @@ export function addBranch(input: { availabilityVendorId: string; chainName?: str
       onHoldReopenThresholdOverride,
       capacityRuleEnabledOverride,
       capacityPerHourEnabledOverride,
-      capacityPerHourLimitOverride
+      capacityPerHourLimitOverride,
+      highDemandScheduleOverrideJson
     )
-    VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+    VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
   `).run(
     catalogItem.availabilityVendorId,
     parsed.chainName,
@@ -279,6 +297,20 @@ export function setBranchThresholdOverrides(
   return getBranchById(id);
 }
 
+export function setBranchHighDemandScheduleOverride(
+  id: number,
+  override: HighDemandSchedule | null,
+) {
+  ensureBranchExists(id);
+  const parsed = HighDemandScheduleOverrideSchema.parse(override);
+  db.prepare(`
+    UPDATE branches
+    SET highDemandScheduleOverrideJson = ?
+    WHERE id = ?
+  `).run(parsed == null ? null : JSON.stringify(parsed), id);
+  return getBranchById(id);
+}
+
 export function deleteBranch(id: number) {
   const result = db.prepare("DELETE FROM branches WHERE id = ?").run(id);
   return result.changes;
@@ -288,9 +320,29 @@ export function getRuntime(branchId: number) {
   return db.prepare<[number], BranchRuntimeRow>("SELECT * FROM branch_runtime WHERE branchId = ?").get(branchId) ?? null;
 }
 
+function emptyRuntime(branchId: number): Required<BranchRuntimeRow> {
+  return {
+    branchId,
+    lastUpuseCloseUntil: null,
+    lastUpuseCloseReason: null,
+    lastUpuseCloseAt: null,
+    lastUpuseCloseEventId: null,
+    lastExternalCloseUntil: null,
+    lastExternalCloseAt: null,
+    closureOwner: null,
+    closureObservedUntil: null,
+    closureObservedAt: null,
+    externalOpenDetectedAt: null,
+    lastUpuseHighDemandAt: null,
+    lastUpuseHighDemandUntil: null,
+    lastActionAt: null,
+  };
+}
+
 export function setRuntime(branchId: number, patch: Partial<BranchRuntimeRow>) {
-  const current = getRuntime(branchId) ?? { branchId };
-  const merged = { ...current, ...patch };
+  const base = emptyRuntime(branchId);
+  const current = getRuntime(branchId);
+  const merged = { ...base, ...current, ...patch };
   db.prepare(`
     INSERT INTO branch_runtime (
       branchId,
@@ -304,6 +356,8 @@ export function setRuntime(branchId: number, patch: Partial<BranchRuntimeRow>) {
       closureObservedUntil,
       closureObservedAt,
       externalOpenDetectedAt,
+      lastUpuseHighDemandAt,
+      lastUpuseHighDemandUntil,
       lastActionAt
     )
     VALUES (
@@ -318,6 +372,8 @@ export function setRuntime(branchId: number, patch: Partial<BranchRuntimeRow>) {
       @closureObservedUntil,
       @closureObservedAt,
       @externalOpenDetectedAt,
+      @lastUpuseHighDemandAt,
+      @lastUpuseHighDemandUntil,
       @lastActionAt
     )
     ON CONFLICT(branchId) DO UPDATE SET
@@ -331,6 +387,8 @@ export function setRuntime(branchId: number, patch: Partial<BranchRuntimeRow>) {
       closureObservedUntil = excluded.closureObservedUntil,
       closureObservedAt = excluded.closureObservedAt,
       externalOpenDetectedAt = excluded.externalOpenDetectedAt,
+      lastUpuseHighDemandAt = excluded.lastUpuseHighDemandAt,
+      lastUpuseHighDemandUntil = excluded.lastUpuseHighDemandUntil,
       lastActionAt = excluded.lastActionAt
   `).run(merged);
   return merged;
