@@ -15,7 +15,7 @@ import { getSettings } from "../../services/settingsStore.js";
 import { listBranches, listResolvedBranches, getRuntime, setRuntime } from "../../services/branchStore.js";
 import { fetchAvailabilities, setAvailability } from "../../services/availabilityClient.js";
 import { log } from "../../services/logger.js";
-import { markCloseEventReopened, recordMonitorCloseAction } from "../../services/actionReportStore.js";
+import { markCloseEventReopened, recordMonitorCloseAction, recordMonitorHighDemandAction } from "../../services/actionReportStore.js";
 import {
   getCurrentHourPlacedCountByVendor,
   getMirrorBranchDetail,
@@ -414,11 +414,12 @@ export class MonitorEngine {
   private async maybeApplyScheduledHighDemand(params: {
     branch: ResolvedBranchMapping;
     settings: Settings;
+    metrics: OrdersMetrics;
     nowIso: string;
     getActionAvailability: () => Promise<Map<string, AvailabilityRecord>>;
     expectedLifecycleId?: number;
   }) {
-    const { branch, settings, nowIso, getActionAvailability, expectedLifecycleId } = params;
+    const { branch, settings, metrics, nowIso, getActionAvailability, expectedLifecycleId } = params;
     const effectiveSchedule = resolveEffectiveHighDemandSchedule(branch, settings);
     if (!isHighDemandHourActive(effectiveSchedule.schedule, nowIso)) return false;
 
@@ -470,6 +471,12 @@ export class MonitorEngine {
     setRuntime(branch.id, {
       lastUpuseHighDemandAt: startedAt,
       lastUpuseHighDemandUntil: until ?? null,
+    });
+    recordMonitorHighDemandAction({
+      branch,
+      at: startedAt,
+      metrics,
+      highDemandUntil: until ?? null,
     });
 
     const untilLabel = until
@@ -867,6 +874,7 @@ export class MonitorEngine {
         const highDemandApplied = await this.maybeApplyScheduledHighDemand({
           branch,
           settings,
+          metrics,
           nowIso,
           getActionAvailability: ensureActionAvailability,
           expectedLifecycleId,
@@ -1046,6 +1054,7 @@ export class MonitorEngine {
       const highDemandApplied = await this.maybeApplyScheduledHighDemand({
         branch,
         settings,
+        metrics,
         nowIso,
         getActionAvailability: ensureActionAvailability,
         expectedLifecycleId,

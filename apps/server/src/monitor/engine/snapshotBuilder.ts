@@ -9,6 +9,7 @@ import { FIXED_AVAILABILITY_REFRESH_SECONDS } from "../../config/monitoring.js";
 import { getSettings } from "../../services/settingsStore.js";
 import { getRuntime, listResolvedBranches } from "../../services/branchStore.js";
 import { getOrdersMirrorEntitySyncStatus } from "../../services/ordersMirrorStore.js";
+import { listTodayMonitorOperationCountsByBranch } from "../../services/actionReportStore.js";
 import { derivePreparingNow } from "../../services/orders/classification.js";
 import { resolveOrdersStaleMultiplier } from "../../services/orders/shared.js";
 import { currentPreparation, type OrdersPressureSummary } from "./monitorState.js";
@@ -96,6 +97,7 @@ export function buildMonitorSnapshot(input: MonitorSnapshotInput, tracker: Pick<
   const settings = getSettings();
   const branches = listResolvedBranches();
   const monitoredBranches = branches.filter((branch) => branch.enabled);
+  const operationCountsByBranch = listTodayMonitorOperationCountsByBranch(monitoredBranches.map((branch) => branch.id));
   const ordersSnapshot = getOrdersMirrorEntitySyncStatus({
     globalEntityId: settings.globalEntityId,
     ordersRefreshSeconds: settings.ordersRefreshSeconds,
@@ -113,9 +115,15 @@ export function buildMonitorSnapshot(input: MonitorSnapshotInput, tracker: Pick<
     lateNow: 0,
     unassignedNow: 0,
     onHoldNow: 0,
+    upuseTempCloseToday: 0,
+    upuseHighDemandToday: 0,
   };
 
   const branchSnapshots = monitoredBranches.map((branch) => {
+    const operationsToday = operationCountsByBranch.get(branch.id) ?? {
+      upuseTempClose: 0,
+      upuseHighDemand: 0,
+    };
     const thresholds = tracker.resolveThresholds(branch, settings);
     const ordersDataState = input.ordersDataStateByVendor.get(branch.ordersVendorId) ?? "warming";
     const rawMetrics = input.ordersByVendor.get(branch.ordersVendorId) ?? {
@@ -146,6 +154,8 @@ export function buildMonitorSnapshot(input: MonitorSnapshotInput, tracker: Pick<
     totals.lateNow += rawMetrics.lateNow;
     totals.unassignedNow += rawMetrics.unassignedNow;
     totals.onHoldNow += rawMetrics.onHoldNow ?? 0;
+    totals.upuseTempCloseToday += operationsToday.upuseTempClose;
+    totals.upuseHighDemandToday += operationsToday.upuseHighDemand;
 
     const runtime = getRuntime(branch.id) ?? undefined;
     const effectiveHighDemandSchedule = resolveEffectiveHighDemandSchedule(branch, settings);
@@ -252,6 +262,7 @@ export function buildMonitorSnapshot(input: MonitorSnapshotInput, tracker: Pick<
       preparingPickersNow: preparation.preparingPickersNow,
       ordersDataState,
       ordersLastSyncedAt,
+      operationsToday,
       lastUpdatedAt: input.lastHealthyAt,
     };
   });

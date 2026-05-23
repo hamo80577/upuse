@@ -1,6 +1,10 @@
 import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
+import BoltRoundedIcon from "@mui/icons-material/BoltRounded";
+import LockClockRoundedIcon from "@mui/icons-material/LockClockRounded";
 import { Alert, AlertTitle, Box, Button, IconButton, Stack, Tooltip, Typography } from "@mui/material";
+import type { ReactNode } from "react";
 import type { DashboardLiveConnectionState, DashboardSnapshot } from "../../../api/types";
+import { fmtInt } from "../../../utils/format";
 import { SummaryStat } from "./SummaryStat";
 
 function fmtSyncAge(ms: number) {
@@ -14,6 +18,111 @@ function fmtSyncAge(ms: number) {
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
+
+function TodayOperationCounter(props: {
+  label: string;
+  value: number;
+  accent: string;
+  softBg: string;
+  icon: ReactNode;
+}) {
+  return (
+    <Box
+      sx={{
+        minHeight: 104,
+        p: { xs: 1.25, sm: 1.45 },
+        borderRadius: 2,
+        border: "1px solid rgba(148,163,184,0.16)",
+        bgcolor: "rgba(255,255,255,0.9)",
+        boxShadow: "0 10px 24px rgba(15,23,42,0.045)",
+        display: "flex",
+        alignItems: "stretch",
+        gap: 1.2,
+      }}
+    >
+      <Box
+        sx={{
+          width: 44,
+          minWidth: 44,
+          height: 44,
+          borderRadius: 2,
+          display: "grid",
+          placeItems: "center",
+          color: props.accent,
+          bgcolor: props.softBg,
+          mt: 0.1,
+        }}
+        aria-hidden
+      >
+        {props.icon}
+      </Box>
+
+      <Box sx={{ minWidth: 0, flex: 1 }}>
+        <Stack direction="row" spacing={0.8} alignItems="center" sx={{ minHeight: 20 }}>
+          <Box
+            sx={{
+              width: 7,
+              height: 7,
+              borderRadius: 999,
+              bgcolor: "#16a34a",
+              boxShadow: "0 0 0 3px rgba(22,163,74,0.12)",
+            }}
+          />
+          <Typography
+            variant="caption"
+            sx={{
+              color: "#15803d",
+              fontWeight: 900,
+              lineHeight: 1,
+            }}
+          >
+            Live today
+          </Typography>
+        </Stack>
+
+        <Typography
+          sx={{
+            mt: 0.7,
+            fontWeight: 900,
+            color: "#0f172a",
+            lineHeight: 1.15,
+            fontSize: { xs: 13, sm: 14 },
+            overflowWrap: "anywhere",
+          }}
+        >
+          {props.label}
+        </Typography>
+
+        <Stack direction="row" alignItems="end" justifyContent="space-between" spacing={1} sx={{ mt: 0.8 }}>
+          <Typography
+            sx={{
+              color: props.accent,
+              fontWeight: 950,
+              fontSize: { xs: 30, sm: 34 },
+              lineHeight: 0.95,
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {fmtInt(props.value)}
+          </Typography>
+          <Typography
+            variant="caption"
+            sx={{
+              color: "text.secondary",
+              fontWeight: 800,
+              lineHeight: 1.1,
+              textAlign: "right",
+              pb: 0.2,
+              whiteSpace: "normal",
+            }}
+          >
+            Since 00:00 Cairo
+          </Typography>
+        </Stack>
+      </Box>
+    </Box>
+  );
 }
 
 export function OperationsSummaryCard(props: {
@@ -33,6 +142,8 @@ export function OperationsSummaryCard(props: {
 }) {
   const canRefreshNow = props.canRefreshNow ?? true;
   const canOpenReport = props.canOpenReport ?? true;
+  const upuseTempCloseToday = props.totals.upuseTempCloseToday ?? 0;
+  const upuseHighDemandToday = props.totals.upuseHighDemandToday ?? 0;
   const metrics: Array<{
     label: string;
     value: number;
@@ -230,6 +341,31 @@ export function OperationsSummaryCard(props: {
           </Typography>
         </Alert>
       ) : null}
+
+      <Box
+        sx={{
+          mt: 1.6,
+          display: "grid",
+          gap: 1,
+          gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))" },
+        }}
+        aria-label="Today UPuse operation counters"
+      >
+        <TodayOperationCounter
+          label="UPuse Closes"
+          value={upuseTempCloseToday}
+          accent="#b91c1c"
+          softBg="rgba(239,68,68,0.10)"
+          icon={<LockClockRoundedIcon fontSize="small" />}
+        />
+        <TodayOperationCounter
+          label="UPuse High Demand"
+          value={upuseHighDemandToday}
+          accent="#1d4ed8"
+          softBg="rgba(37,99,235,0.10)"
+          icon={<BoltRoundedIcon fontSize="small" />}
+        />
+      </Box>
 
       <Box
         sx={{

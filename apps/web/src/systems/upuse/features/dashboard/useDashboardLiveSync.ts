@@ -30,6 +30,8 @@ const emptySnap: DashboardSnapshot = {
     lateNow: 0,
     unassignedNow: 0,
     onHoldNow: 0,
+    upuseTempCloseToday: 0,
+    upuseHighDemandToday: 0,
   },
   branches: [],
 };

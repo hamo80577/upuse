@@ -53,6 +53,8 @@ function emptyDashboardTotals(): DashboardSnapshot["totals"] {
     lateNow: 0,
     unassignedNow: 0,
     onHoldNow: 0,
+    upuseTempCloseToday: 0,
+    upuseHighDemandToday: 0,
   };
 }
 
@@ -73,6 +75,8 @@ function recomputeDashboardTotals(branches: BranchSnapshot[]) {
     totals.lateNow += branch.metrics.lateNow;
     totals.unassignedNow += branch.metrics.unassignedNow;
     totals.onHoldNow += branch.metrics.onHoldNow ?? 0;
+    totals.upuseTempCloseToday = (totals.upuseTempCloseToday ?? 0) + (branch.operationsToday?.upuseTempClose ?? 0);
+    totals.upuseHighDemandToday = (totals.upuseHighDemandToday ?? 0) + (branch.operationsToday?.upuseHighDemand ?? 0);
   }
 
   return totals;

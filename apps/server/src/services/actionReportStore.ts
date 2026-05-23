@@ -1,1 +1,7 @@
-export { buildActionEventsCsv, markCloseEventReopened, recordMonitorCloseAction } from "./reports/index.js";
+export {
+  buildActionEventsCsv,
+  listTodayMonitorOperationCountsByBranch,
+  markCloseEventReopened,
+  recordMonitorCloseAction,
+  recordMonitorHighDemandAction,
+} from "./reports/index.js";

@@ -15,6 +15,8 @@ const {
   mockSetAvailability,
   mockLog,
   mockRecordMonitorCloseAction,
+  mockRecordMonitorHighDemandAction,
+  mockListTodayMonitorOperationCountsByBranch,
   mockDecide,
 } = vi.hoisted(() => ({
   mockGetSettings: vi.fn(),
@@ -30,6 +32,8 @@ const {
   mockSetAvailability: vi.fn(),
   mockLog: vi.fn(),
   mockRecordMonitorCloseAction: vi.fn(),
+  mockRecordMonitorHighDemandAction: vi.fn(),
+  mockListTodayMonitorOperationCountsByBranch: vi.fn(() => new Map()),
   mockDecide: vi.fn(() => ({ type: "NOOP" })),
 }));
 
@@ -58,8 +62,10 @@ vi.mock("./logger.js", () => ({
 }));
 
 vi.mock("./actionReportStore.js", () => ({
+  listTodayMonitorOperationCountsByBranch: mockListTodayMonitorOperationCountsByBranch,
   markCloseEventReopened: vi.fn(),
   recordMonitorCloseAction: mockRecordMonitorCloseAction,
+  recordMonitorHighDemandAction: mockRecordMonitorHighDemandAction,
 }));
 
 vi.mock("./ordersMirrorStore.js", () => ({
@@ -140,6 +146,9 @@ describe("monitorEngine.getSnapshot", () => {
     mockSetAvailability.mockReset();
     mockLog.mockReset();
     mockRecordMonitorCloseAction.mockReset();
+    mockRecordMonitorHighDemandAction.mockReset();
+    mockListTodayMonitorOperationCountsByBranch.mockReset();
+    mockListTodayMonitorOperationCountsByBranch.mockReturnValue(new Map());
     mockDecide.mockReset();
     mockDecide.mockReturnValue({ type: "NOOP" });
     mockListResolvedBranches.mockImplementation((...args) => mockListBranches(...args));
@@ -1341,6 +1350,64 @@ describe("monitorEngine.getSnapshot", () => {
     expect(snapshot.branches[0]?.status).toBe("UNKNOWN");
     expect(snapshot.totals.unknown).toBe(1);
   });
+
+  it("includes today's UPuse operation counters in snapshot totals", () => {
+    mockGetSettings.mockReturnValue({
+      ordersToken: "",
+      availabilityToken: "",
+      globalEntityId: TEST_GLOBAL_ENTITY_ID,
+      chainNames: [],
+      chains: [],
+      lateThreshold: 4,
+      unassignedThreshold: 5,
+      tempCloseMinutes: 30,
+      graceMinutes: 5,
+      ordersRefreshSeconds: 30,
+      availabilityRefreshSeconds: 30,
+      maxVendorsPerOrdersRequest: 50,
+    });
+
+    mockListBranches.mockReturnValue([
+      {
+        id: 14,
+        name: "Branch 14",
+        chainName: "",
+        ordersVendorId: 1414,
+        availabilityVendorId: "av-14",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        enabled: true,
+      },
+      {
+        id: 15,
+        name: "Branch 15",
+        chainName: "",
+        ordersVendorId: 1515,
+        availabilityVendorId: "av-15",
+        globalEntityId: TEST_GLOBAL_ENTITY_ID,
+        enabled: true,
+      },
+    ]);
+
+    mockGetRuntime.mockReturnValue(undefined);
+    mockListTodayMonitorOperationCountsByBranch.mockReturnValue(new Map([
+      [14, { upuseTempClose: 2, upuseHighDemand: 3 }],
+      [15, { upuseTempClose: 1, upuseHighDemand: 0 }],
+    ]));
+
+    const engine = new MonitorEngine() as any;
+    engine.ordersFresh = true;
+    engine.availabilityByVendor = new Map([
+      ["av-14", { platformKey: "test", changeable: true, availabilityState: "OPEN", platformRestaurantId: "av-14" }],
+      ["av-15", { platformKey: "test", changeable: true, availabilityState: "OPEN", platformRestaurantId: "av-15" }],
+    ]);
+
+    const snapshot = engine.getSnapshot();
+
+    expect(mockListTodayMonitorOperationCountsByBranch).toHaveBeenCalledWith([14, 15]);
+    expect(snapshot.totals.upuseTempCloseToday).toBe(3);
+    expect(snapshot.totals.upuseHighDemandToday).toBe(3);
+    expect(snapshot.branches[0]?.operationsToday).toEqual({ upuseTempClose: 2, upuseHighDemand: 3 });
+  });
 });
 
 describe("monitorEngine.stop", () => {
@@ -1356,6 +1423,9 @@ describe("monitorEngine.stop", () => {
     mockSetAvailability.mockReset();
     mockLog.mockReset();
     mockRecordMonitorCloseAction.mockReset();
+    mockRecordMonitorHighDemandAction.mockReset();
+    mockListTodayMonitorOperationCountsByBranch.mockReset();
+    mockListTodayMonitorOperationCountsByBranch.mockReturnValue(new Map());
     mockDecide.mockReset();
     mockDecide.mockReturnValue({ type: "NOOP" });
     mockGetSettings.mockReturnValue({
@@ -1458,6 +1528,9 @@ describe("monitorEngine.reconcile", () => {
     mockSetAvailability.mockReset();
     mockLog.mockReset();
     mockRecordMonitorCloseAction.mockReset();
+    mockRecordMonitorHighDemandAction.mockReset();
+    mockListTodayMonitorOperationCountsByBranch.mockReset();
+    mockListTodayMonitorOperationCountsByBranch.mockReturnValue(new Map());
     mockDecide.mockReset();
     mockDecide.mockReturnValue({ type: "NOOP" });
     mockGetCurrentHourPlacedCountByVendor.mockReturnValue(new Map());
@@ -2179,6 +2252,11 @@ describe("monitorEngine.reconcile", () => {
     expect(mockSetRuntime).toHaveBeenCalledWith(8, expect.objectContaining({
       lastUpuseHighDemandAt: "2026-03-04T12:45:30.000Z",
       lastUpuseHighDemandUntil: "2026-03-04T13:15:30.000Z",
+    }));
+    expect(mockRecordMonitorHighDemandAction).toHaveBeenCalledWith(expect.objectContaining({
+      branch: expect.objectContaining({ id: 8, name: "Carrefour Branch" }),
+      at: "2026-03-04T12:45:30.000Z",
+      highDemandUntil: "2026-03-04T13:15:30.000Z",
     }));
     expect(mockLog).toHaveBeenCalledWith(8, "INFO", "HIGH DEMAND — scheduled until 15:15");
   });

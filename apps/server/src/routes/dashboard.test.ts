@@ -62,6 +62,8 @@ function createSnapshot(): DashboardSnapshot {
       lateNow: 2,
       unassignedNow: 2,
       onHoldNow: 1,
+      upuseTempCloseToday: 7,
+      upuseHighDemandToday: 5,
     },
     branches: [
       {
@@ -81,6 +83,10 @@ function createSnapshot(): DashboardSnapshot {
           lateNow: 1,
           unassignedNow: 1,
           onHoldNow: 1,
+        },
+        operationsToday: {
+          upuseTempClose: 2,
+          upuseHighDemand: 1,
         },
         preparingNow: 3,
         preparingPickersNow: 2,
@@ -103,6 +109,10 @@ function createSnapshot(): DashboardSnapshot {
           lateNow: 1,
           unassignedNow: 1,
           onHoldNow: 0,
+        },
+        operationsToday: {
+          upuseTempClose: 5,
+          upuseHighDemand: 4,
         },
         preparingNow: 1,
         preparingPickersNow: 1,
@@ -132,6 +142,8 @@ describe("dashboardRoute", () => {
       lateNow: 1,
       unassignedNow: 1,
       onHoldNow: 1,
+      upuseTempCloseToday: 2,
+      upuseHighDemandToday: 1,
     });
     expect(res.body.monitoring.ordersSync.staleBranchCount).toBe(0);
   });
@@ -155,6 +167,8 @@ describe("dashboardRoute", () => {
       lateNow: 0,
       unassignedNow: 0,
       onHoldNow: 0,
+      upuseTempCloseToday: 0,
+      upuseHighDemandToday: 0,
     });
   });
 });

@@ -10,7 +10,7 @@ vi.mock("../config/db.js", () => ({
   },
 }));
 
-import { buildActionEventsCsv } from "./actionReportStore.js";
+import { buildActionEventsCsv, listTodayMonitorOperationCountsByBranch } from "./actionReportStore.js";
 
 describe("actionReportStore CSV sanitization", () => {
   it("prefixes formula-like values to prevent CSV injection", () => {
@@ -46,5 +46,21 @@ describe("actionReportStore CSV sanitization", () => {
 
     expect(report.csv).toContain(`"'=HYPERLINK(""http://evil"")"`);
     expect(report.csv).toContain(`"'@malicious-note"`);
+  });
+
+  it("groups today's monitor operation counts by branch", () => {
+    mockPrepare.mockReset();
+    mockPrepare.mockReturnValue({
+      all: () => [
+        { branchId: 1, actionType: "TEMP_CLOSE", count: 2 },
+        { branchId: 1, actionType: "HIGH_DEMAND", count: 3 },
+        { branchId: 2, actionType: "HIGH_DEMAND", count: 1 },
+      ],
+    });
+
+    const counts = listTodayMonitorOperationCountsByBranch([1, 2]);
+
+    expect(counts.get(1)).toEqual({ upuseTempClose: 2, upuseHighDemand: 3 });
+    expect(counts.get(2)).toEqual({ upuseTempClose: 0, upuseHighDemand: 1 });
   });
 });

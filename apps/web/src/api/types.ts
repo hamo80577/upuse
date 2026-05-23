@@ -124,6 +124,11 @@ export interface BranchPickersSummary {
   items: BranchPickerSummaryItem[];
 }
 
+export interface DashboardOperationCounts {
+  upuseTempClose: number;
+  upuseHighDemand: number;
+}
+
 export interface BranchSnapshot {
   branchId: number;
   name: string;
@@ -166,6 +171,7 @@ export interface BranchSnapshot {
   preparingPickersNow: number;
   ordersDataState?: OrdersDataState;
   ordersLastSyncedAt?: string;
+  operationsToday?: DashboardOperationCounts;
   lastUpdatedAt?: string;
 }
 
@@ -249,6 +255,8 @@ export interface DashboardSnapshot {
     lateNow: number;
     unassignedNow: number;
     onHoldNow: number;
+    upuseTempCloseToday?: number;
+    upuseHighDemandToday?: number;
   };
   branches: BranchSnapshot[];
 }
